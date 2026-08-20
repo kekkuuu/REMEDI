@@ -1,0 +1,48 @@
+@if ($forecasts->isEmpty())
+    <p id="empty-message" style="color:#64748b;">
+        No forecasts found matching your search.
+    </p>
+@else
+    <div class="table-scroll"><table class="remedi-table">
+        <thead>
+            <tr>
+                <th>Product</th>
+                <th>SKU</th>
+                <th>Category</th>
+                <th>Forecast Qty</th>
+                <th>Trend</th>
+                <th>Generated At</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach ($forecasts as $forecast)
+                <tr class="clickable-row" onclick="window.location='{{ route('forecast.show', $forecast->product_sku) }}'" style="cursor:pointer;">
+                    <td><a href="{{ route('forecast.show', $forecast->product_sku) }}">{{ $forecast->product_name ?? '—' }}</a></td>
+                    <td>{{ $forecast->product_sku }}</td>
+                    <td>{{ $forecast->category_name ?? '—' }}</td>
+                    {{-- Say which month the figure is for. The value used to be
+                         printed bare, so a stale row and next month's row looked
+                         identical, and a forecast of 0.34 units rendered as a flat
+                         "0" that read as "no forecast" rather than "less than one
+                         unit". --}}
+                    <td>
+                        @php $qty = (float) $forecast->next_month_forecast; @endphp
+                        <strong>{{ $qty > 0 && $qty < 0.5 ? '<1' : number_format($qty) }}</strong>
+                        <div style="font-size:11px; color:{{ $forecast->is_stale ? '#b45309' : '#94a3b8' }};">
+                            {{ $forecast->is_stale ? 'as of ' : '' }}{{ $forecast->forecast_date->format('M Y') }}
+                        </div>
+                    </td>
+                    <td>
+                        <canvas
+                            class="sparkline"
+                            width="120" height="36"
+                            data-labels="{{ $forecast->trend_labels->toJson() }}"
+                            data-values="{{ $forecast->trend_values->toJson() }}"
+                        ></canvas>
+                    </td>
+                    <td>{{ $forecast->generated_at->format('Y-m-d H:i') }}</td>
+                </tr>
+            @endforeach
+        </tbody>
+    </table></div>
+@endif

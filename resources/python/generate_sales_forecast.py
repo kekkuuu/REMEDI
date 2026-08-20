@@ -1,0 +1,476 @@
+#!/usr/bin/env python3
+"""
+Regenerate sales forecasts (units AND revenue) for every product, from the
+sales_history data (actual point-of-sale demand) rather than
+inventory_receipts (purchasing). This is the counterpart to
+generate_forecasts.py: that script answers "how much should we buy?" from
+purchase history; this one answers "how much will we sell, and for how
+much revenue?" from actual sales history.
+
+Two data sources:
+  --source=csv   Bootstrap from a sales_history-shaped CSV
+                 (columns: product_sku, sale_date, quantity_sold) plus a
+                 product price CSV (--price-csv, e.g. inventory_seeder.csv
+                 with a "SKU / Barcode" and "Selling Price" column) used to
+                 convert unit forecasts into revenue forecasts.
+
+  --source=mysql Read historical daily sales from the app's own database
+                 (the `sales_history` table), joined against `products` for
+                 the current selling_price (credentials read from
+                 --env-path).
+
+Output: a CSV with columns product_sku, forecast_date, forecast_units,
+forecast_revenue, lower_ci_units, upper_ci_units, lower_ci_revenue,
+upper_ci_revenue, method, confidence, generated_at -- matching the
+sales_forecasts table.
+
+Products are fitted in parallel across CPU cores (see --workers), using
+worker processes rather than threads because the cost is CPU-bound inside
+statsmodels' optimizer. Kept deliberately in step with generate_forecasts.py.
+"""
+
+import os
+
+# Must happen before numpy is imported -- see the identical block in
+# generate_forecasts.py for why single-threaded BLAS is required once the
+# work is spread over worker processes.
+for _blas_var in (
+    "OMP_NUM_THREADS",
+    "OPENBLAS_NUM_THREADS",
+    "MKL_NUM_THREADS",
+    "NUMEXPR_NUM_THREADS",
+    "VECLIB_MAXIMUM_THREADS",
+):
+    os.environ.setdefault(_blas_var, "1")
+
+import argparse
+import time
+import warnings
+from concurrent.futures import ProcessPoolExecutor
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+
+warnings.filterwarnings("ignore")
+
+# See generate_forecasts.py for the measurement behind this: seasonal
+# differencing at period 12 needs three full cycles, not two. At 24-32 months it
+# is over-parameterised, oscillates, and half its output comes out negative --
+# which max(0, x) then turned into a confident forecast of zero.
+MIN_MONTHS_FOR_SEASONAL_SARIMA = 36
+MIN_MONTHS_FOR_SEASONAL_SMOOTHING = 24  # Holt-Winters needs two cycles for 12 seasonal indices
+MIN_MONTHS_FOR_SARIMA = 24   # non-seasonal ARIMA(1,1,1)
+MIN_MONTHS_FOR_SMOOTHING = 12
+MIN_MONTHS_FOR_ANY_FORECAST = 3
+
+TASK_CHUNK_SIZE = 8
+
+
+def load_from_csv(sales_path: str, price_path: str | None) -> tuple[pd.DataFrame, dict]:
+    df = pd.read_csv(sales_path, dtype={"product_sku": str})
+    df["date"] = pd.to_datetime(df["sale_date"])
+    df = df.rename(columns={"quantity_sold": "qty"})[["date", "product_sku", "qty"]]
+
+    prices: dict[str, float] = {}
+    if price_path:
+        price_df = pd.read_csv(price_path, dtype={"SKU / Barcode": str})
+        prices = dict(zip(price_df["SKU / Barcode"], price_df["Selling Price"]))
+    return df, prices
+
+
+def load_from_mysql(env_path: str) -> tuple[pd.DataFrame, dict]:
+    import pymysql
+
+    env = {}
+    with open(env_path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            k, v = line.split("=", 1)
+            env[k.strip()] = v.strip().strip('"').strip("'")
+
+    conn = pymysql.connect(
+        host=env.get("DB_HOST", "127.0.0.1"),
+        port=int(env.get("DB_PORT", 3306)),
+        user=env.get("DB_USERNAME"),
+        password=env.get("DB_PASSWORD"),
+        database=env.get("DB_DATABASE"),
+    )
+    sales_df = pd.read_sql(
+        "SELECT sale_date AS date, product_sku, quantity_sold AS qty FROM sales_history", conn
+    )
+    price_df = pd.read_sql("SELECT sku, selling_price FROM products", conn)
+    conn.close()
+
+    sales_df["date"] = pd.to_datetime(sales_df["date"])
+    prices = dict(zip(price_df["sku"], price_df["selling_price"]))
+    return sales_df, prices
+
+
+def monthly_series(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    df["month"] = df["date"].dt.to_period("M").dt.to_timestamp()
+    return df.groupby(["product_sku", "month"], as_index=False)["qty"].sum()
+
+
+def forecast_series(series: pd.Series, horizon: int):
+    """Same SARIMA -> Holt-Winters -> moving-average cascade as
+    generate_forecasts.py, kept in sync deliberately so unit and demand
+    forecasts behave consistently."""
+    series = series.asfreq("MS", fill_value=0)
+    n = len(series)
+    last_date = series.index[-1]
+    future_dates = pd.date_range(last_date + pd.offsets.MonthBegin(1), periods=horizon, freq="MS")
+
+    if n < MIN_MONTHS_FOR_ANY_FORECAST:
+        return []
+
+    hist_max = float(series.max())
+    hist_mean = float(series.mean())
+    ceiling = max(hist_max * 2.5, hist_mean * 4, 1.0)
+
+    def clamp(rows):
+        for r in rows:
+            r["forecast_value"] = min(max(0.0, r["forecast_value"]), ceiling)
+            # Bound BOTH ends of each CI to [0, ceiling]. A near-singular covariance
+            # matrix from a non-converged SARIMA fit can produce a huge or wildly
+            # negative bound that is still a finite float (not NaN/inf), so it
+            # would otherwise slip past a NaN-only check and later overflow the
+            # DB's decimal column once multiplied by price.
+            upper = r["upper_ci"]
+            r["upper_ci"] = ceiling if np.isnan(upper) else min(max(0.0, upper), ceiling)
+            lower = r["lower_ci"]
+            r["lower_ci"] = 0.0 if np.isnan(lower) else min(max(0.0, lower), r["forecast_value"])
+        return rows
+
+    def plausible(rows):
+        """
+        Reject a fit instead of repairing it -- see generate_forecasts.py.
+        A model that wants to predict negative sales has failed to fit, and
+        clamping that to 0 launders the failure into a confident zero.
+        """
+        vals = np.asarray([r["forecast_value"] for r in rows], dtype=float)
+        bounds = np.asarray(
+            [r["lower_ci"] for r in rows] + [r["upper_ci"] for r in rows], dtype=float
+        )
+
+        if vals.size == 0 or not np.all(np.isfinite(vals)):
+            return False
+        if (vals < 0).any():
+            return False
+        # CIs may legitimately be NaN; only finite ones have to be sane.
+        finite = bounds[np.isfinite(bounds)]
+        if finite.size and (finite < -ceiling).any():
+            return False
+
+        return bool((vals <= ceiling).all())
+
+    def sarimax_rows(order, seasonal_order, method):
+        from statsmodels.tsa.statespace.sarimax import SARIMAX
+
+        model = SARIMAX(
+            series, order=order, seasonal_order=seasonal_order,
+            enforce_stationarity=False, enforce_invertibility=False,
+        )
+        with warnings.catch_warnings():
+            # A locally-scoped filter is needed here: statsmodels re-registers
+            # its own ConvergenceWarning filter on import, which otherwise wins
+            # over the blanket warnings.filterwarnings("ignore") at module load.
+            warnings.simplefilter("ignore")
+            fit = model.fit(disp=False, maxiter=200, method="powell")
+
+        pred = fit.get_forecast(steps=horizon)
+        ci = pred.conf_int(alpha=0.2)
+
+        return [
+            {
+                "forecast_date": date,
+                "forecast_value": round(float(m), 2),
+                "lower_ci": round(float(lo), 2) if not np.isnan(lo) else 0.0,
+                "upper_ci": round(float(hi), 2) if not np.isnan(hi) else float("nan"),
+                "method": method,
+            }
+            for date, m, (lo, hi) in zip(future_dates, pred.predicted_mean, ci.values)
+        ]
+
+    def smoothing_rows(seasonal=False):
+        from statsmodels.tsa.holtwinters import ExponentialSmoothing
+
+        kwargs = {"seasonal": "add", "seasonal_periods": 12} if seasonal else {}
+        model = ExponentialSmoothing(series, trend="add", damped_trend=True, **kwargs)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            # use_brute=False: see generate_forecasts.py::_smoothing_rows. This
+            # now runs for every product as an ensemble member, and the brute
+            # grid search doubles its cost for a ~0.03-unit change in output.
+            fit = model.fit(use_brute=False)
+
+        mean = fit.forecast(horizon)
+        resid_std = float(np.std(fit.resid)) if len(fit.resid) > 1 else hist_mean * 0.2
+
+        return [
+            {
+                "forecast_date": date,
+                "forecast_value": round(float(m), 2),
+                "lower_ci": round(float(m) - resid_std, 2),
+                "upper_ci": round(float(m) + resid_std, 2),
+                "method": "holt_winters_seasonal" if seasonal else "holt_winters",
+            }
+            for date, m in zip(future_dates, mean)
+        ]
+
+    def seasonal_naive_values():
+        """Same calendar month one and two years back, averaged. Cannot diverge."""
+        v = np.asarray(series, dtype=float)
+        out = []
+        for h in range(1, horizon + 1):
+            picks = []
+            if len(v) >= 13 - h:
+                picks.append(v[h - 13])
+            if len(v) >= 25 - h:
+                picks.append(v[h - 25])
+            out.append(float(np.mean(picks)) if picks else float(v[-1]))
+        return out
+
+    def ensemble_rows():
+        """
+        Element-wise MEDIAN of airline SARIMA + seasonal Holt-Winters +
+        seasonal naive. Kept identical to generate_forecasts.py::_ensemble_rows
+        -- see that docstring for why the median and for the measurement. A
+        member whose fit is implausible gets no vote; if none survive this
+        raises and the chain falls through to the plain airline SARIMA.
+        """
+        members = []
+        ci_row_source = None
+
+        try:
+            rows = sarimax_rows((0, 1, 1), (0, 1, 1, 12), "sarima_seasonal")
+            if plausible(rows):
+                members.append([r["forecast_value"] for r in rows])
+                ci_row_source = rows
+        except Exception:
+            pass
+
+        try:
+            rows = smoothing_rows(seasonal=True)
+            if plausible(rows):
+                members.append([r["forecast_value"] for r in rows])
+                if ci_row_source is None:
+                    ci_row_source = rows
+        except Exception:
+            pass
+
+        naive = seasonal_naive_values()
+        if plausible([{"forecast_value": v, "lower_ci": v, "upper_ci": v} for v in naive]):
+            members.append(naive)
+
+        if not members:
+            raise RuntimeError("no ensemble member produced a plausible fit")
+
+        combined = np.median(np.asarray(members, dtype=float), axis=0)
+
+        halves = []
+        for i in range(horizon):
+            half = float("nan")
+            if ci_row_source is not None:
+                lo, hi = ci_row_source[i]["lower_ci"], ci_row_source[i]["upper_ci"]
+                if np.isfinite(lo) and np.isfinite(hi):
+                    half = abs(hi - lo) / 2.0
+            if not np.isfinite(half):
+                half = max(abs(float(combined[i])) * 0.2, hist_mean * 0.1)
+            halves.append(half)
+
+        return [
+            {
+                "forecast_date": date,
+                "forecast_value": round(float(m), 2),
+                "lower_ci": round(float(m) - half, 2),
+                "upper_ci": round(float(m) + half, 2),
+                "method": "sarima_ensemble",
+            }
+            for date, m, half in zip(future_dates, combined, halves)
+        ]
+
+    candidates = []
+
+    # Median ensemble first, then the "airline" model (0,1,1)(0,1,1,12) alone --
+    # seasonal MA, not AR. See generate_forecasts.py for both measurements.
+    if n >= MIN_MONTHS_FOR_SEASONAL_SARIMA:
+        candidates.append(ensemble_rows)
+        candidates.append(lambda: sarimax_rows((0, 1, 1), (0, 1, 1, 12), "sarima_seasonal"))
+    if n >= MIN_MONTHS_FOR_SEASONAL_SMOOTHING:
+        candidates.append(lambda: smoothing_rows(seasonal=True))
+    if n >= MIN_MONTHS_FOR_SARIMA:
+        candidates.append(lambda: sarimax_rows((1, 1, 1), (0, 0, 0, 0), "arima"))
+    if n >= MIN_MONTHS_FOR_SMOOTHING:
+        candidates.append(smoothing_rows)
+
+    for build in candidates:
+        try:
+            rows = build()
+        except Exception:
+            continue  # any fitting failure just means "try the next model"
+
+        if plausible(rows):
+            return clamp(rows)
+
+    # Floor of the chain: cannot go negative, cannot exceed the ceiling.
+    window = series.tail(min(6, n))
+    avg = float(window.mean())
+    std = float(window.std(ddof=0)) if len(window) > 1 else avg * 0.2
+
+    return clamp([
+        {
+            "forecast_date": date,
+            "forecast_value": round(avg, 2),
+            "lower_ci": round(avg - std, 2),
+            "upper_ci": round(avg + std, 2),
+            "method": "moving_average",
+        }
+        for date in future_dates
+    ])
+
+
+def _forecast_task(task):
+    """
+    Worker entry point -- module level so it pickles to spawned workers.
+    Swallows per-product failures so one bad series can't abort the pool
+    mid-catalog; the caller reports them in a summary.
+    """
+    sku, series, horizon = task
+    try:
+        return sku, forecast_series(series, horizon), None
+    except Exception as exc:  # noqa: BLE001 - deliberately broad, see docstring
+        return sku, [], f"{type(exc).__name__}: {exc}"
+
+
+def resolve_workers(requested: int) -> int:
+    """0 = auto (all cores but one, so the box stays responsive); 1 = sequential."""
+    if requested and requested > 0:
+        return max(1, requested)
+
+    return max(1, (os.cpu_count() or 2) - 1)
+
+
+def iter_forecasts(tasks, workers):
+    """Yield (sku, rows, error) in input order, so the CSV stays deterministic."""
+    if workers == 1:
+        yield from map(_forecast_task, tasks)
+        return
+
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        yield from pool.map(_forecast_task, tasks, chunksize=TASK_CHUNK_SIZE)
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--source", choices=["csv", "mysql"], required=True)
+    parser.add_argument("--output", required=True)
+    parser.add_argument("--horizon", type=int, default=6)
+    parser.add_argument("--env-path", default=None)
+    parser.add_argument("--sales-csv", default=None, help="sales_history-shaped CSV (product_sku, sale_date, quantity_sold)")
+    parser.add_argument("--price-csv", default=None, help="product master CSV with SKU / Barcode + Selling Price, for revenue conversion")
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=0,
+        help="Worker processes for model fitting. 0 = auto (all cores but one), 1 = sequential.",
+    )
+    args = parser.parse_args()
+
+    if args.source == "csv":
+        if not args.sales_csv:
+            raise SystemExit("--sales-csv is required for --source=csv")
+        raw, prices = load_from_csv(args.sales_csv, args.price_csv)
+    else:
+        if not args.env_path:
+            raise SystemExit("--env-path is required for --source=mysql")
+        raw, prices = load_from_mysql(args.env_path)
+
+    if raw.empty:
+        raise SystemExit("No historical rows parsed from the given source(s).")
+
+    monthly = monthly_series(raw)
+    generated_at = datetime.now().isoformat(sep=" ", timespec="seconds")
+
+    products = list(monthly.groupby("product_sku"))
+    total_products = len(products)
+    workers = resolve_workers(args.workers)
+    print(
+        f"Forecasting {total_products} products across {workers} worker "
+        f"process{'es' if workers > 1 else ''}...",
+        flush=True,
+    )
+
+    tasks = [
+        (sku, group.set_index("month")["qty"].sort_index(), args.horizon)
+        for sku, group in products
+    ]
+
+    output_rows = []
+    failures = []
+    start_time = time.monotonic()
+    progress_every = max(1, total_products // 20)
+
+    for i, (sku, rows, error) in enumerate(iter_forecasts(tasks, workers), start=1):
+        if error:
+            failures.append((sku, error))
+
+        # Price lookup stays in the parent: it's a dict hit, not worth
+        # shipping the whole price table to every worker process.
+        price = float(prices.get(sku, 0) or 0)
+        for row in rows:
+            confidence = {
+                "sarima_ensemble": "high",
+                "sarima_seasonal": "high",
+                "sarima": "high",          # legacy name, kept so old CSVs still load
+                "arima": "high",
+                "holt_winters_seasonal": "high",
+                "holt_winters": "medium",
+                "moving_average": "low",
+            }.get(row["method"], "low")
+            output_rows.append({
+                "product_sku": sku,
+                "forecast_date": row["forecast_date"].strftime("%Y-%m-%d"),
+                "forecast_units": row["forecast_value"],
+                "lower_ci_units": row["lower_ci"],
+                "upper_ci_units": row["upper_ci"],
+                "forecast_revenue": round(row["forecast_value"] * price, 2),
+                "lower_ci_revenue": round(row["lower_ci"] * price, 2),
+                "upper_ci_revenue": round(row["upper_ci"] * price, 2),
+                "method": row["method"],
+                "confidence": confidence,
+                "generated_at": generated_at,
+            })
+
+        if i % progress_every == 0 or i == total_products:
+            elapsed = time.monotonic() - start_time
+            rate = i / elapsed if elapsed > 0 else 0
+            remaining = (total_products - i) / rate if rate > 0 else 0
+            print(
+                f"[{i}/{total_products}] {100 * i / total_products:5.1f}%  "
+                f"elapsed {elapsed:6.0f}s  ETA {remaining:6.0f}s",
+                flush=True,
+            )
+
+    out_df = pd.DataFrame(output_rows)
+    os.makedirs(os.path.dirname(args.output), exist_ok=True)
+    out_df.to_csv(args.output, index=False)
+    total_elapsed = time.monotonic() - start_time
+    print(
+        f"Wrote {len(out_df)} sales forecast rows for {monthly['product_sku'].nunique()} "
+        f"products to {args.output} in {total_elapsed:.0f}s"
+    )
+
+    if failures:
+        print(f"WARNING: {len(failures)} product(s) failed to forecast and were skipped:", flush=True)
+        for sku, error in failures[:10]:
+            print(f"  - {sku}: {error}", flush=True)
+        if len(failures) > 10:
+            print(f"  ... and {len(failures) - 10} more", flush=True)
+
+
+if __name__ == "__main__":
+    main()
