@@ -1,0 +1,35 @@
+# Built inside the image, never copied in.
+vendor/
+node_modules/
+
+# Secrets. .env.example stays: it is the documented shape of the config, and
+# the deploy notes point at it.
+.env
+.env.*
+!.env.example
+
+# Per-machine state. Copying these in would ship a compiled config pointing at
+# a localhost database, and the entrypoint clears them anyway.
+storage/framework/cache/data/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/logs/*
+storage/app/forecasts/*
+bootstrap/cache/*.php
+
+# Local only.
+.git/
+.github/
+.idea/
+.vscode/
+.claude/
+*.log
+__pycache__/
+*.pyc
+.phpunit.result.cache
+
+# NOT excluded, on purpose:
+#   database/data/*.csv  -- the seeders read these by path and skip SILENTLY
+#                           when a file is missing, leaving the table empty
+#                           while the seed still reports success.
+#   tests/               -- so the suite can be run against the deployed image.

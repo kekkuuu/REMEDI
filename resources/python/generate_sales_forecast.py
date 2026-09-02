@@ -79,17 +79,44 @@ def load_from_csv(sales_path: str, price_path: str | None) -> tuple[pd.DataFrame
     return df, prices
 
 
-def load_from_mysql(env_path: str) -> tuple[pd.DataFrame, dict]:
+def db_credentials(env_path: str | None) -> dict:
+    """Database credentials from a .env FILE, the process ENVIRONMENT, or both.
+
+    The file wins where it exists, so a local run against XAMPP is unchanged.
+    Anything it does not define falls back to the environment, which is the
+    only thing a container host provides: there is no .env inside the image,
+    and baking one in would put the password in a layer.
+    """
+    env = {}
+
+    if env_path and os.path.exists(env_path):
+        with open(env_path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                env[key.strip()] = value.strip().strip('"').strip("'")
+
+    for key in ("DB_HOST", "DB_PORT", "DB_USERNAME", "DB_PASSWORD", "DB_DATABASE"):
+        if not env.get(key) and os.environ.get(key):
+            env[key] = os.environ[key]
+
+    missing = [k for k in ("DB_HOST", "DB_DATABASE") if not env.get(k)]
+
+    if missing:
+        raise SystemExit(
+            "No database credentials: " + ", ".join(missing) + " not found in "
+            + (env_path or "any --env-path") + " or in the environment."
+        )
+
+    return env
+
+
+def load_from_mysql(env_path: str | None) -> tuple[pd.DataFrame, dict]:
     import pymysql
 
-    env = {}
-    with open(env_path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line or line.startswith("#") or "=" not in line:
-                continue
-            k, v = line.split("=", 1)
-            env[k.strip()] = v.strip().strip('"').strip("'")
+    env = db_credentials(env_path)
 
     conn = pymysql.connect(
         host=env.get("DB_HOST", "127.0.0.1"),
