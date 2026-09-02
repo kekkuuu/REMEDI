@@ -2,31 +2,62 @@
 
 namespace Tests\Feature\Auth;
 
-use App\Providers\RouteServiceProvider;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
+/**
+ * `/register` is the admin "Add User" form, NOT public signup.
+ *
+ * The stock Breeze tests asserted that anyone could reach it and that
+ * registering signs you in. Neither is true here: the route sits behind
+ * `['auth', 'active', 'role:admin']`, and an admin creating a staff account
+ * must stay signed in as themselves afterwards -- being silently swapped into
+ * the account you just created would be a serious bug in a pharmacy system,
+ * where the audit trail attributes every sale and stock movement to whoever
+ * is signed in.
+ */
 class RegistrationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_registration_screen_can_be_rendered(): void
+    public function test_registration_screen_is_not_public(): void
     {
-        $response = $this->get('/register');
-
-        $response->assertStatus(200);
+        $this->get('/register')->assertRedirect('/login');
     }
 
-    public function test_new_users_can_register(): void
+    public function test_staff_cannot_reach_the_add_user_screen(): void
     {
-        $response = $this->post('/register', [
+        $staff = User::factory()->create();
+
+        $this->actingAs($staff)->get('/register')->assertForbidden();
+    }
+
+    public function test_an_admin_can_render_the_add_user_screen(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($admin)->get('/register')->assertOk();
+    }
+
+    public function test_an_admin_can_create_a_user_and_stays_signed_in_as_themselves(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($admin)->post('/register', [
             'name' => 'Test User',
             'email' => 'test@example.com',
             'password' => 'password',
             'password_confirmation' => 'password',
+            'role' => 'staff',
         ]);
 
-        $this->assertAuthenticated();
-        $response->assertRedirect(RouteServiceProvider::HOME);
+        $this->assertDatabaseHas('users', [
+            'email' => 'test@example.com',
+            'role' => 'staff',
+        ]);
+
+        // Still the admin, not the new account.
+        $this->assertAuthenticatedAs($admin);
     }
 }

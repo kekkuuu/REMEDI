@@ -1,5 +1,11 @@
 @extends('layouts.app')
 
+{{-- Without this the layout falls back to @yield('title', 'Dashboard'),
+     so both the topbar heading and the browser tab said "Dashboard" on
+     this page. Every other view that extends layouts.app sets one; this
+     was the only one that did not. The wording matches the sidebar item. --}}
+@section('title', 'Audit trail')
+
 @section('content')
 <div style="padding: 1.5rem 0;">
 
@@ -11,7 +17,11 @@
       </div>
       <div style="font-size:13px; color:#6b7280; margin-top:2px;">System activity log — all user actions recorded</div>
     </div>
-    <a href="{{ route('audit.export') }}" class="btn btn-primary btn-sm" data-no-skeleton>
+    {{-- Carries the current filters, so the file matches the table on screen.
+         Rendered from the request for a full page load; the live filtering
+         below keeps it in step after that. --}}
+    <a href="{{ route('audit.export', request()->only(['search', 'action', 'role', 'date_from', 'date_to'])) }}"
+       class="btn btn-primary btn-sm" id="audit-export" data-no-skeleton>
       <i class="ti ti-download" style="font-size:14px;"></i> Export CSV
     </a>
   </div>
@@ -76,13 +86,13 @@
 
     {{-- Presets: the ranges anyone actually asks an audit log for. --}}
     <span class="audit-presets">
-      <button type="button" class="btn btn-secondary btn-sm" data-preset="today">Today</button>
-      <button type="button" class="btn btn-secondary btn-sm" data-preset="7">7 days</button>
-      <button type="button" class="btn btn-secondary btn-sm" data-preset="30">30 days</button>
+      <button type="button" class="btn btn-secondary btn-sm" data-preset="today"><i class="ti ti-calendar-event" aria-hidden="true"></i> Today</button>
+      <button type="button" class="btn btn-secondary btn-sm" data-preset="7"><i class="ti ti-calendar-week" aria-hidden="true"></i> 7 days</button>
+      <button type="button" class="btn btn-secondary btn-sm" data-preset="30"><i class="ti ti-calendar-month" aria-hidden="true"></i> 30 days</button>
     </span>
 
-    <button type="submit" class="btn btn-primary btn-sm">Filter</button>
-    <a href="{{ route('audit.index') }}" class="btn btn-secondary btn-sm">Reset</a>
+    <button type="submit" class="btn btn-primary btn-sm"><i class="ti ti-filter" aria-hidden="true"></i> Filter</button>
+    <a href="{{ route('audit.index') }}" class="btn btn-secondary btn-sm"><i class="ti ti-rotate" aria-hidden="true"></i> Reset</a>
 
     <span class="audit-count" id="audit-count" aria-live="polite">{{ number_format($logs->total()) }} entries</span>
   </form>
@@ -114,6 +124,19 @@
     }
 
     .audit-date input { min-width: 0; }
+
+    /* The pager is centred from tablet up. This page is one full-width table,
+       so a left-aligned pager sits under the row-number column with the width
+       of the screen empty beside it -- the bespoke pager this replaced was
+       centred, and losing that was the one thing the shared component changed
+       for the worse here. Left-aligned on a phone, where centring only makes
+       the wrapped rows look ragged. The other lists stay left-aligned: their
+       pagers sit under narrower content. */
+    .audit-pager { margin-top: 16px; }
+
+    @media (min-width: 768px) {
+        .audit-pager .pagination { justify-content: center; }
+    }
     .audit-presets { display: inline-flex; gap: 6px; }
     .audit-count { margin-left: auto; font-size: 12px; color: #6b7280; white-space: nowrap; }
 
@@ -150,11 +173,24 @@
         const url = new URL(base);
         new FormData(form).forEach((v, k) => { if (String(v).trim() !== '') url.searchParams.set(k, v); });
 
+        // Keep Export pointed at the same filter set the table is about to
+        // show. Updated here rather than after the fetch: the href describes
+        // the query, not its result, so it should not wait on the response --
+        // and a failed fetch must not leave the button exporting something
+        // else. `page` is dropped: the CSV is the whole filtered set.
+        const exportLink = document.getElementById('audit-export');
+        if (exportLink) {
+            const ex = new URL(exportLink.href, window.location.origin);
+            ex.search = '';
+            url.searchParams.forEach((v, k) => { if (k !== 'page') ex.searchParams.set(k, v); });
+            exportLink.href = ex.toString();
+        }
+
         // Hold the scroll offset: a filter that returns far fewer rows shortens
         // the page, and without this the browser clamps the offset and throws
-        // you back to the top mid-typing.
-        const scroller = REMEDI.scroller();
-        const y = scroller.scrollTop;
+        // you back to the top mid-typing. One shared implementation now — see
+        // REMEDI.holdScroll.
+        const restoreScroll = REMEDI.holdScroll();
 
         REMEDI.showListSkeleton(wrapper, { rows: 8 });
 
@@ -166,7 +202,7 @@
             .then(data => {
                 REMEDI.clearListSkeleton(wrapper);
                 wrapper.innerHTML = data.html;
-                scroller.scrollTop = y;
+                restoreScroll();
 
                 if (countEl) {
                     countEl.textContent = Number(data.total).toLocaleString() + ' entries';
@@ -198,7 +234,16 @@
             const p = btn.dataset.preset;
             if (p !== 'today') from.setDate(from.getDate() - (parseInt(p, 10) - 1));
 
-            const iso = (d) => d.toISOString().slice(0, 10);
+            /* Local date parts, NOT toISOString(). toISOString() converts to
+               UTC first, and this app runs in Asia/Manila (UTC+8) -- so
+               between midnight and 08:00 local it hands back YESTERDAY's date
+               and the "Today" preset quietly filters the audit trail to the
+               wrong day. The server renders max="{{ now()->toDateString() }}"
+               on these inputs from its own local date, so local is also the
+               only thing that agrees with the rest of the page. */
+            const iso = (d) => d.getFullYear()
+                + '-' + String(d.getMonth() + 1).padStart(2, '0')
+                + '-' + String(d.getDate()).padStart(2, '0');
             form.querySelector('[name=date_from]').value = iso(from);
             form.querySelector('[name=date_to]').value = iso(to);
             run();

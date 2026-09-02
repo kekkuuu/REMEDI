@@ -46,6 +46,35 @@ class ProductBatch extends Model
      */
     protected array $derivedMemo = [];
 
+    /**
+     * Drop the memo whenever the underlying attributes change.
+     *
+     * The accessors above cache into $derivedMemo for the length of the
+     * request, which is right while an instance is read-only -- but an instance
+     * that is UPDATED or refresh()ed mid-request keeps answering from values
+     * that no longer exist. Reproduced: an expired batch whose expiry_date was
+     * moved into the future still reported is_expired = true, and therefore
+     * is_sellable = false, on the same instance after refresh().
+     *
+     * setRawAttributes() covers hydration and refresh(); setAttribute() covers
+     * fill()/update()/direct assignment. Hydration sets raw attributes on a
+     * fresh instance whose memo is already empty, so this costs nothing on the
+     * read path the memo exists to speed up.
+     */
+    public function setRawAttributes(array $attributes, $sync = false)
+    {
+        $this->derivedMemo = [];
+
+        return parent::setRawAttributes($attributes, $sync);
+    }
+
+    public function setAttribute($key, $value)
+    {
+        $this->derivedMemo = [];
+
+        return parent::setAttribute($key, $value);
+    }
+
     // A batch belongs to one product
     public function product()
     {
@@ -56,6 +85,87 @@ class ProductBatch extends Model
     public function returnedBy()
     {
         return $this->belongsTo(User::class, 'returned_by');
+    }
+
+    /**
+     * The Inventory link for the dashboards' and bell's "expiring soon" figures.
+     *
+     * Those surfaces count a 30-day horizon (EXPIRY_SOON_DAYS) while the
+     * Inventory tab defaults to a 90-day planning view, so a bare
+     * `?filter=expiring` link showed 85 products under a heading promising 28.
+     * The horizon has to travel with the link.
+     *
+     * One definition because there are NINE of these links — four on the admin
+     * dashboard, four on the staff dashboard, one in the shared actions partial
+     * — plus the bell's. Nine literals would be nine chances for the tenth to
+     * be written without the parameter, which is exactly how this drifted the
+     * first time.
+     */
+    public static function expiringSoonUrl(): string
+    {
+        // Relative (third argument false). AlertService caches its payload, and
+        // an absolute URL bakes in whichever host warmed the cache — see the
+        // note on that class.
+        return route('inventory.index', [
+            'filter' => 'expiring',
+            'days' => self::EXPIRY_SOON_DAYS,
+        ], false);
+    }
+
+    /**
+     * The single definition of stock the till is allowed to sell.
+     *
+     * Three conditions, and each one was missing somewhere:
+     *
+     *  - `quantity > 0` — the only one anything checked.
+     *  - not returned. Marking a batch returned records that it went back to
+     *    the supplier; the units are no longer in the building.
+     *  - not expired. FEFO orders by `expiry_date ASC`, which is right for
+     *    rotation but means that WITHOUT this the register reaches for the
+     *    most-expired batch FIRST. Measured before this existed: 79 batches /
+     *    3,434 units / ₱41,351.99 of expired stock were sellable, with expired
+     *    antihistamine syrup at the head of the queue.
+     *
+     * Mirrors is_sellable below, which is the in-memory form for callers that
+     * already have the batches loaded. Keep the two in step.
+     */
+    public function scopeSellable($query)
+    {
+        return $query->where('quantity', '>', 0)
+            ->whereNull('returned_at')
+            // `> today`, not `>=`: is_expired treats the expiry date itself as
+            // expired -- we do not sell on it.
+            // A batch with no expiry recorded (historical import) cannot be
+            // judged expired, so it stays sellable -- same call is_expired makes.
+            ->where(fn ($q) => $q->whereNull('expiry_date')->orWhereDate('expiry_date', '>', today()));
+    }
+
+    /**
+     * In-memory twin of scopeSellable(), for the eager-loaded paths.
+     *
+     * Defers to is_expired rather than re-deriving the date, so there is still
+     * only one definition of "expired" in the model.
+     */
+    public function getIsSellableAttribute(): bool
+    {
+        return $this->derivedMemo['is_sellable'] ??= (
+            $this->quantity > 0
+            && ! $this->returned_at
+            && ! $this->is_expired
+        );
+    }
+
+    /**
+     * Sale lines drawn from this batch.
+     *
+     * FEFO checkout records which batch each line came out of, so this is how
+     * you ask "has anything been sold from this batch?" — the question
+     * ProductController::destroyBatch has to answer before deleting, because
+     * `sale_items.product_batch_id` is ON DELETE RESTRICT.
+     */
+    public function saleItems()
+    {
+        return $this->hasMany(SaleItem::class);
     }
 
     // Check if this batch is expired

@@ -23,11 +23,39 @@
 
     <hr class="receipt-divider">
 
+    @php
+        // One line per PRODUCT, not per sale_item.
+        //
+        // FEFO draws a cart line from as many batches as it needs, and records
+        // a sale_item for each -- so buying 8 units that came 5 from one batch
+        // and 3 from another produced two identical-looking receipt lines:
+        //
+        //     ZZ QA SPLIT TEST   P127.50   5 x P25.50
+        //     ZZ QA SPLIT TEST    P76.50   3 x P25.50
+        //
+        // The totals were right, but a customer reading that reasonably
+        // concludes they have been charged twice. Which batch the stock came
+        // out of is a stock-control fact; it belongs in the sale_items table,
+        // not on the customer's receipt.
+        //
+        // Grouped by price as well as product so a line can never merge rows
+        // that were actually charged at different rates.
+        $receiptLines = $sale->items
+            ->groupBy(fn ($i) => $i->product_id.'|'.$i->price)
+            ->map(fn ($group) => (object) [
+                'name' => $group->first()->product->name ?? 'Deleted Product',
+                'quantity' => $group->sum('quantity'),
+                'price' => $group->first()->price,
+                'subtotal' => $group->sum('subtotal'),
+            ])
+            ->values();
+    @endphp
+
     <div class="receipt-items">
-        @foreach($sale->items as $item)
+        @foreach($receiptLines as $item)
             <div class="receipt-item">
                 <div class="line1">
-                    <span>{{ $item->product->name }}</span>
+                    <span>{{ $item->name }}</span>
                     <span>&#8369;{{ number_format($item->subtotal, 2) }}</span>
                 </div>
                 <div class="line2">

@@ -46,8 +46,11 @@ class SalesHistorySeeder extends Seeder
 
         $aggregated = [];
         $skipped = 0;
+        $read = 0;
 
         foreach ($csv->getRecords() as $record) {
+            $read++;
+
             $sku = trim($record['SKU / Barcode'] ?? '');
             $qty = (int) ($record['Qty Sold'] ?? 0);
             $date = $this->parseDate(trim($record['Date'] ?? ''));
@@ -92,7 +95,7 @@ class SalesHistorySeeder extends Seeder
         // reflected immediately instead of after the TTL lapses.
         SalesHistory::forgetCaches();
 
-        $this->command->info("Sales history seeded: {$count} product/date rows, aggregated from ".(count($aggregated) + $skipped)." raw sale lines ({$skipped} skipped — missing SKU/date/qty).");
+        $this->command->info("Sales history seeded: {$count} product/date rows, aggregated from {$read} raw sale lines ({$skipped} skipped — missing SKU/date/qty).");
     }
 
     private function parseDate(string $value): ?string

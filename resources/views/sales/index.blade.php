@@ -26,10 +26,15 @@
                style="padding: 9px 12px 9px 34px; border: 0.5px solid #d1d5db; border-radius: 7px; font-size: 15px; font-family: inherit; width: 200px;" data-suggest-url="{{ route('suggest.sales') }}">
     </div>
 
-    <input type="date" name="start_date" id="start-date-input" value="{{ request('start_date') }}"
+    {{-- max=today: a sale cannot have been rung up on a day that has not
+         happened, so those dates are not selectable. Without it the picker
+         offered future days that could only ever return an empty list. --}}
+    <input type="date" name="start_date" id="start-date-input" value="{{ $startDate ?? request('start_date') }}"
+           max="{{ now()->toDateString() }}"
            style="padding: 9px 12px; border: 0.5px solid #d1d5db; border-radius: 7px; font-size: 15px; font-family: inherit;">
 
-    <input type="date" name="end_date" id="end-date-input" value="{{ request('end_date') }}"
+    <input type="date" name="end_date" id="end-date-input" value="{{ $endDate ?? request('end_date') }}"
+           max="{{ now()->toDateString() }}"
            style="padding: 9px 12px; border: 0.5px solid #d1d5db; border-radius: 7px; font-size: 15px; font-family: inherit;">
 
     <button type="submit" class="btn btn-primary">
@@ -74,6 +79,9 @@
 
         // 'working' instead of leaving the previous results on screen.
 
+        // See REMEDI.holdScroll: read the offset before the rows are gone.
+        const restoreScroll = REMEDI.holdScroll();
+
         REMEDI.showListSkeleton(resultsWrapper, { rows: 6 });
 
 
@@ -85,6 +93,23 @@
             .then(data => {
                 REMEDI.clearListSkeleton(resultsWrapper);
                 resultsWrapper.innerHTML = data.html + `<div style="margin-top:18px;" id="pagination-wrapper">${data.pagination}</div>`;
+                restoreScroll();
+
+                // The server puts a reversed date range the right way round,
+                // so adopt the range it actually queried. Otherwise the two
+                // fields keep showing the reversed pair while the table below
+                // them lists a different period, and the page states something
+                // untrue about its own contents.
+                if (data.range) {
+                    if (data.range.start) {
+                        startDateInput.value = data.range.start;
+                        url.searchParams.set('start_date', data.range.start);
+                    }
+                    if (data.range.end) {
+                        endDateInput.value = data.range.end;
+                        url.searchParams.set('end_date', data.range.end);
+                    }
+                }
                 if (pushState) window.history.pushState({}, '', url);
             })
             .catch(err => {

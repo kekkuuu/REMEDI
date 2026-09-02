@@ -98,8 +98,35 @@ def load_from_mysql(env_path: str) -> tuple[pd.DataFrame, dict]:
         password=env.get("DB_PASSWORD"),
         database=env.get("DB_DATABASE"),
     )
+    # BOTH RECORDS, not just the imported one.
+    #
+    # `sales_history` stops the day before this terminal went live, so reading
+    # it alone means the newest month the model ever sees is the month of the
+    # handoff -- and since monthly_series() drops an incomplete trailing month,
+    # training ended in JULY while the shop had been trading through the till
+    # into September. The horizon then opened on a month that had already
+    # happened, which is the "forecasting the past" fault REMEDI.md records:
+    # every product forecasting a window nobody can act on.
+    #
+    # UNION ALL, not a join: these are two records of the same event stream, and
+    # monthly_series() aggregates by (product, month) anyway, so duplicate
+    # (sku, date) pairs across the two sources sum exactly as they should.
+    # Joined through products.sku, the only place sale_items.product_id and
+    # sales_history.product_sku meet.
     sales_df = pd.read_sql(
-        "SELECT sale_date AS date, product_sku, quantity_sold AS qty FROM sales_history", conn
+        """
+        SELECT sale_date AS date, product_sku, quantity_sold AS qty
+        FROM sales_history
+
+        UNION ALL
+
+        SELECT DATE(sales.created_at) AS date, products.sku AS product_sku,
+               sale_items.quantity AS qty
+        FROM sale_items
+        JOIN sales ON sales.id = sale_items.sale_id
+        JOIN products ON products.id = sale_items.product_id
+        """,
+        conn,
     )
     price_df = pd.read_sql("SELECT sku, selling_price FROM products", conn)
     conn.close()
@@ -112,6 +139,31 @@ def load_from_mysql(env_path: str) -> tuple[pd.DataFrame, dict]:
 def monthly_series(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df["month"] = df["date"].dt.to_period("M").dt.to_timestamp()
+
+    # Drop the trailing month when the data stops partway through it.
+    #
+    # These models are fitted on calendar months, so a month holding only the
+    # first fortnight is not a weak month -- it is half a month. Fed in as a
+    # real observation it reads as a collapse, and every method in the cascade
+    # then forecasts forward from that depressed level. Measured after the
+    # seeded history was trimmed to 2026-08-15: Jun 42,649 units, Jul 46,477,
+    # Aug 22,239. Nothing happened in August except the calendar.
+    #
+    # Judged on the GLOBAL last date rather than per product: an incomplete
+    # tail is a property of when the data stops, not of whether one product
+    # happened to sell on the final day. Doing it per product would silently
+    # drop a real final month for everything that did not sell that day.
+    #
+    # This also matters for any month-to-date run, trimmed history or not --
+    # regenerating on the 3rd of a month would otherwise train on three days.
+    last_date = df["date"].max()
+
+    if pd.notna(last_date):
+        month_end = last_date.to_period("M").end_time.date()
+
+        if last_date.date() != month_end:
+            df = df[df["month"] < last_date.to_period("M").to_timestamp()]
+
     return df.groupby(["product_sku", "month"], as_index=False)["qty"].sum()
 
 
@@ -404,8 +456,31 @@ def main():
         flush=True,
     )
 
+    # Every product must forecast the SAME forward window.
+    #
+    # Each series used to end at that product's own last month with a sale, and
+    # the horizon is generated from `series.index[-1]` -- so a product that
+    # stopped selling a year ago got a "forecast" covering months that have
+    # already happened. Measured before this fix: 320 of 2,517 products had a
+    # horizon entirely in the past, and there were 39 different horizon start
+    # months across the catalogue. ACICLOVIR 800MG last sold in 2025-10 and was
+    # forecast for 2025-11..2026-04 -- drawn on its chart as a dashed line and
+    # confidence band sitting in the middle of the history, with nothing ahead
+    # of today at all.
+    #
+    # Padding to the shared end with zeros fixes it, and the zeros are honest:
+    # a month with no sales is a month that sold none. Same reasoning as
+    # DemandForecastService::fillMissingMonths() on the PHP side, which had to
+    # be taught this separately for the chart's actual series.
+    series_end = monthly["month"].max()
+
+    def _padded_series(group):
+        s = group.set_index("month")["qty"].sort_index()
+
+        return s.reindex(pd.date_range(s.index.min(), series_end, freq="MS"), fill_value=0)
+
     tasks = [
-        (sku, group.set_index("month")["qty"].sort_index(), args.horizon)
+        (sku, _padded_series(group), args.horizon)
         for sku, group in products
     ]
 

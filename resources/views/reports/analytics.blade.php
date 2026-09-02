@@ -49,19 +49,16 @@
 {{-- ===================== SCREEN ONLY ===================== --}}
 <div id="no-print">
 
-    {{-- Page Header --}}
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:1.5rem;">
-        <div style="display:flex;align-items:flex-start;gap:12px;">
-            <a href="{{ route('reports.index') }}" class="btn-back"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back </a>
-            
-            <div>
-                <div style="font-size:20px;font-weight:500;color:#111;">
-                    <i class="ti ti-chart-line" style="font-size:18px;vertical-align:-2px;margin-right:7px;"></i>Analytics Report
-                </div>
-                <div style="font-size:13px;color:#6b7280;margin-top:2px;">Sales trends, top products, and demand insights</div>
-            </div>
+    {{-- Page Header. Shared .page-head pattern — see layouts/app.blade.php.
+         The month picker and Print sit in .page-head-actions, which its
+         margin-left:auto pushes to the right of the title. --}}
+    <div class="page-head">
+        <a href="{{ route('reports.index') }}" class="btn-back"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back</a>
+        <div class="page-head-text">
+            <h3><i class="ti ti-chart-line" style="font-size:18px;vertical-align:-2px;margin-right:7px;"></i>Analytics Report</h3>
+            <p>Sales trends, top products, and demand insights</p>
         </div>
-        <div style="display:flex;gap:8px;align-items:center;">
+        <div class="page-head-actions">
             <form method="GET">
                 <select name="month" onchange="this.form.submit()" class="report-select">
                     <option value="">All time ({{ \Carbon\Carbon::parse($dataStart)->format('M Y') }} &ndash; {{ \Carbon\Carbon::parse($dataEnd)->format('M Y') }})</option>
@@ -198,7 +195,7 @@
         <div style="border:0.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;">
             <div style="padding:14px 16px;border-bottom:0.5px solid #e5e7eb;display:flex;align-items:center;gap:8px;">
                 <span style="font-size:14px;font-weight:500;color:#111;">Slow-Moving Products</span>
-                <span style="font-size:11px;color:#94a3b8;">all {{ number_format($slowMovingCount) }} &middot; scroll</span>
+                <span style="font-size:11px;color:#94a3b8;">{{ $slowMovingCount > $slowMoving->count() ? 'slowest '.number_format($slowMoving->count()).' of '.number_format($slowMovingCount) : 'all '.number_format($slowMovingCount) }} &middot; scroll</span>
                 <span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:20px;background:#FAEEDA;color:#633806;">Low Demand</span>
             </div>
             <div class="table-scroll list-scroll"><table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -258,28 +255,20 @@
                     <th style="width:38px;padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">#</th>
                     <th style="padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Date</th>
                     <th style="width:160px;padding:9px 14px;text-align:right;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Total Sales</th>
-                    <th style="width:220px;padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Bar</th>
                 </tr>
             </thead>
             <tbody>
-                @php $maxSale = $salesTrend->max('total') ?: 1; @endphp
                 @forelse($salesTrend as $row)
-                @php $pct = min(100, round(($row->total / $maxSale) * 100)); @endphp
                 <tr style="border-bottom:0.5px solid #e5e7eb;"
                     onmouseover="this.style.background='#f9fafb'"
                     onmouseout="this.style.background=''">
                     <td style="padding:10px 14px;color:#9ca3af;font-size:12px;">{{ $loop->iteration }}</td>
                     <td style="padding:10px 14px;color:#374151;">{{ $row->date }}</td>
                     <td style="padding:10px 14px;text-align:right;font-weight:500;color:#16a34a;">₱{{ number_format($row->total, 2) }}</td>
-                    <td style="padding:10px 14px;">
-                        <div style="background:#e5e7eb;border-radius:4px;height:8px;overflow:hidden;">
-                            <div style="background:#16a34a;height:8px;border-radius:4px;width:{{ $pct }}%;"></div>
-                        </div>
-                    </td>
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="4" style="padding:48px;text-align:center;color:#9ca3af;font-size:14px;">
+                    <td colspan="3" style="padding:48px;text-align:center;color:#9ca3af;font-size:14px;">
                         <i class="ti ti-chart-line-off" style="font-size:28px;display:block;margin-bottom:8px;"></i>
                         No sales data for this period.
                     </td>
@@ -399,9 +388,14 @@
         </tbody>
     </table></div>
 
-    {{-- Print: Slow Moving --}}
+    {{-- Print: Slow Moving. Capped -- see ReportController::SLOW_MOVING_LIST_CAP.
+         Printing every product that fell under the threshold ran to ~60 pages
+         for a single month. --}}
     <div class="print-section-title" style="font-size:13px;font-weight:600;color:#111;margin-bottom:8px;">
         Slow-Moving Products
+        @if($slowMovingCount > $slowMoving->count())
+            <span style="color:#6b7280;font-weight:400;">&mdash; the slowest {{ number_format($slowMoving->count()) }} of {{ number_format($slowMovingCount) }}</span>
+        @endif
     </div>
     <div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:24px;">
         <thead>
@@ -470,7 +464,31 @@
 </div>{{-- end #print-area --}}
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+@include('partials._chart-gradient')
 <script>
+    /* Gradient fill for a chart series.
+
+       `horizontal` follows indexAxis: a column chart fades from the value end
+       down to the baseline, a horizontal bar chart from the baseline out to the
+       value end -- so the fade always runs ALONG the bar rather than across it,
+       which is what makes it read as depth instead of a stripe.
+
+       Chart.js calls this per element with the chart area available; before the
+       first layout pass chartArea is undefined, hence the flat-colour fallback
+       (returning undefined there paints the bars black). */
+    function chartGradient(ctx, color, horizontal) {
+        const area = ctx.chart.chartArea;
+        if (!area) return color;
+
+        const g = horizontal
+            ? ctx.chart.ctx.createLinearGradient(area.left, 0, area.right, 0)
+            : ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+
+        g.addColorStop(horizontal ? 1 : 0, color);
+        g.addColorStop(horizontal ? 0 : 1, color + '55');   // ~33% alpha
+        return g;
+    }
+
     @if($topProducts->isNotEmpty())
     new Chart(document.getElementById('topProductsChart'), {
         type: 'bar',
@@ -479,7 +497,7 @@
             datasets: [{
                 label: 'Revenue',
                 data: {!! json_encode($topProducts->pluck('total_revenue')) !!},
-                backgroundColor: '#22c55e',
+                backgroundColor: (ctx) => chartGradient(ctx, '#22c55e', true),
                 borderRadius: 4,
                 maxBarThickness: 16,
             }],
@@ -507,7 +525,7 @@
             datasets: [{
                 label: 'Stock',
                 data: {!! json_encode($slowMoving->take(10)->pluck('total_stock')) !!},
-                backgroundColor: '#f59e0b',
+                backgroundColor: (ctx) => chartGradient(ctx, '#f59e0b', true),
                 borderRadius: 4,
                 maxBarThickness: 16,
             }],
@@ -536,8 +554,12 @@
                 label: 'Sales',
                 data: {!! json_encode($salesTrend->pluck('total')) !!},
                 borderColor: '#22c55e',
-                backgroundColor: 'rgba(34, 197, 94, 0.14)',
-                fill: true,
+                // No shaded area under the line. The gradient fill belongs to
+                // the BAR charts, where it runs along a solid shape; under a
+                // line it just tints the plot area and competes with the line
+                // itself for attention.
+                backgroundColor: '#22c55e',
+                fill: false,
                 tension: 0.3,
                 pointRadius: 3,
                 pointBackgroundColor: '#16a34a',
@@ -573,10 +595,30 @@
                 label: 'Avg. sales',
                 data: {!! json_encode($seasonalTrends->pluck('avg_total')) !!},
                 yearsObserved: {!! json_encode($seasonalTrends->pluck('years_observed')) !!},
-                backgroundColor: '#8b5cf6',
+                backgroundColor: (ctx) => chartGradient(ctx, '#8b5cf6', false),
                 borderRadius: 4,
                 maxBarThickness: 34,
-            }],
+                order: 1,   // drawn first, so the trend line sits on top
+            },
+                // Trend line over the bars. Same series, drawn as a line so
+                // the shape of the movement reads across the whole range --
+                // bar heights are easy to compare pairwise and hard to read
+                // as a direction. `order` puts the line in front of the
+                // bars; Chart.js draws higher `order` first.
+                {
+                    type: 'line',
+                    label: 'Trend',
+                    data: {!! json_encode($seasonalTrends->pluck('avg_total')) !!},
+                    borderColor: '#6d28d9',
+                    backgroundColor: '#6d28d9',
+                    borderWidth: 2,
+                    tension: 0.35,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#6d28d9',
+                    fill: false,
+                    order: 0,
+                },
+            ],
         },
         options: {
             responsive: true,

@@ -1,6 +1,7 @@
 <div class="table-scroll"><table class="remedi-table">
     <thead>
         <tr>
+            <th style="width:52px; text-align:right;">#</th>
             <th>Product ID</th>
             <th>SKU</th>
             <th>Product Name</th>
@@ -17,6 +18,8 @@
     <tbody>
     @forelse($products as $product)
         <tr id="product-row-{{ $product->id }}">
+            {{-- Row number, continuous across pages: firstItem() is the index of the first row on THIS page, so page 2 starts at 11 rather than restarting at 1. --}}
+            <td style="text-align:right; color:#94a3b8;">{{ $products->firstItem() + $loop->index }}</td>
             <td>{{ $product->id }}</td>
             {{-- SKU is its own column, not a parenthetical after the name: it is
                  the barcode staff read off the box and the key every forecast
@@ -37,7 +40,7 @@
             </td>
             <td class="col-status">
                 <div class="status-stack">
-                @if($product->is_low_stock)
+                @if($product->is_running_out)
                     <span class="badge badge-danger">Low Stock</span>
                 @endif
                 @foreach($product->batches as $batch)
@@ -100,7 +103,7 @@
                     @endphp
                     <span class="badge badge-return-due" title="Expired or within 10 days of expiry (default expiry rule)">Need to Return{{ $npSuffix }}</span>
                 @endif
-                @if(!$product->is_low_stock && !$product->batches->contains(fn($b) => $b->quantity > 0 && ($b->is_expired || $b->is_expiring_soon)) && !$product->needs_return && !$product->failed_return)
+                @if(!$product->is_running_out && !$product->batches->contains(fn($b) => $b->quantity > 0 && ($b->is_expired || $b->is_expiring_soon)) && !$product->needs_return && !$product->failed_return)
                     <span class="badge badge-success">OK</span>
                 @endif
                 </div>
@@ -126,7 +129,12 @@
                         @endphp
                         @if($returnable)
                             <form method="POST" action="{{ route('batches.return', $returnable) }}"
-                                  onsubmit="return confirm('Mark batch {{ $returnable->batch_number }} of {{ $product->name }} as returned to the supplier?');">
+                                  class="js-confirm"
+                                  data-confirm-title="Mark this batch as returned?"
+                                  data-confirm-body="Record batch {{ $returnable->batch_number }} of {{ $product->name }} as sent back to the supplier ({{ $returnable->return_days_label }}). It stops counting as sellable stock."
+                                  data-confirm-label="Mark Returned"
+                                  data-confirm-icon="ti-package-export"
+                                  data-confirm-tone="neutral">
                                 @csrf
                                 @method('PATCH')
                                 <button type="submit" class="btn btn-success btn-sm" title="Batch {{ $returnable->batch_number }} &middot; {{ $returnable->return_days_label }}">
@@ -134,13 +142,13 @@
                                 </button>
                             </form>
                         @endif
-                        <a href="{{ route('products.edit', $product) }}" class="btn btn-info btn-sm">Manage</a>
+                        <a href="{{ route('products.edit', $product) }}" class="btn btn-info btn-sm"><i class="ti ti-pencil" aria-hidden="true"></i> Manage</a>
                     </div>
                 </td>
             @endif
         </tr>
     @empty
-        <tr><td colspan="{{ auth()->user()->isAdmin() ? 9 : 8 }}">No products match this filter.</td></tr>
+        <tr><td colspan="{{ auth()->user()->isAdmin() ? 10 : 9 }}">No products match this filter.</td></tr>
     @endforelse
     </tbody>
 </table></div>

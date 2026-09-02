@@ -28,7 +28,9 @@
         <input type="text" name="search" placeholder="Search by name or email" value="{{ request('search') }}" style="padding:6px 10px; border:1px solid #d1d5db; border-radius:6px;" data-suggest-url="{{ route('suggest.users') }}">
         <button type="submit" class="btn btn-secondary">Search</button>
     </form>
-    <a href="{{ route('register') }}" class="btn btn-primary">+ Add User</a>
+    <a href="{{ route('register') }}" class="btn btn-primary btn-lg">
+        <i class="ti ti-user-plus" aria-hidden="true"></i> Add User
+    </a>
 </div>
 
 <div class="card">
@@ -56,10 +58,14 @@
                     </span>
                 </td>
                 <td>
+                    {{-- data-user-status, not a colour class, is what the toggle
+                         handler targets: an admin's ROLE badge is also
+                         .badge-success and sits earlier in the row, so matching
+                         on colour rewrote the role to "Active". --}}
                     @if($user->is_active)
-                        <span class="badge badge-success">Active</span>
+                        <span class="badge badge-success" data-user-status>Active</span>
                     @else
-                        <span class="badge badge-danger">Inactive</span>
+                        <span class="badge badge-danger" data-user-status>Inactive</span>
                     @endif
                 </td>
                 <td>{{ $user->created_at->format('M d, Y') }}</td>
@@ -68,7 +74,18 @@
                         <a href="{{ route('users.edit', $user) }}" class="btn btn-info action-btn"><i class="ti ti-pencil" aria-hidden="true"></i> Edit</a>
 
                         @if($user->id !== auth()->id())
-                            <form method="POST" action="{{ route('users.toggle', $user) }}">
+                            <form method="POST" action="{{ route('users.toggle', $user) }}"
+                                  class="js-confirm"
+                                  data-confirm-title="{{ $user->is_active ? 'Deactivate' : 'Activate' }} this account?"
+                                  data-confirm-body="{{ $user->is_active
+                                        ? $user->name . ' will be signed out and unable to sign in again.'
+                                        : $user->name . ' will be able to sign in again.' }}"
+                                  data-confirm-body-off="{{ $user->name }} will be signed out and unable to sign in again."
+                                  data-confirm-body-on="{{ $user->name }} will be able to sign in again."
+                                  data-confirm-label="{{ $user->is_active ? 'Deactivate' : 'Activate' }}"
+                                  data-confirm-icon="{{ $user->is_active ? 'ti-user-off' : 'ti-user-check' }}"
+                                  data-confirm-tone="neutral"
+                                  data-on-success="toggle">
                                 @csrf
                                 @method('PATCH')
                                 <button type="submit" class="btn action-btn {{ $user->is_active ? 'btn-warning' : 'btn-success' }}">
@@ -76,10 +93,21 @@
                                 </button>
                             </form>
 
-                            <form method="POST" action="{{ route('users.destroy', $user) }}" onsubmit="return confirm('Delete this user permanently?');">
+                            {{-- Stays a real POST form: the shared js-confirm
+                                 handler in layouts/app.blade.php only intercepts
+                                 submit, so with JavaScript off this still
+                                 deletes (unconfirmed) rather than being a dead
+                                 button — same trade-off as #logoutModal. --}}
+                            <form method="POST" action="{{ route('users.destroy', $user) }}"
+                                  class="js-confirm"
+                                  data-confirm-title="Delete this account?"
+                                  data-confirm-body="Permanently delete {{ $user->name }} ({{ $user->email }})? This cannot be undone."
+                                  data-confirm-label="Delete"
+                                  data-confirm-icon="ti-trash"
+                                  data-on-success="remove-row">
                                 @csrf
                                 @method('DELETE')
-                                <button type="submit" class="btn btn-danger action-btn">Delete</button>
+                                <button type="submit" class="btn btn-danger action-btn"><i class="ti ti-trash" aria-hidden="true"></i> Delete</button>
                             </form>
                         @else
                             <span class="badge badge-success">You</span>

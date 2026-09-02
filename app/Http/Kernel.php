@@ -64,5 +64,8 @@ class Kernel extends HttpKernel
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
         'role' => \App\Http\Middleware\EnsureUserHasRole::class,
+        // Pair this with `auth` on every authenticated group. It is what makes
+        // "deactivate account" end a live session; see the middleware's note.
+        'active' => \App\Http\Middleware\EnsureUserIsActive::class,
     ];
 }

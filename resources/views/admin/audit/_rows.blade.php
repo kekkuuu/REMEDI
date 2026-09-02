@@ -110,47 +110,13 @@
     </div>
   </div>
 
-  {{-- Custom Pagination (fixed arrows — no Tailwind dependency) --}}
-  @if ($logs->hasPages())
-  <div style="display:flex; justify-content:center; align-items:center; gap:4px; margin-top:1.25rem; flex-wrap:wrap;">
+  {{-- The same pager every other list renders: $paginator->links() resolving
+       to vendor/pagination/custom (registered as the default view in
+       AppServiceProvider), styled by .pagination in layouts/app.
 
-    {{-- Previous Page Arrow --}}
-    @if ($logs->onFirstPage())
-      <span style="display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:8px; border:0.5px solid #e5e7eb; color:#d1d5db; cursor:not-allowed;">
-        <i class="ti ti-chevron-left" style="font-size:15px;"></i>
-      </span>
-    @else
-      <a href="{{ $logs->previousPageUrl() }}"
-         style="display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:8px; border:0.5px solid #d1d5db; color:#374151; text-decoration:none;">
-        <i class="ti ti-chevron-left" style="font-size:15px;"></i>
-      </a>
-    @endif
-
-    {{-- Page Number Links --}}
-    @foreach ($logs->getUrlRange(max(1, $logs->currentPage() - 2), min($logs->lastPage(), $logs->currentPage() + 2)) as $page => $url)
-      @if ($page == $logs->currentPage())
-        <span style="display:inline-flex; align-items:center; justify-content:center; min-width:32px; height:32px; padding:0 8px; border-radius:8px; background:#185FA5; color:#fff; font-size:13px; font-weight:600;">
-          {{ $page }}
-        </span>
-      @else
-        <a href="{{ $url }}"
-           style="display:inline-flex; align-items:center; justify-content:center; min-width:32px; height:32px; padding:0 8px; border-radius:8px; border:0.5px solid #d1d5db; color:#374151; text-decoration:none; font-size:13px;">
-          {{ $page }}
-        </a>
-      @endif
-    @endforeach
-
-    {{-- Next Page Arrow --}}
-    @if ($logs->hasMorePages())
-      <a href="{{ $logs->nextPageUrl() }}"
-         style="display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:8px; border:0.5px solid #d1d5db; color:#374151; text-decoration:none;">
-        <i class="ti ti-chevron-right" style="font-size:15px;"></i>
-      </a>
-    @else
-      <span style="display:inline-flex; align-items:center; justify-content:center; width:32px; height:32px; border-radius:8px; border:0.5px solid #e5e7eb; color:#d1d5db; cursor:not-allowed;">
-        <i class="ti ti-chevron-right" style="font-size:15px;"></i>
-      </span>
-    @endif
-
-  </div>
-  @endif
+       This page used to draw its own -- chevron squares and a blue #185FA5
+       current page, none of it shared with anything else -- so the audit trail
+       was the one list whose page numbers looked like a different application.
+       The AJAX handler in index.blade.php delegates on any <a href> inside the
+       wrapper, so it keeps paginating in place either way. --}}
+  <div class="audit-pager">{{ $logs->links() }}</div>

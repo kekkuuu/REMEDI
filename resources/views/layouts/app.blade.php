@@ -115,6 +115,9 @@
             padding: 24px 20px 18px;
             display: flex;
             align-items: center;
+            /* Mark + wordmark centred as one group in the sidebar's width,
+               rather than flush left against the padding. */
+            justify-content: center;
             gap: 12px;
         }
 
@@ -141,7 +144,10 @@
            fat. */
         .brand-mark img { display: block; width: 34px; height: 34px; object-fit: contain; }
 
-        .brand-text { display: flex; flex-direction: column; line-height: 1; }
+        /* align-items so REMEDI and the tagline centre on each other; without
+           it the two lines stay left-aligned inside a centred group, which
+           reads as off-centre. */
+        .brand-text { display: flex; flex-direction: column; align-items: center; line-height: 1; }
 
         .sidebar .brand-name {
             font-family: 'Outfit', sans-serif;
@@ -404,6 +410,79 @@
         /* Neutral grey on purpose: a skeleton stands in for content, so it
            should recede rather than compete with it. A brand-tinted version was
            tried and read as a coloured panel in its own right. */
+        /* ── "Still working" pill in the header ────────────────────────
+           A live marker beside the page title, so a wait is legible without
+           looking at the content area at all -- and it reads the same on every
+           page, because the header is the one thing that does not change.
+
+           Moved here from dashboard/index.blade.php, which used to own it: the
+           dashboard raises one while it fetches its own body over AJAX, and the
+           sidebar navigation below raises one while a whole document is in
+           flight. Same class, same look, two occasions -- so there is one
+           definition rather than two that drift. */
+        .topbar-loading {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13.5px;
+            font-weight: 500;
+            color: var(--ink-soft);
+            white-space: nowrap;
+        }
+
+        .topbar-loading::before {
+            content: '';
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--brand);
+            animation: dash-pulse 1.1s ease-in-out infinite;
+        }
+
+        @keyframes dash-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+
+        @media (max-width: 640px) {
+            .topbar-loading { display: none; }   /* no room beside the title */
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .topbar-loading::before { animation: none; }
+        }
+
+        /* One skeleton partial, two silhouettes.
+           A dashboard-shaped placeholder in front of the Sales table was worse
+           than none: six KPI tiles and two charts flashed up, then the real page
+           landed as a header over rows, so every tab change was two unrelated
+           layouts in a row. The shape is chosen from the destination link; no
+           attribute means the dashboard, which is what the dashboard's own
+           loading backdrop wants. */
+        .page-skeleton .sk-shape { display: none; }
+        .page-skeleton:not([data-shape="list"]) .sk-shape-dash { display: block; }
+        .page-skeleton[data-shape="list"] .sk-shape-list { display: block; }
+
+        .sk-head { height: 26px; width: 210px; margin-bottom: 10px; }
+        .sk-head-sub { height: 13px; width: 330px; margin-bottom: 22px; }
+        .sk-toolbar { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+        .sk-search { height: 40px; flex: 1 1 320px; border-radius: 8px; }
+        .sk-btn { height: 40px; width: 104px; border-radius: 8px; }
+
+        .sk-table {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 8px 18px;
+            background: var(--surface);
+        }
+
+        .sk-trow { display: flex; gap: 18px; align-items: center; padding: 13px 0; }
+        .sk-trow + .sk-trow { border-top: 1px solid #f1f5f9; }
+        .sk-trow .sk-block { height: 13px; }
+        .sk-td { flex: 1 1 0; }
+        .sk-td.narrow { flex: 0 0 46px; }
+        .sk-td.wide { flex: 2 1 0; }
+
+        @media (max-width: 700px) {
+            .sk-trow .sk-td:nth-child(n+4) { display: none; }
+        }
+
         .sk-block {
             /* Deliberately pale. #e2e8f0 was heavy enough to read as real
                content, which is the opposite of what a placeholder should do —
@@ -619,8 +698,13 @@
             position: absolute;
             top: calc(100% + 10px);
             right: 0;
-            width: 330px;
-            max-height: 420px;
+            /* Sized for what the panel now holds: a tab strip, 38px icon discs
+               and a timestamp line per row. At the old 330x420 the rows wrapped
+               to three lines each and 18 notifications sat in a box that showed
+               four. Still anchored to the bell (right: 0 on the wrapper), so it
+               stays under the button rather than floating. */
+            width: 380px;
+            max-height: 540px;
             overflow-y: auto;
             overscroll-behavior: contain;
             background: #fff;
@@ -645,8 +729,475 @@
             margin-bottom: 6px;
         }
 
-        .topbar-bell-head strong { font-size: 13px; color: var(--ink); }
+        .topbar-bell-head { align-items: center; }
+        .topbar-bell-head strong { font-size: 16px; font-weight: 700; color: var(--ink); }
         .topbar-bell-head small { font-size: 11px; color: #94a3b8; }
+
+        .topbar-bell-headactions { display: flex; align-items: center; gap: 10px; }
+
+        .topbar-bell-close {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            height: 26px;
+            padding: 0;
+            border: 0;
+            border-radius: 7px;
+            background: none;
+            color: #94a3b8;
+            font-size: 17px;
+            cursor: pointer;
+        }
+
+        .topbar-bell-close:hover { background: #f1f5f9; color: var(--ink); }
+
+        /* Tabs. Underline on the active one rather than a filled pill: the rows
+           below already carry a lot of colour, and two competing fills made the
+           panel read as two separate lists. */
+        .topbar-bell-tabs {
+            display: flex;
+            gap: 2px;
+            padding: 0 4px;
+            margin-bottom: 6px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .bell-tab {
+            flex: 1;
+            padding: 9px 4px;
+            border: 0;
+            border-bottom: 2px solid transparent;
+            background: none;
+            font: inherit;
+            font-size: 12.5px;
+            font-weight: 500;
+            color: #64748b;
+            cursor: pointer;
+        }
+
+        .bell-tab:hover { color: var(--ink); }
+        .bell-tab.is-active { color: var(--brand-darker); font-weight: 600; border-bottom-color: var(--brand); }
+
+        /* Circular tinted disc, one per severity, in place of the bare glyph. */
+        .bell-icon {
+            width: 38px;
+            height: 38px;
+            flex-shrink: 0;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            background: #f1f5f9;
+            color: #64748b;
+        }
+
+        .topbar-bell-row.is-low .bell-icon      { background: #fef9c3; color: #a16207; }
+        .topbar-bell-row.is-out .bell-icon     { background: #e2e8f0; color: #334155; }
+        .topbar-bell-row.is-expiring .bell-icon { background: #ffedd5; color: #c2410c; }
+        .topbar-bell-row.is-expired .bell-icon  { background: #fee2e2; color: #b91c1c; }
+        .topbar-bell-row.is-return .bell-icon   { background: #e0f2fe; color: #0369a1; }
+        .topbar-bell-row.is-missed .bell-icon   { background: #ede9fe; color: #6d28d9; }
+        .topbar-bell-row.is-system .bell-icon   { background: #e0e7ff; color: #4338ca; }
+        .topbar-bell-row.is-update .bell-icon   { background: #dcfce7; color: #15803d; }
+
+        /* The All tab used to break into "Alerts / System / Updates" headings.
+           It no longer does: All is one chronological feed, so there is no
+           contiguous run of a single group left for a heading to sit above.
+           The icon discs still carry severity, and the tabs carry the kind. */
+
+        /* ── Inventory panels shared by BOTH dashboards ──
+           Moved here from admin/dashboard.blade.php. These rules used to live
+           only in the admin page's style block, so the staff dashboard could
+           not reuse the same markup and grew its own near-copies — exactly the
+           drift REMEDI.md warns about under "Fixes applied to the admin
+           dashboard do NOT reach staff". One definition, both pages. */
+        .demand-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        /* ── Panel meta line ──
+           The count and the rule that governs a panel ("15 · supplier-return
+           window applies") used to sit inside .demand-head between the title
+           and "View All". Three items competing for ~320px meant the longer
+           title wrapped and the shorter one did not, so two cards standing side
+           by side had headers of 45px and 36px and their bodies started at
+           different heights — a step you read as misalignment before you read
+           either title.
+
+           On its own line the meta cannot push the title, both headers are one
+           line tall, and the two cards line up. It also reads better: a caption
+           under a heading rather than a third thing in a row. */
+        .panel-note {
+            margin: -4px 0 12px;
+            font-size: 11.5px;
+            color: #94a3b8;
+        }
+
+        /* "View All" is a secondary action; as a solid navy pill it outweighed
+           the panel title next to it. Now a quiet link that only asserts itself
+           on hover. */
+        .view-all {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--brand-darker);
+            background: transparent;
+            border-radius: 6px;
+            padding: 3px 7px;
+            text-decoration: none;
+            transition: background 0.14s ease, color 0.14s ease;
+        }
+
+        .view-all::after {
+            content: '\203A'; /* single right angle quote — a light "go" cue */
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .view-all:hover {
+            background: var(--brand-tint);
+            color: var(--brand-darker);
+        }
+
+        .demand-list { list-style: none; margin: 0; padding: 0; }
+
+
+        .expiry-list { list-style: none; margin: 0; padding: 0; }
+
+        .expiry-list li {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 13.5px;
+            color: #334155;
+            padding: 9px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .expiry-list li:last-child { border-bottom: none; }
+
+        /* A table row that navigates. The affordance used to ride on an inline
+           style beside the inline onclick; both moved out together — see the
+           delegated handler in the script below. */
+        tr.clickable-row { cursor: pointer; }
+        tr.clickable-row:hover > td { background: #f8fafc; }
+
+        /* ── Rows that lead somewhere ──
+           A dashboard row naming one product or one category is a question
+           ("which batches?", "what else is in Analgesics?") whose answer is a
+           page this app already has, so the whole row is the target rather than
+           a "View All" at the top of the card being the only way out.
+
+           The anchor takes over the li's flex layout instead of sitting inside
+           it: a link that only wraps the name leaves most of the row dead, and
+           the badge on the right is the part people aim at. Negative margins
+           let the hover tint bleed to the card's padding so it reads as a row
+           and not as a button pasted into one.
+
+           Shared by both dashboards — see "The Inventory band is shared" in
+           REMEDI.md. */
+        .expiry-list li > .expiry-row,
+        .staff-expiry-list li > .expiry-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex: 1;
+            min-width: 0;
+            /* Vertical bleed only. Negative side margins made the anchor 16px
+               wider than the row it sits in — every li reported
+               scrollWidth 300 against clientWidth 292, and in the scrolled
+               lists the tint ran under the scrollbar gutter. Horizontal padding
+               inside the row gives the same inset highlight without the
+               overflow. */
+            margin: -5px 0;
+            padding: 5px 8px;
+            border-radius: 8px;
+            color: inherit;
+            text-decoration: none;
+            transition: background .12s ease;
+        }
+
+        .expiry-list li > .expiry-row:hover,
+        .staff-expiry-list li > .expiry-row:hover { background: #f8fafc; }
+
+        /* Same idea for the returns legends, whose counts each correspond to an
+           Inventory filter exactly. `.item` is already the flex row, so an
+           anchor with that class needs only the link resets. */
+        .returns-legend a.item {
+            color: inherit;
+            text-decoration: none;
+            margin: -4px 0;           /* vertical only — see .expiry-row above */
+            padding: 4px 8px;
+            border-radius: 8px;
+            transition: background .12s ease;
+        }
+
+        .returns-legend a.item:hover { background: #f8fafc; }
+
+        /* Scroll the list instead of truncating it.
+           These panels used to render take(8) / take(5) and simply drop the rest
+           on the floor: with 15 medicines expiring, 27 batches due for return and
+           50 non-pharma ones, most of what the card counted in its own header was
+           unreachable without leaving for the Inventory page. The cap is now on
+           height, not on rows. */
+        .expiry-scroll {
+            max-height: 320px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            /* Room for the scrollbar so it never sits on top of the badges. */
+            padding-right: 6px;
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
+        }
+
+        /* The return panels carry a doughnut above the list, so they get less
+           room before the card grows taller than its neighbour. */
+        .expiry-scroll.is-compact { max-height: 220px; }
+
+        .expiry-scroll::-webkit-scrollbar { width: 8px; }
+        .expiry-scroll::-webkit-scrollbar-track { background: transparent; }
+        .expiry-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .expiry-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Expiring Soon now spans the full row width; lay its items out in
+           two columns so that space is actually used instead of leaving one
+           long, narrow list. */
+        .expiry-list-2col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            column-gap: 24px;
+        }
+
+        @media (max-width: 700px) {
+            .expiry-list-2col { grid-template-columns: 1fr; }
+        }
+
+        /* flex:1, not just min-width:0. The row holds a product name, a batch
+           number, an expiry date and a severity badge; the last two are
+           no-wrap, so every pixel the row was short came out of this block —
+           the product name, the one thing the row exists to tell you, rendered
+           in 40px of a 302px row while "Expires: Aug 24, 2026" sat beside it in
+           127px. Now this block claims the space and the fixed pieces take what
+           they need. */
+        .expiry-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        /* Wraps to two lines rather than truncating. With the date in its own
+           column these cards leave the name ~150px, and nowrap+ellipsis cut
+           "SALBUTAMOL 2MG/5ML SYR (BUTAMOL) 60ML" mid-word — a product you
+           cannot identify is worse than a taller row. */
+        .expiry-name {
+            font-weight: 600;
+            color: #1e293b;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            overflow-wrap: anywhere;
+            line-height: 1.3;
+        }
+
+        /* .expiry-when (the date as its own column) is gone: it was no-wrap and
+           rigid, so it took 127px of a 302px row while the product name beside
+           it got 40px. The date now rides on the batch sub-line inside
+           .expiry-info — see the note there. */
+
+        .expiry-batch {
+            font-size: 11.5px;
+            color: #94a3b8;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* The date stays on the info line with the batch number rather than taking
+           a column of its own. Measured: these cards are ~424px wide even on a
+           1585px screen (three per row), and a third column squeezed the product
+           name to 147px, truncating "EFFICASCENT OINMENT 10g". A labelled second
+           line reads the same and keeps the name whole. */
+
+        .expiry-badge {
+            margin-left: 10px;
+            flex-shrink: 0;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+
+        /* .critical/.warning removed: expiry now uses the shared
+           .badge-expiry-* scale and returns use .badge-return-*, so the two
+           thresholds never share a colour. */
+
+        .expiry-empty {
+            color: #94a3b8;
+            font-size: 13.5px;
+            padding: 6px 0;
+        }
+
+        /* Section separation: Sales vs Inventory */
+        .dash-section {
+            margin-bottom: 32px;
+        }
+
+        /* stretch, not start: the three columns hold different things (two
+           scrolling lists and a stack of two summary cards), so their natural
+           heights never match — the returns column ran 135px past the lists
+           once its rings stacked, and before that the lists ran past it. Rather
+           than pinning the lists to whatever the returns column happens to
+           measure this month, let the row set one height and give the scroll
+           areas the remainder. Self-balancing, and the lists show more rows for
+           free. */
+        .inv-bottom {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.85fr);
+            gap: 16px;
+            align-items: stretch;
+        }
+
+        .inv-bottom > .card { display: flex; flex-direction: column; }
+
+        .inv-returns-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+        /* These two sit beside the expiring lists rather than under them, so their
+           batch lists get less room than a full-width panel would give: the point
+           of the column is the doughnut and the counts, with the rows there for
+           reference and "View All" for the whole set. */
+        /* The two returns panels stack to ~548px, so let the expiring lists run to
+           the same height rather than stopping at the shared 320px and leaving a
+           ragged bottom edge. More height here is free: both lists have more rows
+           than fit either way, so the extra room just shows more of them. */
+        /* Fills whatever the stretched card leaves, instead of a fixed cap that
+           has to be re-guessed every time a neighbouring panel changes height.
+           The floor keeps the lists usable if the returns column is ever short
+           (no returns due), and overflow-y:auto on .expiry-scroll still bounds
+           them — a flex item with a definite height scrolls normally. */
+        /* basis 0, NOT auto. With `auto` the list's own content counts toward
+           the card's natural height, so the tallest thing in the row became the
+           full 926px list and the band grew to 1041px — the cap this band has
+           always had, undone. At basis 0 the scroller asks for nothing beyond
+           its floor, the row height is set by the shortest-fitting column, and
+           the list takes the remainder. */
+        .inv-bottom > .card .expiry-scroll { flex: 1 1 0; min-height: 320px; max-height: none; }
+
+        /* The two Expiring Soon cards stand side by side, and their titles are
+           not the same length: "Expiring Soon · Medicine / Pharmaceutical"
+           needs 296px and wraps in the ~265px it gets, while "Expiring Soon ·
+           Other Categories" does not. Moving the meta line out of the header
+           (see .panel-note) bought room but not enough, so the two headers
+           still measured 36px and 21px — and the lists under them started 15px
+           apart, which reads as one card sagging.
+
+           A floor of two label lines makes both headers the same box whether
+           the title wraps or not. Centred inside it, so the short title sits on
+           the same optical line as the tall one's first line.
+
+           42px = two lines of the 16px .label at normal line-height, measured
+           on the staff dashboard where the medicine title does wrap. A floor of
+           36 left that card 6px taller than its neighbour. */
+        .inv-bottom > .card .demand-head { min-height: 42px; }
+
+        @media (max-width: 1400px) {
+            /* Returns drop under the pair rather than squeezing a doughnut and its
+               legend into a third of a laptop screen. */
+            .inv-bottom { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+            .inv-returns-col { grid-column: 1 / -1; flex-direction: row; }
+            .inv-returns-col > .card { flex: 1 1 0; min-width: 0; }
+        }
+
+        @media (max-width: 900px) {
+            .inv-bottom { grid-template-columns: minmax(0, 1fr); }
+            .inv-returns-col { flex-direction: column; }
+        }
+
+        /* Returns panels: doughnut left, legend right -- the same shape as Stock
+           Status. Centred chips under the ring needed the full card width, which
+           this column no longer has. */
+        /* Ring above the legend, not beside it. Side by side asked for a fixed
+           150px ring + a 140px legend floor + a 14px gap = 304px inside a
+           column that measures 263px, so the card overflowed its own grid track
+           by 41px and "Successfully Returned" ran under the card edge. Stacked,
+           each legend row gets the full 263px and the card ends up the same
+           height it was — the ring simply moved. */
+        .returns-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            justify-items: center;
+            gap: 12px;
+        }
+
+        /* Full width so the rows align left under the centred ring rather than
+           forming a centred block of ragged lines. */
+        .returns-grid > .returns-legend { width: 100%; }
+
+        @media (max-width: 520px) {
+            .returns-grid { grid-template-columns: 1fr; }
+        }
+
+        /* Footer line on the returns panels: says how many batches sit behind the
+           ring and links to them. Replaces the inline batch list these cards used
+           to carry, which no longer fits now they share a column. */
+        .returns-more {
+            display: block;
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid #f1f5f9;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--brand-darker);
+            text-decoration: none;
+        }
+
+        .returns-more:hover { text-decoration: underline; }
+
+        .returns-legend { display: flex; flex-direction: column; gap: 9px; font-size: 12.5px; color: #334155; }
+        .returns-legend .item { display: flex; align-items: center; gap: 7px; }
+        .returns-legend .dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+        .returns-legend .lbl { flex: 1; white-space: nowrap; }
+
+        /* .inv-pair removed with the Stock Status card it paired — nothing in
+           either dashboard carries the class any more. */
+
+        /* The expiry date inside a batch line. Medium, not <strong>: it sits
+           directly under the product name, which is already bold, and two bold
+           lines stacked made every expiry row read as a heading. Still darker
+           than the batch number beside it, so the date stays the thing you
+           scan for. */
+        .expiry-date { font-weight: 500; color: #475569; }
+
+        .bell-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+        .bell-time { font-style: normal; font-size: 11px; color: #94a3b8; margin-top: 3px; }
+
+        .topbar-bell-viewall {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 11px;
+            margin-top: 4px;
+            border-top: 1px solid var(--line);
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--brand-darker);
+            text-decoration: none;
+        }
+
+        .topbar-bell-viewall:hover { background: var(--brand-tint); }
 
         .topbar-bell-row {
             display: flex;
@@ -660,6 +1211,49 @@
         }
 
         .topbar-bell-row:hover { background: #f8fafc; }
+
+        /* The tab filter sets the hidden ATTRIBUTE, and [hidden]'s display:none
+           comes from the UA stylesheet -- which the display:flex above beats on
+           every row. Without this rule the rows are marked hidden and painted
+           anyway, so every tab looked identical to All. */
+        .topbar-bell-row[hidden] { display: none; }
+
+        /* Read vs unread. Unread carries a filled dot and full-strength text;
+           a read row keeps its severity stripe (it is still an open alert —
+           "read" means you have seen it, not that the stock is fine) but drops
+           back in weight so new things stand out in a list you have already
+           been through. */
+        .topbar-bell-row { position: relative; }
+
+        .topbar-bell-row .unread-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--brand);
+            flex-shrink: 0;
+            align-self: center;
+            margin-left: auto;
+        }
+
+        .topbar-bell-row.is-read { opacity: .62; }
+        .topbar-bell-row.is-read strong { font-weight: 500; }
+        .topbar-bell-row.is-read .unread-dot { display: none; }
+
+        /* Now a header action beside the close button, not a footer strip. */
+        .topbar-bell-markread {
+            padding: 0;
+            background: none;
+            border: 0;
+            font: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--brand-darker);
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .topbar-bell-markread:hover { text-decoration: underline; }
+        .topbar-bell-markread[hidden] { display: none; }
         .topbar-bell-row i { font-size: 17px; line-height: 1.2; flex-shrink: 0; }
         .topbar-bell-row span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
         .topbar-bell-row strong { font-size: 13px; font-weight: 600; color: var(--ink); }
@@ -669,6 +1263,16 @@
            here is recognisably the same state you land on after clicking it. */
         .topbar-bell-row.is-low      { border-left-color: #eab308; }
         .topbar-bell-row.is-low i    { color: #a16207; }
+        /* Out of stock is graphite, and deliberately NOT another shade on the
+           amber-to-red warning ramp. Rose was tried and read as a variant of
+           the #dc2626 red that expired stock owns, which is the one thing this
+           must not look like: expired is a shelf to CLEAR, empty is a shelf to
+           REFILL. A neutral dark says "there is nothing here" rather than
+           competing for a place in the severity ladder -- it is an absence, not
+           a louder warning. Kept high-contrast (slate-700 on slate-200) so it
+           reads as deliberate rather than as a disabled row. */
+        .topbar-bell-row.is-out      { border-left-color: #334155; }
+        .topbar-bell-row.is-out i    { color: #334155; }
         .topbar-bell-row.is-expiring { border-left-color: #f97316; }
         .topbar-bell-row.is-expiring i { color: #c2410c; }
         .topbar-bell-row.is-expired  { border-left-color: #dc2626; }
@@ -714,6 +1318,157 @@
             .topbar-bell-panel { position: fixed; top: 64px; left: 10px; right: 10px; width: auto; }
         }
 
+        /* ── Startup alert toasts ──
+           A passive, self-dismissing summary of what needs attention, shown
+           once when the app is first opened. Deliberately NOT REMEDI.showMessage:
+           that card is modal and waits to be acknowledged, which is right for
+           "you just did something, here is the result" and wrong for a standing
+           condition nobody asked about -- a dialog on every sign-in is a door
+           you have to close before you can start work.
+
+           This is also not the #ajaxFlash banner that was removed (see the note
+           by .remedi-modal__icon). That one announced the outcome of an action
+           the user had just taken, where a dismissible strip meant the answer
+           could scroll away unread. Nothing here is an outcome and nothing here
+           is lost by ignoring it: every row links to the same Inventory filter
+           the bell opens, and the bell keeps the same counts permanently. */
+        .remedi-toasts {
+            position: fixed;
+            right: 18px;
+            bottom: 18px;
+            /* Over the dashboard loader (190) so it stays legible during the
+               5-12s body build, under .remedi-modal (200) so a real dialog wins. */
+            z-index: 195;
+            display: none;              /* JS opts in -- see the gate in the script */
+            flex-direction: column;
+            gap: 10px;
+            width: 340px;
+            max-width: calc(100vw - 36px);
+            /* The stack is inert; only the rows take the pointer, so the corner
+               of the page underneath stays clickable between toasts. */
+            pointer-events: none;
+        }
+
+        .remedi-toasts.is-open { display: flex; }
+
+        .remedi-toast {
+            pointer-events: auto;
+            position: relative;
+            display: flex;
+            align-items: flex-start;
+            gap: 4px;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-left: 4px solid #94a3b8;
+            border-radius: 12px;
+            /* Same lift as .remedi-modal__panel, so it reads as the same family
+               of floating object rather than as a browser notification. */
+            box-shadow: 0 12px 32px rgba(15, 23, 42, .18);
+            animation: toastIn .3s cubic-bezier(.16, 1, .3, 1) both;
+        }
+
+        .remedi-toast.is-leaving { animation: toastOut .24s ease forwards; }
+
+        .remedi-toast__link {
+            flex: 1;
+            display: flex;
+            align-items: flex-start;
+            gap: 11px;
+            min-width: 0;               /* so the body text may wrap, not overflow */
+            padding: 12px 4px 12px 13px;
+            text-decoration: none;
+            color: inherit;
+            border-radius: 12px 0 0 12px;
+        }
+
+        .remedi-toast__link:hover .remedi-toast__title { text-decoration: underline; }
+        .remedi-toast__link:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+        .remedi-toast__icon {
+            flex: none;
+            display: grid;
+            place-items: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 9px;
+            background: #f1f5f9;
+            color: var(--ink-soft);
+            font-size: 17px;
+        }
+
+        .remedi-toast__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+        .remedi-toast__title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 13.5px;
+            font-weight: 700;
+            color: var(--ink);
+            line-height: 1.25;
+        }
+
+        .remedi-toast__body { font-size: 12px; color: var(--ink-soft); line-height: 1.4; }
+
+        /* The onset, or the event time for an audit row. Muted and last,
+           because it qualifies the message rather than being the message. */
+        .remedi-toast__when {
+            font-size: 11px;
+            color: #94a3b8;
+            line-height: 1.4;
+            margin-top: 1px;
+        }
+
+        .remedi-toast__close {
+            flex: none;
+            margin: 7px 7px 0 0;
+            width: 24px;
+            height: 24px;
+            display: grid;
+            place-items: center;
+            padding: 0;
+            border: 0;
+            border-radius: 7px;
+            background: transparent;
+            color: #94a3b8;
+            font-size: 15px;
+            cursor: pointer;
+        }
+
+        .remedi-toast__close:hover { background: #f1f5f9; color: var(--ink); }
+        .remedi-toast__close:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+        /* Same legend as the bell rows above -- a kind must not change colour
+           depending on which surface happens to be showing it. */
+        .remedi-toast.is-low      { border-left-color: #eab308; }
+        .remedi-toast.is-low .remedi-toast__icon      { background: #fef9c3; color: #a16207; }
+        .remedi-toast.is-out      { border-left-color: #334155; }
+        .remedi-toast.is-out .remedi-toast__icon      { background: #e2e8f0; color: #334155; }
+        .remedi-toast.is-expiring { border-left-color: #f97316; }
+        .remedi-toast.is-expiring .remedi-toast__icon { background: #ffedd5; color: #c2410c; }
+        .remedi-toast.is-expired  { border-left-color: #dc2626; }
+        .remedi-toast.is-expired .remedi-toast__icon  { background: #fee2e2; color: #b91c1c; }
+        .remedi-toast.is-return   { border-left-color: #3b82f6; }
+        .remedi-toast.is-return .remedi-toast__icon   { background: #e0f2fe; color: #1d4ed8; }
+
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateX(24px) scale(.97); }
+            to   { opacity: 1; transform: none; }
+        }
+
+        @keyframes toastOut {
+            from { opacity: 1; transform: none; }
+            to   { opacity: 0; transform: translateX(24px); }
+        }
+
+        @media (max-width: 480px) {
+            /* Pin to the viewport edges rather than keep a 340px card on a
+               375px screen -- the same move .topbar-bell-panel makes above. */
+            .remedi-toasts { right: 10px; left: 10px; bottom: 10px; width: auto; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .remedi-toast, .remedi-toast.is-leaving { animation: none; }
+        }
+
         /* ── Centred confirm dialog ──
            Used by Log out. Fixed and flex-centred so the question appears where
            the eye already is, rather than in the browser's top-left chrome the
@@ -727,6 +1482,11 @@
             justify-content: center;
             padding: 20px;
             background: rgba(15, 23, 42, .55);
+            /* The password dialog is ~430px tall; on a short window (a laptop
+               with devtools open, a landscape phone) a centred panel taller
+               than the viewport would be clipped with no way to reach the
+               submit button. */
+            overflow-y: auto;
         }
 
         .remedi-modal.is-open { display: flex; }
@@ -760,6 +1520,15 @@
             color: #b91c1c;
         }
 
+        /* Destructive red is the default. Reversible actions — activate a user,
+           mark a batch returned — get a neutral disc instead, so the colour
+           still means "this cannot be undone" when it is red. */
+        .remedi-modal__icon.is-neutral { background: #e0f2fe; color: #0369a1; }
+
+        /* #ajaxFlash and its toast styling are gone: AJAX outcomes now open the
+           shared message dialog (see REMEDI.showMessage), so there is no banner
+           to place, and nothing scrolls itself into view to be read. */
+
         .remedi-modal__panel h3 {
             margin: 0 0 6px;
             font-family: 'Outfit', sans-serif;
@@ -772,6 +1541,44 @@
 
         .remedi-modal__actions { display: flex; gap: 10px; }
         .remedi-modal__actions .btn { flex: 1; justify-content: center; }
+
+        /* ── Alert detail modal ──
+           The named rows behind a count, fetched when the modal opens. Capped
+           in height rather than in rows: "645 products" cannot be listed, but
+           the ones it does show should be the ones you act on first. */
+        .alert-modal-state { font-size: 12.5px; color: #94a3b8; margin: 0 0 12px !important; }
+        .alert-modal-state[hidden] { display: none; }
+
+        .alert-modal-list {
+            list-style: none;
+            margin: 0 0 20px;
+            padding: 0;
+            max-height: 230px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            text-align: left;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
+        }
+
+        .alert-modal-list[hidden] { display: none; }
+        .alert-modal-list::-webkit-scrollbar { width: 8px; }
+        .alert-modal-list::-webkit-scrollbar-track { background: transparent; }
+        .alert-modal-list::-webkit-scrollbar-thumb { background: #dbe3ec; border-radius: 4px; }
+
+        .alert-modal-list li {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 9px 12px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .alert-modal-list li:last-child { border-bottom: none; }
+        .alert-modal-list strong { font-size: 13px; font-weight: 600; color: var(--ink); }
+        .alert-modal-list small { font-size: 11.5px; color: var(--ink-soft); }
 
         @media (prefers-reduced-motion: reduce) {
             .remedi-modal__panel { animation: none; }
@@ -1044,6 +1851,349 @@
         }
 
         /* ── Buttons ── */
+        /* ── Form pages ───────────────────────────────────────────────
+           Add Product, Add User, Edit User. One vocabulary so the three read
+           as the same kind of page: a titled header, a card, and each field
+           introduced by a tinted icon chip.
+
+           The chip is not decoration for its own sake -- these forms are two
+           columns of similar-looking inputs, and the icon is what lets you find
+           "Selling Price" without reading every label. */
+        .form-card {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 26px 28px;
+            box-shadow: 0 18px 40px -28px rgba(15, 23, 42, .45);
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 22px 26px;
+        }
+
+        /* min-width:0 or a long label stretches the grid column instead of
+           wrapping, and the two columns stop being equal. */
+        .form-field { min-width: 0; }
+        .form-field.is-wide { grid-column: 1 / -1; }
+
+        /* Three-up, for the Add New Batch card. Steps down to two columns
+           before the shared 760px rule takes it to one. */
+        .form-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+        @media (max-width: 1100px) {
+            .form-grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        .form-field-head {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            margin-bottom: 9px;
+        }
+
+        /* NEUTRAL, deliberately. These chips were tinted six different ways
+           (green name, purple SKU, blue category, amber money, red alerts),
+           which made a form of six ordinary fields look like six different
+           kinds of thing -- the colour was decoration carrying no rule. The
+           icon now sits in the same tone as the label beside it, the way the
+           sidebar's icons belong to their labels, and it is still what lets
+           you find "Selling Price" without reading every label.
+
+           Colour is kept where it MEANS something and nowhere else: the
+           reports, the inventory status badges, and the alert legend the bell,
+           the toasts and the notifications page share. If you want a chip to
+           stand out here, that is a reason to ask what rule it is expressing. */
+        .form-chip {
+            flex: none;
+            width: 40px;
+            height: 40px;
+            display: grid;
+            place-items: center;
+            border-radius: 11px;
+            font-size: 18px;
+            background: #f1f5f9;
+            color: var(--ink-soft);
+        }
+
+        .form-field-head label {
+            font-size: 14.5px;
+            font-weight: 600;
+            color: var(--ink);
+            margin: 0;
+        }
+
+        .form-field input[type="text"],
+        .form-field input[type="email"],
+        .form-field input[type="number"],
+        .form-field input[type="password"],
+        .form-field input[type="date"],
+        .form-field select {
+            width: 100%;
+            padding: 11px 13px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            color: var(--ink);
+            background: #fff;
+        }
+
+        .form-field input:focus,
+        .form-field select:focus {
+            outline: none;
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px var(--brand-soft);
+        }
+
+        /* An empty date field standing in as a text input (see the
+           date-placeholder script) must not look different from a real one --
+           same box, same metrics, so nothing shifts when it flips on focus. */
+        input.date-placeholder::placeholder {
+            color: var(--ink-soft);
+            opacity: 1;
+        }
+
+        .form-field-note {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 7px;
+            font-size: 12px;
+            color: var(--ink-soft);
+        }
+
+        /* A rule above the actions, so the buttons read as the end of the form
+           rather than one more row of it. */
+        .form-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 26px;
+            padding-top: 22px;
+            border-top: 1px solid var(--line);
+        }
+
+        /* -- Manage Categories -----------------------------------------
+           The "add" panel: a circled + beside the heading, so the card reads as
+           an action rather than another table. */
+        .cat-add {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .cat-add-mark {
+            flex: none;
+            width: 62px;
+            height: 62px;
+            display: grid;
+            place-items: center;
+            border-radius: 50%;
+            background: var(--brand-tint);
+            border: 1px solid var(--brand-soft);
+            color: var(--brand-dark);
+            font-size: 26px;
+        }
+
+        .cat-add-body { flex: 1 1 320px; min-width: 0; }
+        .cat-add-body h4 { margin: 0 0 12px; font-size: 17px; }
+
+        .cat-add-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+        .cat-add-row input {
+            flex: 1 1 240px;
+            min-width: 0;
+            padding: 11px 13px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .cat-add-row input:focus {
+            outline: none;
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px var(--brand-soft);
+        }
+
+        /* Each category keeps its own glyph -- see Category::ICONS. Ten rows of
+           identical text is a list you have to read; ten rows with a mark each
+           is a list you can scan. */
+        .cat-name { display: flex; align-items: center; gap: 12px; }
+
+        .cat-icon {
+            flex: none;
+            width: 36px;
+            height: 36px;
+            display: grid;
+            place-items: center;
+            border-radius: 10px;
+            background: var(--brand-tint);
+            color: var(--brand-dark);
+            font-size: 18px;
+        }
+
+        /* The name stays editable -- renaming a category is a real operation
+           with a real guard behind it (CategoryController::update refuses the
+           rule-driving ones). It is drawn as plain text until you focus or
+           change it, so the table reads as a list rather than a form. */
+        .cat-rename {
+            flex: 1;
+            min-width: 0;
+            padding: 6px 9px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: transparent;
+            font: inherit;
+            font-weight: 500;
+            color: var(--ink);
+        }
+
+        .cat-rename:hover { border-color: var(--line); }
+
+        .cat-rename:focus {
+            outline: none;
+            background: #fff;
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px var(--brand-soft);
+        }
+
+        .cat-count { font-weight: 600; color: var(--brand-darker); }
+
+        .cat-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+        /* Save appears only once the name has actually been edited: a Save
+           button on every row invites clicks that change nothing. */
+        .cat-save[hidden] { display: none; }
+
+        /* A card's own header: tinted chip, then a green title. Used by the
+           Edit Product sections, so each card announces what it is instead of
+           relying on a bare <h4> to separate three stacked panels. */
+        /* A card header with no icon. The chip that used to sit beside the
+           title is gone, so the title has to carry the section on its own --
+           it is set as a highlighted band rather than a bare line of text: a
+           soft brand wash, an accent edge and small caps, which reads as the
+           top of a card at a glance the way the icon did. Full width, so the
+           band itself marks where one card's content begins. */
+        .section-head {
+            display: block;
+            /* Negative margins cancel .form-card's own padding (26px 28px), so
+               the band runs to the card's edges instead of floating inside it
+               with a white margin on three sides. This is why a .section-head
+               only ever belongs at the TOP of a card -- anywhere else the pull
+               would drag it over the content above it. */
+            margin: -26px -28px 22px;
+        }
+
+        .section-head h4 {
+            margin: 0;
+            padding: 14px 28px;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: .07em;
+            text-transform: uppercase;
+            color: var(--brand-darker);
+            background: var(--brand-soft);
+            /* 17px, not 18px: the card's radius measured from INSIDE its 1px
+               border, or the fill shows a hairline of white in each corner. */
+            border-radius: 17px 17px 0 0;
+            border-bottom: 1px solid var(--line);
+        }
+
+        /* Fields across one row, labels above. Deliberately WITHOUT the
+           per-field chips the Add pages use: the card header already carries a
+           chip, and repeating them on six fields in a single row turns a form
+           into a wall of icons. auto-fit means it reflows to fewer columns on
+           a narrow screen with no media query. */
+        .field-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 14px;
+            align-items: end;
+        }
+
+        .field-row label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--ink-soft);
+            margin-bottom: 7px;
+        }
+
+        .field-row input,
+        .field-row select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            color: var(--ink);
+            background: #fff;
+        }
+
+        .field-row input:focus,
+        .field-row select:focus {
+            outline: none;
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px var(--brand-soft);
+        }
+
+        /* Password fields carry a reveal toggle. Typing a password you cannot
+           see into a CONFIRM field is where mismatches come from, and this form
+           is filled in by an admin creating someone else's account -- there is
+           no browser-saved value to fall back on. */
+        .pw-wrap { position: relative; }
+        .pw-wrap input { padding-right: 42px; }
+
+        .pw-toggle {
+            position: absolute;
+            top: 50%;
+            right: 6px;
+            transform: translateY(-50%);
+            width: 30px;
+            height: 30px;
+            display: grid;
+            place-items: center;
+            padding: 0;
+            border: 0;
+            border-radius: 8px;
+            background: transparent;
+            color: #94a3b8;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .pw-toggle:hover { background: #f1f5f9; color: var(--ink); }
+        .pw-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+        /* Chip tints. Keyed to meaning where one exists -- money amber, alerts
+           red -- so a field's colour is the same wherever it appears. */
+
+        /* The form pages' action size, also used by the page-level buttons on
+           the list pages so "Add Product" looks the same as the "Save Product"
+           it leads to. Row buttons inside tables deliberately stay compact --
+           at this size they would break the table's rhythm. */
+        .btn-lg {
+            padding: 11px 20px;
+            font-size: 14.5px;
+            border-radius: 11px;
+            gap: 9px;
+        }
+
+        @media (max-width: 760px) {
+            .form-grid { grid-template-columns: minmax(0, 1fr); }
+            .form-card { padding: 20px 18px; }
+
+            /* Track the card's narrower padding, or the band stops short of
+               the edges on a phone. */
+            .section-head { margin: -20px -18px 18px; }
+            .section-head h4 { padding: 12px 18px; }
+        }
+
         .btn {
             display: inline-flex;
             align-items: center;
@@ -1078,9 +2228,18 @@
         /* Action colours carry meaning at a glance in a table of rows:
            blue = go look at / change it, amber = reversible restriction,
            red = destructive, green = positive/confirm. */
-        .btn-primary   { background: var(--brand); color: #fff; }
-        .btn-info      { background: #0ea5e9; color: #fff; }
-        .btn-warning   { background: #f59e0b; color: #fff; }
+        /* Solid mid-tones, not gradients and not the lightest shade of each
+           hue. A gradient made every button look like a call to action; the
+           base --brand (#10b981) on its own read too light against white for a
+           button that is pressed all day. These sit one step down: saturated
+           enough to be obviously clickable, dark enough to hold white text at
+           small sizes, without going near-black.
+
+           Declared AFTER .btn on purpose: .btn sets `background` and a variant
+           above it would be overridden. Same trap .btn-danger-outline hit. */
+        .btn-primary   { background: #059669; color: #fff; }
+        .btn-info      { background: #3b82f6; color: #fff; }
+        .btn-warning   { background: #e08c07; color: #fff; }
         .btn-danger    { background: #dc2626; color: #fff; }
         .btn-success   { background: #16a34a; color: #fff; }
 
@@ -1093,9 +2252,21 @@
             border-color: #d1d5db;
         }
 
-        .btn-primary:hover   { background: var(--brand-dark); }
-        .btn-info:hover      { background: #0284c7; }
-        .btn-warning:hover   { background: #d97706; }
+        /* Outlined rather than a solid red slab. Ten of those down a column
+           reads as ten warnings; the destructive weight belongs in the confirm
+           dialog, which every one of these already opens. */
+        .btn-danger-outline {
+            background: #fff;
+            color: #b91c1c;
+            border-color: #fecaca;
+        }
+
+        .btn-danger-outline:hover { background: #fef2f2; border-color: #fca5a5; }
+
+        /* Hover goes one step deeper, still solid. */
+        .btn-primary:hover   { background: #047857; }
+        .btn-info:hover      { background: #2563eb; }
+        .btn-warning:hover   { background: #b45309; }
         .btn-danger:hover    { background: #b91c1c; }
         .btn-success:hover   { background: #15803d; }
         .btn-secondary:hover { background: #f8fafc; border-color: #94a3b8; color: #1e293b; }
@@ -1176,10 +2347,73 @@
             box-shadow: 0 0 0 3px rgba(16, 185, 129, .18);
         }
 
-        /* Back always occupies the same slot: its own row, top-left, before
-           anything else on the page. Previously some pages sat it inline with
-           the title and one buried it inside a card, so its position moved
-           depending on where you'd navigated from. */
+        /* ── Page header: back button BESIDE the title ──
+           Back sits on the same line as the heading it belongs to, on every
+           page that has one. It previously occupied its own row above the
+           title; the report pages already did it this way, so the app showed
+           two different placements depending on which page you landed on.
+           This is now the single pattern — put a .page-head on the page and
+           the back button goes inside it, not above it.
+
+           align-items:flex-start so the button stays level with the title line
+           rather than floating to the middle of a two-line title + subtitle.
+           The button's own line-height is shorter than the block beside it, so
+           a small top nudge is what actually lines the two up optically. */
+        .page-head {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .page-head > .btn-back { margin-top: 2px; }
+
+        .page-head-text { min-width: 0; }
+
+        .page-head-text h3 {
+            margin: 0;
+            font-size: 1.15rem;
+            font-weight: 600;
+            color: var(--ink);
+        }
+
+        .page-head-text p {
+            margin: 3px 0 0;
+            font-size: 13px;
+            color: var(--ink-soft);
+        }
+
+        /* When the title IS a record -- a product name, a person -- rather than
+           a page label. "Manage Categories" is signage and 1.15rem is right for
+           it; "CENVERT-16" is the thing you opened and needs to read as the
+           subject of the page, not as a breadcrumb.
+
+           A modifier rather than a change to .page-head-text h3, which ten
+           pages share and most of which are signage. */
+        .page-head-text.is-record h3 {
+            font-size: 1.65rem;
+            font-weight: 700;
+            letter-spacing: -.015em;
+            line-height: 1.2;
+        }
+
+        .page-head-text.is-record p {
+            margin-top: 5px;
+            font-size: 13.5px;
+            font-weight: 500;
+            color: var(--ink-soft);
+        }
+
+        @media (max-width: 620px) {
+            .page-head-text.is-record h3 { font-size: 1.35rem; }
+        }
+
+        /* Anything pushed to the right of the header (filters, actions). */
+        .page-head-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+
+        /* Retained only so a page that still renders a bare .page-back row is
+           not left flush against what follows it. New pages use .page-head. */
         .page-back { margin-bottom: 18px; }
 
         /* ── Back button ──
@@ -1346,6 +2580,15 @@
             width: 100%;
             height: 260px;
         }
+
+        /* Chart.js writes an explicit pixel width onto the canvas when it
+           renders. If the container is later narrowed — a column re-proportioned,
+           a tab shown after the chart was built while hidden — that inline width
+           outlives the change until the next resize observation, and the canvas
+           sticks out of its card (measured: a 447px canvas in a 430px box). The
+           clamp costs nothing when the sizes agree and prevents the overhang
+           when they briefly do not. */
+        .chart-box > canvas { max-width: 100%; }
 
         /* A right-hand legend eats horizontal room, so the ring needs a
            taller box to stay a readable size. Below tablet the legend has
@@ -1620,8 +2863,29 @@
             }
         }
 
+        /* Two up, not one. A single column stacked six tiles before any actual
+           content and made the admin dashboard 4,073px tall on a 375px screen.
+           Measured at 375px: tiles come out 169px wide, and nothing inside
+           overflows -- checked with the longest value the app can print
+           (₱1,229,088.65) forced into every tile. Page height 4,073 -> 3,675px. */
         @media (max-width: 420px) {
-            .kpi-grid { grid-template-columns: 1fr; }
+            .kpi-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+        }
+
+        /* Touch targets. "View All" was 64x21 -- fine for a mouse, under half
+           the 44px a finger needs. Height only: these sit inside flex panel
+           headers, so padding them out sideways would push the title around. */
+        @media (max-width: 767px) {
+            .view-all,
+            .returns-more {
+                display: inline-flex;
+                align-items: center;
+                min-height: 44px;
+            }
+
+            /* The dashboard's two section tabs came out at 41px -- close, but
+               these are the primary control on the page. */
+            .dash-tab { min-height: 44px; }
         }
 
         /* 320px — the narrowest phone still in use (SE-era). The 20px page
@@ -1674,7 +2938,27 @@
                  favicon.svg minus its tile, since the sidebar already supplies
                  a dark panel behind it. --}}
             <span class="brand-mark" aria-hidden="true">
-                <img src="{{ asset('logo.png') }}" alt="" width="34" height="34">
+                {{-- INLINED, not <img src="logo.png">, for the same reason the
+                     dashboard loader inlines its mark. Every navigation in this
+                     app is a full page load, so a linked logo is re-requested on
+                     every click -- and this one was `logo.png`, **279 KB drawn
+                     at 34x34**. On anything slower than localhost (a tunnel, a
+                     phone, `artisan serve` while it is busy with a page) it
+                     arrived after the rest of the sidebar had painted, so the
+                     logo visibly popped in on every click.
+
+                     logo-nav.webp is a 68px derivative (2.7 KB, ~3.6 KB inlined)
+                     from `php artisan logo:mark --width=68 --out=logo-nav.webp`
+                     -- regenerate it whenever logo.png changes, the same rule
+                     logo-mark.webp already carries. If it is missing we fall
+                     back to the linked PNG rather than rendering nothing. --}}
+                @php
+                    $navLogoFile = public_path('logo-nav.webp');
+                    $navLogo = is_file($navLogoFile)
+                        ? 'data:image/webp;base64,'.base64_encode(file_get_contents($navLogoFile))
+                        : asset('logo.png');
+                @endphp
+                <img src="{{ $navLogo }}" alt="" width="34" height="34">
             </span>
             <span class="brand-text">
                 <span class="brand-name">RE<span>ME</span>DI</span>
@@ -1695,7 +2979,14 @@
                 $activeCategoryId = $inventoryActive ? (int) request('category_id') : null;
             @endphp
             <div class="nav-group {{ $inventoryActive ? 'open' : '' }}" id="inventoryNavGroup" data-active="{{ $inventoryActive ? '1' : '0' }}">
-                <button type="button" class="nav-link-btn {{ $inventoryActive ? 'active' : '' }}" id="inventoryNavToggle" aria-expanded="{{ $inventoryActive ? 'true' : 'false' }}">
+                {{-- Carries the All Categories URL so the script below can send
+                     you there. It stays a <button>, not a link: on the
+                     unfiltered inventory page there is nowhere to go and it
+                     goes back to being a pure expand/collapse control. --}}
+                <button type="button" class="nav-link-btn {{ $inventoryActive ? 'active' : '' }}" id="inventoryNavToggle"
+                        data-all-url="{{ route('inventory.index') }}"
+                        data-on-all="{{ $inventoryActive && ! $activeCategoryId ? '1' : '0' }}"
+                        aria-expanded="{{ $inventoryActive ? 'true' : 'false' }}">
                     <i class="ti ti-box" aria-hidden="true"></i> Inventory
                     <i class="ti ti-chevron-down nav-caret" aria-hidden="true"></i>
                 </button>
@@ -1771,229 +3062,22 @@
         </div>
     </aside>
 
-    {{-- Log out confirmation. Lives outside .main-content so the backdrop
-         covers the sidebar too — a dialog you can click "behind" is not one. --}}
-    <div class="remedi-modal" id="logoutModal" role="dialog" aria-modal="true"
-         aria-labelledby="logoutModalTitle" aria-describedby="logoutModalBody">
-        <div class="remedi-modal__panel">
-            <div class="remedi-modal__icon"><i class="ti ti-logout" aria-hidden="true"></i></div>
-            <h3 id="logoutModalTitle">Log out of REMEDI?</h3>
-            <p id="logoutModalBody">
-                You will need to sign in again to get back to the register.
-            </p>
-            <div class="remedi-modal__actions">
-                <button type="button" class="btn btn-secondary" id="logoutCancel">Cancel</button>
-                <button type="button" class="btn btn-danger" id="logoutConfirm">Log out</button>
-            </div>
-        </div>
-    </div>
+    {{-- These two run HERE, inline directly after the sidebar, and not with the
+         rest of the scripts at the end of the body -- that is the whole point
+         of the placement.
 
-    <div class="main-content">
-        <div class="topbar">
-            <div class="topbar-left">
-                <button type="button" class="sidebar-toggle-btn" id="sidebarToggleBtn" title="Show/hide sidebar" aria-label="Show/hide sidebar">
-                    <i class="ti ti-menu-2" aria-hidden="true"></i>
-                </button>
-                <h2>@yield('title', 'Dashboard')</h2>
-            </div>
+         Both change the sidebar's geometry: one sets the submenu's height, the
+         other restores the menu's scroll offset from the previous page. Down at
+         the end of the body they executed only after the entire content markup
+         had been parsed, which on a long table is easily late enough for the
+         browser to have painted the menu already. The result was a menu that
+         appeared at the top and then snapped to its remembered position on
+         every single page load -- the "menu jumping up on refresh".
 
-
-            <div class="topbar-user">
-                {{-- Notification bell. Count and list both come from
-                     AlertService (see AppServiceProvider), so the badge can
-                     never disagree with the panel it opens or with the
-                     dashboard's Alerts card.
-
-                     Rendered server-side first so it is correct before any JS
-                     runs and without a request on load; the script below then
-                     polls /alerts to keep it live. --}}
-                <div class="topbar-bell-wrap" id="bellWrap">
-                    <button type="button" class="topbar-bell" id="bellBtn"
-                            aria-haspopup="true" aria-expanded="false" aria-controls="bellPanel"
-                            title="{{ $topbarAlertCount ?? 0 }} {{ Str::plural('notification', $topbarAlertCount ?? 0) }}"
-                            aria-label="Alerts ({{ $topbarAlertCount ?? 0 }} notifications)">
-                        <i class="ti ti-bell" aria-hidden="true"></i>
-                        <span class="count" id="bellCount"
-                              @if(($topbarAlertCount ?? 0) < 1) hidden @endif>{{ ($topbarAlertCount ?? 0) > 9 ? '9+' : ($topbarAlertCount ?? 0) }}</span>
-                    </button>
-
-                    <div class="topbar-bell-panel" id="bellPanel" role="region" aria-label="Alerts">
-                        <div class="topbar-bell-head">
-                            <strong>Alerts</strong>
-                            <small id="bellStamp">just now</small>
-                        </div>
-                        {{-- Item-level rows: each names the product it is about,
-                             the way a notification feed does. The kind-level
-                             totals moved to the footer below. --}}
-                        <div id="bellList">
-                            @forelse(($topbarAlertItems ?? []) as $item)
-                                <a href="{{ $item['href'] }}" class="topbar-bell-row {{ $item['cls'] }}">
-                                    <i class="ti {{ $item['icon'] }}" aria-hidden="true"></i>
-                                    <span>
-                                        <strong>{{ $item['title'] }}</strong>
-                                        <small>{{ $item['body'] }}</small>
-                                    </span>
-                                </a>
-                            @empty
-                                <p class="topbar-bell-empty">Nothing needs attention right now.</p>
-                            @endforelse
-                        </div>
-
-                        {{-- The panel shows a few of each kind, so the totals
-                             have to stay reachable or the bell would imply
-                             three low-stock products when there are 645. --}}
-                        <div id="bellFoot" class="topbar-bell-foot">
-                            @foreach(($topbarAlerts ?? []) as $alert)
-                                <a href="{{ $alert['href'] }}">
-                                    View all {{ number_format($alert['count']) }} {{ $alert['short'] }}
-                                </a>
-                            @endforeach
-                        </div>
-                    </div>
-                </div>
-
-                {{-- The avatar and name are the obvious thing to click to get to
-                     your own account, so they are a link rather than decoration.
-                     data-no-skeleton: this is one page, not a section change --
-                     see the navigation-skeleton note in the script below. --}}
-                <a href="{{ route('profile.edit') }}" class="topbar-identity" data-no-skeleton
-                   title="Go to My Profile">
-                <div class="user-avatar">
-                    {{ strtoupper(substr(auth()->user()->name, 0, 2)) }}
-                </div>
-                <div class="topbar-role">
-                    <strong>{{ auth()->user()->name }}</strong>
-                    <small>{{ auth()->user()->isAdmin() ? 'Administrator' : 'Staff' }}</small>
-                </div>
-                </a>
-            </div>
-        </div>
-
-        <div class="content-body">
-            @if(session('success'))
-                <div class="alert alert-success">
-                    <i class="ti ti-circle-check" aria-hidden="true"></i>
-                    <span>{{ session('success') }}</span>
-                </div>
-            @endif
-
-            @if($errors->any())
-                <div class="alert alert-danger">
-                    <i class="ti ti-alert-circle" aria-hidden="true"></i>
-                    <div>
-                        <ul>
-                            @foreach($errors->all() as $error)
-                                <li>{{ $error }}</li>
-                            @endforeach
-                        </ul>
-                    </div>
-                </div>
-            @endif
-
-            {{-- Shown in place of the real content while a sidebar navigation
-                 is in flight. Intentionally generic: it stands in for every
-                 page, so it suggests "a page is coming" rather than mimicking
-                 any one layout. --}}
-            {{-- Shaped like the dashboard it most often stands in for: greeting
-                 bar, six KPI tiles, two charts. Close enough that the real page
-                 lands in roughly the same places instead of jumping. --}}
-            <div class="page-skeleton" aria-hidden="true">
-                <div class="sk-greeting">
-                    <div class="sk-greeting-text">
-                        <div class="sk-block sk-h"></div>
-                        <div class="sk-block sk-sub"></div>
-                    </div>
-                    <div class="sk-block sk-pill"></div>
-                </div>
-
-                <div class="sk-kpis">
-                    @for ($i = 0; $i < 6; $i++)
-                        <div class="sk-kpi">
-                            <div class="sk-kpi-head">
-                                <div class="sk-block sk-disc"></div>
-                                <div class="sk-block sk-cap"></div>
-                            </div>
-                            <div class="sk-block sk-num"></div>
-                            <div class="sk-block sk-note"></div>
-                        </div>
-                    @endfor
-                </div>
-
-                <div class="sk-tabs">
-                    <div class="sk-block sk-pill-tab"></div>
-                    <div class="sk-block sk-pill-tab"></div>
-                </div>
-
-                <div class="sk-block sk-sec-title"></div>
-                <div class="sk-block sk-sec-sub"></div>
-
-                <div class="sk-charts">
-                    <div class="sk-chart">
-                        <div class="sk-block sk-chart-title"></div>
-                        <div class="sk-block sk-chart-body"></div>
-                    </div>
-                    <div class="sk-chart">
-                        <div class="sk-block sk-chart-title"></div>
-                        <div class="sk-block sk-chart-body"></div>
-                    </div>
-                </div>
-
-                <div class="sk-lower">
-                    <div class="sk-chart">
-                        <div class="sk-block sk-chart-title"></div>
-                        <div class="sk-block sk-chart-body"></div>
-                    </div>
-                    <div class="sk-chart">
-                        <div class="sk-block sk-chart-title"></div>
-                        <div class="sk-block sk-chart-body"></div>
-                    </div>
-                </div>
-            </div>
-
-            @yield('content')
-        </div>
-    </div>
-
-</div>
-
-<script>
-    // Sidebar show/hide toggle, persisted across page loads.
-    (function () {
-        var toggleBtn = document.getElementById('sidebarToggleBtn');
-        if (!toggleBtn) return;
-
-        var isMobile = function () { return window.matchMedia('(max-width: 767px)').matches; };
-
-        function setHidden(next) {
-            document.documentElement.setAttribute('data-sidebar-hidden', next ? 'true' : 'false');
-            // Don't let a phone's transient drawer state overwrite the saved
-            // desktop preference.
-            if (!isMobile()) {
-                localStorage.setItem('remedi_sidebar_hidden', next ? 'true' : 'false');
-            }
-        }
-
-        toggleBtn.addEventListener('click', function () {
-            setHidden(document.documentElement.getAttribute('data-sidebar-hidden') !== 'true');
-        });
-
-        var scrim = document.getElementById('sidebarScrim');
-        if (scrim) scrim.addEventListener('click', function () { setHidden(true); });
-
-        document.addEventListener('keydown', function (e) {
-            if (e.key === 'Escape' && isMobile()) setHidden(true);
-        });
-
-        // Tapping a nav link navigates; leaving the drawer open over the
-        // outgoing page (and the skeleton) just hides what you asked for.
-        var sidebarEl = document.querySelector('.sidebar');
-        if (sidebarEl) {
-            sidebarEl.addEventListener('click', function (e) {
-                if (isMobile() && e.target.closest('a')) setHidden(true);
-            });
-        }
-    })();
-
+         Running them while the parser is still inside the document, before the
+         content exists, means the first paint already has the right geometry.
+         Both are self-contained: DOM plus web storage, no REMEDI helpers. --}}
+    <script>
     // Inventory nav group: expand/collapse the category sub-buttons.
     // Starts open automatically whenever we're already on an inventory
     // page (see the "open" class rendered server-side above).
@@ -2029,6 +3113,34 @@
         apply(onInventory || stored === '1');
 
         toggle.addEventListener('click', function () {
+            /* Clicking Inventory GOES to Inventory -- All Categories -- rather
+               than only unfolding a menu you then have to click again. It used
+               to be expand-only, so reaching the unfiltered list from anywhere
+               else in the app took two clicks and looked like the tab did
+               nothing.
+
+               The exception is when you are already on the unfiltered list:
+               there is nowhere to navigate to, so it behaves as the pure
+               expand/collapse it always was. That keeps the remembered
+               open/closed state below meaningful -- without it there would be
+               no way to collapse the category list at all. */
+            if (toggle.dataset.onAll !== '1' && toggle.dataset.allUrl) {
+                // Remember it as open -- the destination renders it open anyway,
+                // and animating it here only competes with the page change.
+                localStorage.setItem(KEY, '1');
+
+                // Same skeleton and "Loading Inventory…" pill every other tab
+                // gets. Looked up at click time, not bind time: this block runs
+                // before the navigation script further down has defined it.
+                if (window.REMEDI && typeof window.REMEDI.showNavigating === 'function') {
+                    window.REMEDI.showNavigating(toggle);
+                }
+
+                window.location.href = toggle.dataset.allUrl;
+
+                return;
+            }
+
             var open = !group.classList.contains('open');
             apply(open);
             localStorage.setItem(KEY, open ? '1' : '0');
@@ -2100,6 +3212,345 @@
             sessionStorage.setItem(KEY, nav.scrollTop);
         });
     })();
+    </script>
+
+    {{-- Log out confirmation. Lives outside .main-content so the backdrop
+         covers the sidebar too — a dialog you can click "behind" is not one. --}}
+    <div class="remedi-modal" id="logoutModal" role="dialog" aria-modal="true"
+         aria-labelledby="logoutModalTitle" aria-describedby="logoutModalBody">
+        <div class="remedi-modal__panel">
+            <div class="remedi-modal__icon"><i class="ti ti-logout" aria-hidden="true"></i></div>
+            <h3 id="logoutModalTitle">Log out of REMEDI?</h3>
+            <p id="logoutModalBody">
+                You will need to sign in again to get back to the register.
+            </p>
+            <div class="remedi-modal__actions">
+                <button type="button" class="btn btn-secondary" id="logoutCancel">Cancel</button>
+                <button type="button" class="btn btn-danger" id="logoutConfirm">Log out</button>
+            </div>
+        </div>
+    </div>
+
+    {{-- Shared confirm dialog for every destructive or state-changing action:
+         delete, activate/deactivate, mark-as-returned. Driven entirely by
+         data-* attributes on the form (see the js-confirm handler at the foot
+         of this file), so a new one costs a class and two attributes rather
+         than another copy of this markup. Sits outside .main-content for the
+         same reason #logoutModal does — the backdrop has to cover the sidebar.
+
+         The title/body/label/icon are filled in per form; the tone class
+         swaps the icon disc between destructive red and a neutral blue for
+         actions that are reversible. --}}
+    <div class="remedi-modal" id="confirmModal" role="dialog" aria-modal="true"
+         aria-labelledby="confirmModalTitle" aria-describedby="confirmModalBody">
+        <div class="remedi-modal__panel">
+            <div class="remedi-modal__icon" id="confirmModalIcon">
+                <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+            </div>
+            <h3 id="confirmModalTitle">Are you sure?</h3>
+            <p id="confirmModalBody"></p>
+            <div class="remedi-modal__actions">
+                <button type="button" class="btn btn-secondary" id="confirmModalCancel">Cancel</button>
+                <button type="button" class="btn btn-danger" id="confirmModalConfirm">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    {{-- Message popup. Replaces window.alert() — the POS out-of-stock and
+         over-cart-limit warnings used to be browser alerts, which look like a
+         browser error, block the whole tab, and cannot say anything the server
+         knows. This is the same card as the confirm dialog, and the POS fills
+         its detail line from a live /pos/lookup, so the figure the cashier is
+         told is the figure on the shelf right now rather than whatever the page
+         was rendered with. --}}
+    <div class="remedi-modal" id="messageModal" role="dialog" aria-modal="true"
+         aria-labelledby="messageModalTitle" aria-describedby="messageModalBody">
+        <div class="remedi-modal__panel">
+            <div class="remedi-modal__icon" id="messageModalIcon">
+                <i class="ti ti-alert-triangle" aria-hidden="true"></i>
+            </div>
+            <h3 id="messageModalTitle">Notice</h3>
+            <p id="messageModalBody"></p>
+            <ul class="alert-modal-list" id="messageModalList" hidden></ul>
+            <p class="alert-modal-state" id="messageModalState" hidden></p>
+            <div class="remedi-modal__actions">
+                <button type="button" class="btn btn-primary" id="messageModalOk">OK</button>
+            </div>
+        </div>
+    </div>
+
+    {{-- Alert toasts. Bottom-right, ONE AT A TIME, each self-dismissing after
+         5s with a chime.
+
+         Two ways in, one queue:
+           - the GREETING, the open alerts as they stood when the page was
+             rendered, played once per browser session; and
+           - LIVE pops, queued when the bell's poll turns up a notification that
+             was not in the list before.
+
+         Both name the individual product ("BIOGESIC 500MG — 2 PCS left") rather
+         than summarising a kind, and carry the moment the alert began. The seed
+         below is the same $topbarAlertItems the bell renders, so this costs no
+         query and cannot disagree with the panel it sits under. --}}
+    @php
+        // All four stock kinds. fail_to_return is deliberately left to the bell:
+        // a missed return window is a standing regret, not something to
+        // interrupt anyone about.
+        $toastKinds = ['low_stock', 'expiring', 'expired', 'need_to_return'];
+
+        $toastSeed = [
+            'kinds' => $toastKinds,
+
+            // Already ordered newest-first across kinds by AlertService, so the
+            // queue plays most-recent-first without re-sorting here.
+            'items' => collect($topbarAlertItems ?? [])
+                ->whereIn('kind', $toastKinds)
+                ->values()
+                ->all(),
+        ];
+    @endphp
+
+    {{-- Always rendered, even with nothing to say: it is the mount point live
+         pops are appended to, and a container that only existed when the page
+         happened to load with an open alert could never receive one. --}}
+    <div class="remedi-toasts" id="remediToasts" role="status" aria-live="polite"
+         data-user="{{ auth()->id() }}"
+         data-fresh-login="{{ session('remedi.just_signed_in') ? '1' : '0' }}"></div>
+
+    {{-- JSON rather than data-attributes: these strings are product names, and
+         the hex flags keep a name containing </script> or a quote from breaking
+         out of the block. --}}
+    <script type="application/json" id="remediToastSeed">@json($toastSeed, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT)</script>
+
+    <div class="main-content">
+        <div class="topbar">
+            <div class="topbar-left">
+                <button type="button" class="sidebar-toggle-btn" id="sidebarToggleBtn" title="Show/hide sidebar" aria-label="Show/hide sidebar">
+                    <i class="ti ti-menu-2" aria-hidden="true"></i>
+                </button>
+                <h2>@yield('title', 'Dashboard')</h2>
+            </div>
+
+
+            <div class="topbar-user">
+                {{-- Notification bell. Count and list both come from
+                     AlertService (see AppServiceProvider), so the badge can
+                     never disagree with the panel it opens or with the
+                     dashboard's Alerts card.
+
+                     Rendered server-side first so it is correct before any JS
+                     runs and without a request on load; the script below then
+                     polls /alerts to keep it live. --}}
+                <div class="topbar-bell-wrap" id="bellWrap">
+                    <button type="button" class="topbar-bell" id="bellBtn"
+                            aria-haspopup="true" aria-expanded="false" aria-controls="bellPanel"
+                            title="{{ $topbarAlertCount ?? 0 }} {{ Str::plural('notification', $topbarAlertCount ?? 0) }}"
+                            aria-label="Alerts ({{ $topbarAlertCount ?? 0 }} notifications)">
+                        <i class="ti ti-bell" aria-hidden="true"></i>
+                        <span class="count" id="bellCount"
+                              @if(($topbarAlertCount ?? 0) < 1) hidden @endif>{{ ($topbarAlertCount ?? 0) > 9 ? '9+' : ($topbarAlertCount ?? 0) }}</span>
+                    </button>
+
+                    <div class="topbar-bell-panel" id="bellPanel" role="region" aria-label="Alerts">
+                        <div class="topbar-bell-head">
+                            <strong>Notifications</strong>
+                            <div class="topbar-bell-headactions">
+                                <button type="button" id="bellMarkRead" class="topbar-bell-markread" hidden>
+                                    Mark all as read
+                                </button>
+                                <button type="button" id="bellClose" class="topbar-bell-close" aria-label="Close notifications">
+                                    <i class="ti ti-x" aria-hidden="true"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        {{-- Tabs. Staff only ever see inventory alerts, so the
+                             System/Updates tabs are not rendered for them at
+                             all rather than shown empty — the audit trail they
+                             read from is admin-only. --}}
+                        {{-- Staff get the Alerts tab alone. System and Updates
+                             read from the audit trail, which is admin-only, so a
+                             staff bell has nothing but alerts in it -- which made
+                             "All" and "Alerts" two buttons producing the identical
+                             list. The remaining tab is not really a filter for
+                             them; it labels what they are looking at. --}}
+                        <div class="topbar-bell-tabs" role="tablist">
+                            @if(auth()->user()?->isAdmin())
+                                <button type="button" class="bell-tab is-active" data-tab="all" role="tab" aria-selected="true">All</button>
+                                <button type="button" class="bell-tab" data-tab="alerts" role="tab" aria-selected="false">Alerts</button>
+                                <button type="button" class="bell-tab" data-tab="system" role="tab" aria-selected="false">System</button>
+                                <button type="button" class="bell-tab" data-tab="updates" role="tab" aria-selected="false">Updates</button>
+                            @else
+                                <button type="button" class="bell-tab is-active" data-tab="alerts" role="tab" aria-selected="true">Alerts</button>
+                            @endif
+                        </div>
+                        <small id="bellStamp" hidden>just now</small>
+                        {{-- Item-level rows: each names the product it is about,
+                             the way a notification feed does. The kind-level
+                             totals moved to the footer below. --}}
+                        <div id="bellList">
+                            @php
+                                // One feed, newest first — the same order the
+                                // script re-applies after every poll, so the
+                                // server-rendered first frame already matches
+                                // what the panel settles on.
+                                $bellFeed = collect(array_merge($topbarAlertItems ?? [], $topbarActivity ?? []))
+                                    ->sortByDesc(fn ($i) => strtotime($i['sort_at'] ?? $i['at'] ?? '@0'))
+                                    ->values();
+                            @endphp
+                            @forelse($bellFeed as $item)
+                                <a href="{{ $item['href'] }}" class="topbar-bell-row {{ $item['cls'] }}"
+                                   data-alert-id="{{ $item['id'] ?? '' }}"
+                                   data-group="{{ $item['group'] ?? 'alerts' }}"
+                                   data-sort-at="{{ $item['sort_at'] ?? $item['at'] ?? '' }}"
+                                   @if(!empty($item['at'])) data-at="{{ $item['at'] }}" @endif>
+                                    <span class="bell-icon" aria-hidden="true"><i class="ti {{ $item['icon'] }}"></i></span>
+                                    <span class="bell-text">
+                                        <strong>{{ $item['title'] }}</strong>
+                                        <small>{{ $item['body'] }}</small>
+                                        {{-- Every row carries a time now. data-when is the
+                                             absolute label AlertService formatted (an audit
+                                             row's event time, an alert's "Since <onset>");
+                                             data-at is added only for rows that are a real
+                                             EVENT, and drives the "x ago" the script
+                                             re-stamps every minute. An inventory alert gets
+                                             no "x ago" because it is a standing condition --
+                                             saying it happened 2 minutes ago would be a lie,
+                                             which is why the onset is labelled instead. --}}
+                                        @if(!empty($item['when']))
+                                            <em class="bell-time" data-when="{{ $item['when'] }}"
+                                                @if(!empty($item['at'])) data-at="{{ $item['at'] }}" @endif
+                                                @if(empty($item['at']) && !empty($item['sort_at'])) data-since="{{ $item['sort_at'] }}" @endif
+                                            >{{ $item['when'] }}</em>
+                                        @endif
+                                    </span>
+                                    <span class="unread-dot" aria-hidden="true"></span>
+                                </a>
+                            @empty
+                                <p class="topbar-bell-empty">Nothing needs attention right now.</p>
+                            @endforelse
+                        </div>
+
+                        {{-- The panel shows a few of each kind, so the totals
+                             have to stay reachable or the bell would imply
+                             three low-stock products when there are 645. --}}
+                        <div id="bellFoot" class="topbar-bell-foot">
+                            @foreach(($topbarAlerts ?? []) as $alert)
+                                <a href="{{ $alert['href'] }}">
+                                    View all {{ number_format($alert['count']) }} {{ $alert['short'] }}
+                                </a>
+                            @endforeach
+                        </div>
+
+                        <a href="{{ route('notifications.index') }}" class="topbar-bell-viewall">
+                            View all notifications <i class="ti ti-arrow-right" aria-hidden="true"></i>
+                        </a>
+                    </div>
+                </div>
+
+                {{-- The avatar and name are the obvious thing to click to get to
+                     your own account, so they are a link rather than decoration.
+                     data-no-skeleton: this is one page, not a section change --
+                     see the navigation-skeleton note in the script below. --}}
+                <a href="{{ route('profile.edit') }}" class="topbar-identity" data-no-skeleton
+                   title="Go to My Profile">
+                <div class="user-avatar">
+                    {{ strtoupper(substr(auth()->user()->name, 0, 2)) }}
+                </div>
+                <div class="topbar-role">
+                    <strong>{{ auth()->user()->name }}</strong>
+                    <small>{{ auth()->user()->isAdmin() ? 'Administrator' : 'Staff' }}</small>
+                </div>
+                </a>
+            </div>
+        </div>
+
+        <div class="content-body">
+            {{-- Server-rendered outcomes. data-flash marks them for the script
+                 below, which re-shows each one in the shared message dialog and
+                 hides the banner. Rendered in the page rather than injected by
+                 JS so that with JavaScript off they are still read normally --
+                 the dialog is the enhancement, the banner is the floor. --}}
+            @if(session('success'))
+                <div class="alert alert-success" data-flash="success">
+                    <i class="ti ti-circle-check" aria-hidden="true"></i>
+                    <span>{{ session('success') }}</span>
+                </div>
+            @endif
+
+            @if(session('error'))
+                <div class="alert alert-danger" data-flash="error">
+                    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+                    <span>{{ session('error') }}</span>
+                </div>
+            @endif
+
+            @if($errors->any())
+                <div class="alert alert-danger" data-flash="error" data-flash-title="Please check the form">
+                    <i class="ti ti-alert-circle" aria-hidden="true"></i>
+                    <div>
+                        <ul>
+                            @foreach($errors->all() as $error)
+                                <li>{{ $error }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                </div>
+            @endif
+
+            {{-- Shown in place of the real content while a sidebar navigation
+                 is in flight. Intentionally generic: it stands in for every
+                 page, so it suggests "a page is coming" rather than mimicking
+                 any one layout. --}}
+            {{-- Shaped like the dashboard it most often stands in for: greeting
+                 bar, six KPI tiles, two charts. Close enough that the real page
+                 lands in roughly the same places instead of jumping. --}}
+            @include('partials._page-skeleton')
+
+            @yield('content')
+        </div>
+    </div>
+
+</div>
+
+<script>
+    // Sidebar show/hide toggle, persisted across page loads.
+    (function () {
+        var toggleBtn = document.getElementById('sidebarToggleBtn');
+        if (!toggleBtn) return;
+
+        var isMobile = function () { return window.matchMedia('(max-width: 767px)').matches; };
+
+        function setHidden(next) {
+            document.documentElement.setAttribute('data-sidebar-hidden', next ? 'true' : 'false');
+            // Don't let a phone's transient drawer state overwrite the saved
+            // desktop preference.
+            if (!isMobile()) {
+                localStorage.setItem('remedi_sidebar_hidden', next ? 'true' : 'false');
+            }
+        }
+
+        toggleBtn.addEventListener('click', function () {
+            setHidden(document.documentElement.getAttribute('data-sidebar-hidden') !== 'true');
+        });
+
+        var scrim = document.getElementById('sidebarScrim');
+        if (scrim) scrim.addEventListener('click', function () { setHidden(true); });
+
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && isMobile()) setHidden(true);
+        });
+
+        // Tapping a nav link navigates; leaving the drawer open over the
+        // outgoing page (and the skeleton) just hides what you asked for.
+        var sidebarEl = document.querySelector('.sidebar');
+        if (sidebarEl) {
+            sidebarEl.addEventListener('click', function (e) {
+                if (isMobile() && e.target.closest('a')) setHidden(true);
+            });
+        }
+    })();
+
 
     // ── Shared list-loading skeleton ──
     // Every list page (POS, inventory, products, sales, forecast) refreshes
@@ -2126,6 +3577,125 @@
 
         return document.scrollingElement || document.documentElement;
     };
+
+    /**
+     * Capture the scroll offset now, put it back after the DOM has been
+     * rewritten.
+     *
+     * Every list page swaps its rows over fetch, and the offset has to be read
+     * BEFORE the swap and written to the SAME element afterwards — resolve the
+     * scroller after the rows are gone and the page may no longer overflow, so
+     * REMEDI.scroller() answers with a different element and the write lands on
+     * something that does not scroll.
+     *
+     * If the new list is genuinely shorter than the old offset the browser
+     * clamps, and that is correct: there is no row 40 to return to.
+     */
+    REMEDI.holdScroll = function () {
+        var el = REMEDI.scroller();
+        var y = el.scrollTop;
+
+        return function () { el.scrollTop = y; };
+    };
+
+    /**
+     * Lock the page behind a modal without losing the reader's place.
+     *
+     * Every dialog in the app sets body overflow to hidden so the page behind
+     * it cannot scroll. That collapses the document's scrollable overflow, the
+     * browser clamps the offset to zero, and restoring overflow on close leaves
+     * you at the top -- measured: open the confirm dialog 300px down a list,
+     * cancel it, and you are back at row 1. The dialog had not even done
+     * anything yet.
+     *
+     * Returns the unlock, so callers cannot restore the overflow and forget the
+     * offset.
+     */
+    REMEDI.lockScroll = function () {
+        var el = REMEDI.scroller();
+        var y = el.scrollTop;
+
+        document.body.style.overflow = 'hidden';
+
+        return function () {
+            document.body.style.overflow = '';
+            el.scrollTop = y;
+        };
+    };
+
+    /**
+     * Keep the reader's place across a full page reload.
+     *
+     * Every `js-confirm` action without an explicit data-on-success falls back
+     * to window.location.reload() — marking a batch returned, adding a batch,
+     * deleting a category. On a 645-row inventory list that meant clicking
+     * "Return" on row 40 and coming back at row 1, with the row you just acted
+     * on somewhere off screen. That is the single most common "why did it jump
+     * to the top" in the app.
+     *
+     * Stamped per URL, consumed once, and expiring: a reload lands within
+     * milliseconds, so anything older is a later visit that should open where
+     * the browser would normally open it.
+     */
+    var SCROLL_KEY = 'remedi_scroll';
+
+    REMEDI.reloadKeepingPlace = function () {
+        try {
+            sessionStorage.setItem(SCROLL_KEY, JSON.stringify({
+                url: location.href,
+                y: REMEDI.scroller().scrollTop,
+                at: Date.now(),
+            }));
+        } catch (e) { /* private mode: reload without the courtesy */ }
+
+        window.location.reload();
+    };
+
+    (function restoreScrollAfterReload() {
+        var raw = null;
+        try { raw = sessionStorage.getItem(SCROLL_KEY); } catch (e) { return; }
+        if (!raw) return;
+        try { sessionStorage.removeItem(SCROLL_KEY); } catch (e) { /* consumed either way */ }
+
+        var saved;
+        try { saved = JSON.parse(raw); } catch (e) { return; }
+        if (!saved || saved.url !== location.href || Date.now() - saved.at > 10000) return;
+
+        /* Retry until it sticks, rather than firing once and hoping.
+           Measured: a single attempt two frames in lands while the document is
+           still at viewport height, so the offset clamps to 0 and the whole
+           courtesy silently does nothing. The page reaches full height a few
+           frames later (table layout, web fonts, the charts' first draw), and
+           REMEDI.scroller() can answer with a different element until it does.
+
+           Stops as soon as the offset holds, after ~20 frames, or the moment
+           the reader scrolls for themselves — fighting someone for control of
+           the scrollbar is worse than losing their place. */
+        var tries = 0;
+        var cancelled = false;
+
+        function stopRestoring() { cancelled = true; }
+
+        ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(function (evt) {
+            window.addEventListener(evt, stopRestoring, { once: true, passive: true });
+        });
+
+        (function attempt() {
+            if (cancelled) return;
+
+            var el = REMEDI.scroller();
+            el.scrollTop = saved.y;
+
+            if (Math.abs(el.scrollTop - saved.y) <= 2 || ++tries > 20) {
+                ['wheel', 'touchstart', 'keydown', 'pointerdown'].forEach(function (evt) {
+                    window.removeEventListener(evt, stopRestoring);
+                });
+                return;
+            }
+
+            requestAnimationFrame(attempt);
+        })();
+    })();
 
     REMEDI.showListSkeleton = function (wrapper, opts) {
         if (!wrapper) return;
@@ -2201,6 +3771,12 @@
         var contentBody = document.querySelector('.content-body');
         if (!sidebar || !contentBody) return;
 
+        /* How long a navigation must already be taking before a placeholder is
+           worth showing. Below this the next page has effectively arrived, and
+           painting one would only flicker. */
+        var SKELETON_DELAY_MS = 180;
+        var paint = null;
+
         var topbarTitle = document.querySelector('.topbar-left h2');
         var originalTitle = topbarTitle ? topbarTitle.textContent : null;
         var deactivated = [];
@@ -2254,19 +3830,96 @@
 
             navigating = true;
             link.classList.add('is-loading');
-            contentBody.classList.add('is-navigating');
-            contentBody.scrollTop = 0;
 
-            // Force a synchronous style+layout flush. Once a navigation is
-            // under way the browser is free to skip repainting the outgoing
-            // document, which would leave the skeleton applied but never
-            // shown. Reading a layout property makes it commit now.
-            void contentBody.offsetHeight;
+            /* Everything the click PAINTS is delayed by SKELETON_DELAY_MS.
+
+               Most pages here answer in a fraction of a second on a local
+               server. Swapping the content out for a placeholder and back again
+               inside that window is not feedback -- the page visibly collapses
+               to the skeleton, the scroll offset is clamped, and it all snaps
+               back as the next document paints. That is the "jumping up and
+               popping" on every tab click.
+
+               Waiting means a fast page never paints a skeleton at all: you
+               click and the next page is simply there. A slow one still gets the
+               full treatment, which is the case this was built for -- /dashboard
+               takes 5-12s. clearNavigating() cancels the timer if the page
+               arrives first, or if the navigation turns out not to be one. */
+            paint = setTimeout(function () {
+                paint = null;
+
+                /* Dress the skeleton as the page being opened. Only the
+                   dashboard and the reports are KPI tiles over charts;
+                   everything else is a header over rows, and standing in with
+                   the wrong one makes the real page visibly jump when it lands. */
+                var navSkeleton = contentBody.querySelector('.page-skeleton');
+                if (navSkeleton) {
+                    var href = link.getAttribute('href') || '';
+                    navSkeleton.dataset.shape = /\/(dashboard|reports)(\/|\?|#|$)/.test(href)
+                        ? 'dash'
+                        : 'list';
+                }
+
+                /* The header pill. The dashboard has always shown one while it
+                   fetches its body; this puts the same marker on every other
+                   page while the next document is in flight.
+
+                   Its own id, so clearNavigating() removes THIS pill and never
+                   the one dashboard/index builds for its AJAX body -- two
+                   different waits, and the dashboard owns the end of its own. */
+                var oldPill = document.getElementById('navLoadingPill');
+                if (oldPill) oldPill.remove();
+
+                var topbarLeft = document.querySelector('.topbar-left');
+                if (topbarLeft) {
+                    // navLabel() is the sidebar item's own text. An in-content
+                    // button says "Edit" or "Generate", which is not the name of
+                    // a page, so those get the bare form.
+                    var dest = sidebar.contains(link) ? navLabel(link) : '';
+
+                    var pill = document.createElement('span');
+                    pill.className = 'topbar-loading';
+                    pill.id = 'navLoadingPill';
+                    pill.textContent = dest ? 'Loading ' + dest + '\u2026' : 'Loading\u2026';
+                    topbarLeft.appendChild(pill);
+                }
+
+                /* Hold the page's height while the skeleton is up.
+                   .is-navigating replaces the content with a short placeholder,
+                   so the document collapses from (measured) 2398px to under a
+                   viewport, the browser clamps the scroll offset to the new
+                   maximum, and the reader is thrown up the page -- 900px to
+                   324px on the dashboard. That is invisible when the navigation
+                   lands, because the next document starts at the top anyway. It
+                   is very visible when it does NOT land: a click that ends a
+                   text selection, a link to the page you are already on, a
+                   cancelled download. The page just jumped for nothing.
+
+                   Same trick as REMEDI.showListSkeleton: pin the height, and let
+                   clearNavigating() release it. */
+                contentBody.style.minHeight = contentBody.getBoundingClientRect().height + 'px';
+                contentBody.classList.add('is-navigating');
+
+                // Force a synchronous style+layout flush. Once a navigation is
+                // under way the browser is free to skip repainting the outgoing
+                // document, which would leave the skeleton applied but never
+                // shown. Reading a layout property makes it commit now.
+                void contentBody.offsetHeight;
+            }, SKELETON_DELAY_MS);
         }
 
         function clearNavigating() {
             navigating = false;
+
+            // A navigation that resolved inside the delay never painted and
+            // must not paint now.
+            if (paint) { clearTimeout(paint); paint = null; }
+
+            var pill = document.getElementById('navLoadingPill');
+            if (pill) pill.remove();
+
             contentBody.classList.remove('is-navigating');
+            contentBody.style.minHeight = '';
             sidebar.querySelectorAll('.is-loading').forEach(function (el) {
                 el.classList.remove('is-loading');
             });
@@ -2289,6 +3942,17 @@
             // navigation: modifier/middle clicks open new tabs, and a
             // handler elsewhere may still preventDefault this event.
             if (e.defaultPrevented) return;
+
+            /* A click that merely ends a text selection is not a request to go
+               anywhere. Selecting a product name inside a row -- and every row
+               in this app is a link now -- fired this handler on mouseup, and
+               the skeleton it raises hides the real content: any scroll
+               container inside it loses its offset (measured on /notifications,
+               the list jumped 200 -> 0), and the page collapses to the skeleton
+               height. If the browser does navigate anyway the only thing lost
+               is the skeleton, which is cosmetic. */
+            var selection = window.getSelection();
+            if (selection && !selection.isCollapsed) return;
             if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
             if (link.target && link.target !== '_self') return;
             if (link.hasAttribute('download')) return;
@@ -2313,6 +3977,120 @@
             if (url.href === window.location.href) return;
 
             showNavigating(link);
+        });
+
+        /* The skeleton + header pill are raised by the document click handler
+           above, which only fires for <a>. The Inventory nav toggle is a
+           <button> that navigates, so it has to ask for the same treatment by
+           hand -- without this it jumped straight to the next page with no
+           loading state at all while its submenu was still animating open,
+           which read as a glitch. */
+        window.REMEDI = window.REMEDI || {};
+        window.REMEDI.showNavigating = showNavigating;
+
+        /* mm/dd/yyyy inside every EMPTY date field.
+           ---------------------------------------------------------------
+           A native <input type="date"> cannot be given a placeholder: the
+           attribute is ignored, and the grey text it shows when empty is drawn
+           by the BROWSER from its own locale. Nothing in the document changes
+           that -- verified by rendering four date inputs with no lang, en-US,
+           en-GB and en-CA: Chrome printed mm/dd/yyyy in all four, because it
+           follows its own UI language. A register whose browser runs a
+           dd/mm/yyyy locale would show dd/mm/yyyy, and the markup could not
+           say otherwise.
+
+           So an EMPTY date field is carried as a text input holding a real
+           placeholder, and becomes a date input the moment it is focused. The
+           swap only ever happens while the field is empty, so no value is at
+           risk, and the element keeps its name, its classes, its inline styles
+           and its min/max the whole time -- what the form posts is still the
+           Y-m-d a date input submits, because by the time anything is typed it
+           IS a date input again.
+
+           A field that already holds a value keeps type="date" and is never
+           touched: a value is not a placeholder, and the browser draws it in
+           the user's own format. */
+        (function () {
+            var FORMAT = 'mm/dd/yyyy';
+
+            function toPlaceholder(input) {
+                if (input.value) return;                  // a value is not a placeholder
+                input.dataset.datePlaceholder = '1';
+                input.type = 'text';
+                input.placeholder = FORMAT;
+                input.classList.add('date-placeholder');
+            }
+
+            function toDate(input) {
+                input.type = 'date';
+                input.removeAttribute('placeholder');
+                input.classList.remove('date-placeholder');
+            }
+
+            function scan(root) {
+                (root || document).querySelectorAll('input[type="date"]').forEach(toPlaceholder);
+            }
+
+            // focusin, not focus: focus does not bubble, and these fields are
+            // inside forms that get re-rendered.
+            document.addEventListener('focusin', function (e) {
+                var el = e.target;
+                if (!el.dataset || el.dataset.datePlaceholder !== '1') return;
+                if (el.type === 'date') return;
+
+                toDate(el);
+
+                // Open the picker on the click that focused it, so the swap is
+                // invisible to the user rather than costing them a second click.
+                // Not every browser has showPicker, and it throws without a user
+                // gesture (a Tab into the field), which is not an error here.
+                if (typeof el.showPicker === 'function') {
+                    try { el.showPicker(); } catch (err) { /* no gesture: fine */ }
+                }
+            });
+
+            // Left empty again -- put the placeholder back.
+            document.addEventListener('focusout', function (e) {
+                var el = e.target;
+                if (el.dataset && el.dataset.datePlaceholder === '1' && !el.value) toPlaceholder(el);
+            });
+
+            scan();
+
+            // The list pages swap their rows (and the filter bars around them)
+            // over fetch, and the confirm dialog re-renders forms, so new date
+            // fields appear after load. One observer is cheaper than asking
+            // every page to remember to call this.
+            if (window.MutationObserver) {
+                new MutationObserver(function (records) {
+                    for (var i = 0; i < records.length; i++) {
+                        for (var j = 0; j < records[i].addedNodes.length; j++) {
+                            var node = records[i].addedNodes[j];
+                            if (node.nodeType !== 1) continue;
+                            if (node.matches && node.matches('input[type="date"]')) toPlaceholder(node);
+                            else if (node.querySelectorAll) scan(node);
+                        }
+                    }
+                }).observe(document.body, { childList: true, subtree: true });
+            }
+        })();
+
+        /* Password reveal. Delegated from the document, so it works on every
+           form page without each one shipping its own handler -- and keeps
+           working if a form is ever re-rendered over AJAX. */
+        document.addEventListener('click', function (e) {
+            var toggle = e.target.closest('.pw-toggle');
+            if (!toggle) return;
+
+            var field = document.getElementById(toggle.dataset.pwToggle);
+            if (!field) return;
+
+            var shown = field.type === 'text';
+            field.type = shown ? 'password' : 'text';
+            toggle.setAttribute('aria-label', shown ? 'Show password' : 'Hide password');
+
+            var icon = toggle.querySelector('i');
+            if (icon) icon.className = 'ti ' + (shown ? 'ti-eye' : 'ti-eye-off');
         });
 
         // Full-page form submits (filters, save, delete) also replace the
@@ -2342,6 +4120,175 @@
         });
     })();
 
+    /* ── Server-rendered flashes open the same dialog ────────────────────
+       "Product saved", "Cannot delete a category that has products", a list of
+       validation errors: all of them used to be a banner at the top of the
+       content, which on a long form meant the answer to what you just did sat
+       above the fold while you were still looking at the field you fixed.
+
+       The banner is still rendered server-side and still readable without
+       JavaScript -- this promotes it to the dialog and hides the banner, so
+       there is exactly one place outcomes appear. Runs after the layout's own
+       script has defined showMessage. */
+    document.addEventListener('DOMContentLoaded', function () {
+        var banners = document.querySelectorAll('.content-body [data-flash]');
+        if (!banners.length) return;
+
+        // One dialog, not four stacked on top of each other. An error anywhere
+        // in the set decides the tone: a page can carry a success flash AND a
+        // validation failure at once (saved one thing, rejected another), and
+        // heading that "Done" over a list of what went wrong reads as the
+        // opposite of what happened.
+        var banner_list = Array.prototype.slice.call(banners);
+        var errorBanner = banner_list.filter(function (b) { return b.dataset.flash === 'error'; })[0];
+        var kind = errorBanner ? 'error' : 'success';
+        var titleSource = errorBanner || banner_list[0];
+        var lines = [];
+
+        banners.forEach(function (banner) {
+            banner.querySelectorAll('li').forEach(function (li) {
+                lines.push(li.textContent.trim());
+            });
+            var span = banner.querySelector(':scope > span');
+            if (span) lines.push(span.textContent.trim());
+            banner.hidden = true;
+            banner.style.display = 'none';   // .alert sets display, so [hidden] alone loses
+        });
+
+        if (!lines.length) return;
+
+        REMEDI.showMessage({
+            title: titleSource.dataset.flashTitle || (kind === 'success' ? 'Done' : 'Could not complete that'),
+            // A single line reads better as the body; several belong in a list
+            // under a heading that says what they are.
+            body: lines.length === 1 ? lines[0] : '',
+            list: lines.length > 1 ? lines : [],
+            icon: kind === 'success' ? 'ti-circle-check' : 'ti-alert-circle',
+            tone: kind === 'success' ? 'neutral' : 'danger',
+        });
+    });
+
+    /* ── Rows that behave like links ─────────────────────────────────────
+       `tr.clickable-row[data-href]`, delegated once here rather than an inline
+       onclick per row. The guards are the ones every link in this app gets:
+
+       - a click that ends a text selection is not a navigation (selecting a SKU
+         to copy it used to open the forecast detail page instead);
+       - modified and middle clicks belong to the browser, so the row can be
+         opened in a new tab like any other link;
+       - a click that started on a real control inside the row (the product
+         link, a button, a form) is that control's, not the row's.
+
+       The row still carries a real <a> in its first cell, so this is an
+       enhancement rather than the only way through. */
+    document.addEventListener('click', function (e) {
+        var row = e.target.closest('tr.clickable-row[data-href]');
+        if (!row) return;
+        if (e.defaultPrevented || e.button !== 0) return;
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        if (e.target.closest('a, button, input, select, label, form')) return;
+
+        var selection = window.getSelection();
+        if (selection && !selection.isCollapsed) return;
+
+        window.location = row.dataset.href;
+    });
+
+    /* ── Message popup ───────────────────────────────────────────────────
+       REMEDI.showMessage({ title, body, icon, tone }) -> { setDetail, close }
+
+       The replacement for window.alert(). A browser alert reads as a browser
+       error rather than as the app talking, blocks the tab until it is
+       dismissed, and can only ever repeat what the page already knew. This is
+       the same card the confirm dialog uses, and the returned handle lets the
+       caller fill in a detail line once a server round-trip answers — which is
+       how the POS turns "out of stock" into "0 on hand right now", checked
+       against the database at the moment of the click. */
+    REMEDI.showMessage = function (opts) {
+        opts = opts || {};
+
+        var modal = document.getElementById('messageModal');
+        if (!modal) {                       // no layout chrome (guest pages)
+            return { setDetail: function () {}, close: function () {} };
+        }
+
+        var titleEl = document.getElementById('messageModalTitle');
+        var bodyEl = document.getElementById('messageModalBody');
+        var stateEl = document.getElementById('messageModalState');
+        var listEl = document.getElementById('messageModalList');
+        var iconWrap = document.getElementById('messageModalIcon');
+        var okBtn = document.getElementById('messageModalOk');
+        var lastFocus = document.activeElement;
+        var unlock = null;
+
+        titleEl.textContent = opts.title || 'Notice';
+        bodyEl.textContent = opts.body || '';
+
+        iconWrap.innerHTML = '';
+        var i = document.createElement('i');
+        i.className = 'ti ' + (opts.icon || 'ti-alert-triangle');
+        i.setAttribute('aria-hidden', 'true');
+        iconWrap.appendChild(i);
+        // Neutral (blue) unless the caller says otherwise: running out of stock
+        // is information, not a destructive act, and a red disc on every
+        // mis-tap at the register reads as an error the cashier caused.
+        iconWrap.classList.toggle('is-neutral', opts.tone !== 'danger');
+
+        // A list of lines (validation errors, mostly). textContent per item:
+        // these carry user input and server messages.
+        listEl.innerHTML = '';
+        var lines = opts.list || [];
+        lines.forEach(function (line) {
+            var li = document.createElement('li');
+            li.textContent = line;
+            listEl.appendChild(li);
+        });
+        listEl.hidden = lines.length === 0;
+
+        if (opts.detail) {
+            stateEl.textContent = opts.detail;
+            stateEl.hidden = false;
+        } else {
+            stateEl.textContent = '';
+            stateEl.hidden = true;
+        }
+
+        function close() {
+            modal.classList.remove('is-open');
+            if (unlock) { unlock(); unlock = null; }
+            okBtn.removeEventListener('click', close);
+            modal.removeEventListener('click', onBackdrop);
+            document.removeEventListener('keydown', onKey);
+            if (lastFocus && lastFocus.focus) lastFocus.focus({ preventScroll: true });
+        }
+
+        function onBackdrop(e) { if (e.target === modal) close(); }
+        function onKey(e) { if (e.key === 'Escape' || e.key === 'Enter') close(); }
+
+        okBtn.addEventListener('click', close);
+        modal.addEventListener('click', onBackdrop);
+        document.addEventListener('keydown', onKey);
+
+        modal.classList.add('is-open');
+        unlock = REMEDI.lockScroll();
+        // preventScroll: focusing a control inside a fixed overlay still lets
+        // the browser scroll the document to "reveal" it, which lands the page
+        // at the top -- the dialog opens and the list behind it jumps to row 1.
+        okBtn.focus({ preventScroll: true });
+
+        return {
+            // Called when a lookup lands after the modal is already up. Guarded
+            // on is-open: the cashier may have dismissed it in the meantime,
+            // and a late response must not reopen or rewrite a closed dialog.
+            setDetail: function (text) {
+                if (!modal.classList.contains('is-open')) return;
+                stateEl.textContent = text;
+                stateEl.hidden = !text;
+            },
+            close: close,
+        };
+    };
+
     /* ── Notification bell ──────────────────────────────────────────────────
        The panel is rendered server-side, so it is already correct before this
        runs; everything here is about keeping it current and making it open.
@@ -2354,6 +4301,50 @@
        expiry window -- moves on the scale of a sale or a delivery, and
        AlertService::forget() drops the cache the moment a checkout or a batch
        edit happens, so the next poll is accurate rather than merely recent. */
+    /* ── Read / unread store ─────────────────────────────────────────────
+       Which notifications this user has already looked at, kept per user in
+       localStorage. Deliberately client-side: "seen it" is a per-person,
+       per-device fact, not shared state — marking one read at the register must
+       not clear it on the manager's screen. Ids come from AlertService and are
+       keyed to the batch/product, so they survive the list reordering between
+       polls.
+
+       Capped at 200: alert ids churn as stock moves, and an uncapped list would
+       grow forever in a browser that never clears storage.
+
+       It lives out here, above the bell, because two surfaces paint from it —
+       the dropdown and the full /notifications page, which renders the same
+       rows. One owner of the key, one place that announces a change; each
+       surface only listens and repaints. Defined before the bell's own guard so
+       the page still has it on any layout where the bell is absent. */
+    window.remediAlertReads = (function () {
+        const KEY = 'remedi_alerts_read:' + @json(auth()->id() ?? 0);
+        const MAX = 200;
+
+        function get() {
+            try { return new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); }
+            catch (e) { return new Set(); }
+        }
+
+        function add(ids) {
+            const set = get();
+            const before = set.size;
+
+            [].concat(ids).forEach(function (id) { if (id) set.add(id); });
+            if (set.size === before) return;         // nothing new: no repaint
+
+            try { localStorage.setItem(KEY, JSON.stringify([...set].slice(-MAX))); }
+            catch (e) { /* private mode or quota: read state is a nicety, not load-bearing */ }
+
+            // Repaint every surface showing these rows. An event rather than a
+            // direct call so neither side has to know the other exists, or be
+            // loaded at all.
+            document.dispatchEvent(new CustomEvent('remedi:alerts-read'));
+        }
+
+        return { get: get, add: add };
+    })();
+
     (function () {
         const wrap = document.getElementById('bellWrap');
         if (!wrap) return;
@@ -2366,6 +4357,231 @@
         const stamp = document.getElementById('bellStamp');
 
         const POLL_MS = 30000;          // matches AlertService::TTL_SECONDS
+        const markReadBtn = document.getElementById('bellMarkRead');
+
+        // The store above, shared with /notifications.
+        const reads = window.remediAlertReads;
+
+        /* Paints every row and drives the badge. The badge counts UNREAD, not
+           total: a badge that keeps showing 12 after you have read all twelve
+           is what makes people stop looking at it. */
+        function applyReadState(reorder) {
+            const read = reads.get();
+            // Every row, including ones the current tab is hiding: the badge
+            // is a count of everything unread, not of the visible tab.
+            const rows = list.querySelectorAll('.topbar-bell-row');
+            let unread = 0;
+
+            rows.forEach(function (row) {
+                const id = row.dataset.alertId;
+                const isRead = id && read.has(id);
+                row.classList.toggle('is-read', !!isRead);
+                if (!isRead) unread++;
+            });
+
+            countEl.textContent = unread > 9 ? '9+' : String(unread);
+            countEl.hidden = unread < 1;
+            btn.title = unread + ' unread notification' + (unread === 1 ? '' : 's');
+            btn.setAttribute('aria-label', 'Alerts (' + unread + ' unread)');
+
+            if (markReadBtn) markReadBtn.hidden = unread < 1;
+
+            /* The classes above are what orderRows() sorts on, so the sink runs
+               after the paint, never before it.
+
+               Callers pass reorder=false while the pointer is on a row. Moving
+               a row between mousedown and mouseup means the click lands on the
+               list instead of the link it started on, and the notification
+               simply never opens — so the sink waits for the next open, poll or
+               page load, by which time the pointer is elsewhere. */
+            if (reorder !== false) relayout();
+        }
+
+        /* ── Tabs ──
+           Filtering is client-side on data-group: the whole payload is already
+           in hand, so a round trip per tab would only add latency to data the
+           panel is holding. */
+        // Read from the markup rather than hardcoded: staff have no "All" tab,
+        // so assuming one would leave activeTab naming a button that is not
+        // there and the Alerts tab looking selected without being selected.
+        const initialTab = document.querySelector('.bell-tab.is-active');
+        let activeTab = initialTab ? initialTab.dataset.tab : 'all';
+
+        /* ── Row order: unread first, then newest first ──
+           ONE flat feed. Rows are deliberately NOT gathered into per-group
+           blocks: All is a chronological feed, and the tabs above are how you
+           narrow it to a single group. The group headings that used to sit
+           between those blocks are gone with them — with an interleaved list
+           there is no contiguous run left for a heading to label.
+
+           Unread outranks recency because the panel exists to show what has not
+           been dealt with; a handled row sitting at the top pushes new ones
+           below the fold. A read row is NOT removed: it keeps its severity
+           stripe and stays reachable, because "I have seen this" is not "the
+           stock is fine". The newest notification is unread by definition, so
+           it still lands first.
+
+           Within each read bucket the sort is on data-sort-at, the onset time
+           AlertService stamps on every row (see returnWindowOpenedAt): when the
+           batch expired, when it entered its return window, when stock last
+           moved, when the audit event happened. Missing or unparseable sorts
+           last rather than jumping the queue. */
+        function sortKey(row) {
+            const t = Date.parse(row.dataset.sortAt || '');
+            return isNaN(t) ? -Infinity : t;
+        }
+
+        function orderRows() {
+            [...list.querySelectorAll('.topbar-bell-row')]
+                .sort(function (a, b) {
+                    return (a.classList.contains('is-read') - b.classList.contains('is-read'))
+                        || (sortKey(b) - sortKey(a));
+                })
+                .forEach(function (row) { list.appendChild(row); });
+        }
+
+        function relayout() {
+            orderRows();
+        }
+
+        function applyTab() {
+            list.querySelectorAll('.topbar-bell-row').forEach(function (row) {
+                const group = row.dataset.group || 'alerts';
+                row.hidden = !(activeTab === 'all' || group === activeTab);
+            });
+
+            relayout();
+
+            // An empty tab needs to say so rather than looking broken.
+            let empty = list.querySelector('.bell-tab-empty');
+            const anyVisible = !!list.querySelector('.topbar-bell-row:not([hidden])');
+
+            if (!anyVisible && !list.querySelector('.topbar-bell-empty')) {
+                if (!empty) {
+                    empty = document.createElement('p');
+                    empty.className = 'topbar-bell-empty bell-tab-empty';
+                    list.appendChild(empty);
+                }
+                empty.textContent = 'Nothing here right now.';
+                empty.hidden = false;
+            } else if (empty) {
+                empty.hidden = true;
+            }
+        }
+
+        document.querySelectorAll('.bell-tab').forEach(function (tab) {
+            tab.addEventListener('click', function () {
+                activeTab = tab.dataset.tab;
+                document.querySelectorAll('.bell-tab').forEach(function (t) {
+                    const on = t === tab;
+                    t.classList.toggle('is-active', on);
+                    t.setAttribute('aria-selected', on ? 'true' : 'false');
+                });
+                applyTab();
+            });
+        });
+
+        /* ── Live timestamps ──
+           Every row carries a moving time; what moves depends on what the row
+           IS. An audit row happened, so it gets "x ago". An inventory alert did
+           not happen at a moment -- it is a standing condition -- so "2 minutes
+           ago" would be a lie, and it gets the length of time it has been open
+           beside the onset AlertService already labelled: "Since Aug 14 · 19
+           days". Both are computed here rather than served, because a figure
+           that has to keep moving cannot come from a 30s cache. */
+        function relative(iso) {
+            const then = new Date(iso).getTime();
+            if (!then) return '';
+            const secs = Math.round((Date.now() - then) / 1000);
+            if (secs < 45) return 'just now';
+            const mins = Math.round(secs / 60);
+            if (mins < 60) return mins + ' minute' + (mins === 1 ? '' : 's') + ' ago';
+            const hrs = Math.round(mins / 60);
+            if (hrs < 24) return hrs + ' hour' + (hrs === 1 ? '' : 's') + ' ago';
+            const days = Math.round(hrs / 24);
+            if (days < 30) return days + ' day' + (days === 1 ? '' : 's') + ' ago';
+            return new Date(then).toLocaleDateString();
+        }
+
+        /* How long a standing condition has been open. FLOOR, not round: a
+           shelf that emptied 110 seconds ago has been empty for one minute, not
+           two. Past 30 days the onset date carries it on its own and the
+           duration is dropped rather than reading "· 412 days", and an onset in
+           the future (a clock skew, never a real alert) says nothing at all. */
+        function duration(iso) {
+            if (!iso) return '';
+            const then = new Date(iso).getTime();
+            if (!then) return '';
+            const secs = Math.floor((Date.now() - then) / 1000);
+            if (secs < 0) return '';
+            if (secs < 60) return 'just now';
+            const mins = Math.floor(secs / 60);
+            if (mins < 60) return mins + ' minute' + (mins === 1 ? '' : 's');
+            const hrs = Math.floor(mins / 60);
+            if (hrs < 24) return hrs + ' hour' + (hrs === 1 ? '' : 's');
+            const days = Math.floor(hrs / 24);
+            if (days <= 30) return days + ' day' + (days === 1 ? '' : 's');
+            return '';
+        }
+
+        /* The absolute label comes from the server -- so the bell, the
+           notifications page and the toasts cannot drift into three date
+           formats -- and the moving half is computed here, because it has to
+           keep moving on a page nobody has reloaded. */
+        function stampTimes() {
+            list.querySelectorAll('.bell-time').forEach(function (el) {
+                var when = el.dataset.when || '';
+                var at = el.dataset.at;
+                if (at) {
+                    el.textContent = relative(at) + (when ? ' · ' + when : '');
+                    return;
+                }
+                var open = duration(el.dataset.since);
+                el.textContent = when + (open ? ' · ' + open : '');
+            });
+        }
+
+        // Re-stamp on a short tick. The smallest unit either function prints is
+        // a minute, with a "just now" band that ends at one, so a 60s interval
+        // could leave a row reading "just now" for very nearly two minutes --
+        // which is the one thing a live timestamp must not do. 15s bounds the
+        // error to 15s and costs a few dozen textContent writes.
+        const TIME_TICK_MS = 15000;
+        setInterval(stampTimes, TIME_TICK_MS);
+
+        const closeBtn = document.getElementById('bellClose');
+        if (closeBtn) closeBtn.addEventListener('click', function () { setOpen(false); });
+
+        // Clicking a notification marks it read. mousedown, not click: the row
+        // is a link, so a plain click navigates and a handler that runs after
+        // the browser has begun unloading is not guaranteed to finish.
+        function markRowRead(e) {
+            const row = e.target.closest('.topbar-bell-row');
+            if (!row || !row.dataset.alertId) return;
+            reads.add(row.dataset.alertId);   // repaints via remedi:alerts-read
+        }
+
+        list.addEventListener('mousedown', markRowRead);
+        // Enter on a focused row fires click, not mousedown, so keyboard users
+        // would never mark anything read. Adding an id twice is a no-op.
+        list.addEventListener('click', markRowRead);
+
+        if (markReadBtn) {
+            markReadBtn.addEventListener('click', function () {
+                reads.add([...list.querySelectorAll('.topbar-bell-row[data-alert-id]')]
+                    .map(function (row) { return row.dataset.alertId; }));
+            });
+        }
+
+        /* Repaint whenever read state changes anywhere — this panel's own rows,
+           or the same rows on /notifications.
+
+           Repaint only, never reorder: whoever handled the pointer is still
+           holding it, and a row that moves between mousedown and mouseup takes
+           its link out from under the click. The sink lands on the next open,
+           poll or page load instead. */
+        document.addEventListener('remedi:alerts-read', function () { applyReadState(false); });
+
         let timer = null;
         let inFlight = null;
         let lastSignature = null;
@@ -2375,7 +4591,11 @@
         function setOpen(open) {
             panel.classList.toggle('is-open', open);
             btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-            if (open) { touchStamp(); refresh(); }
+            // applyReadState before the fetch, not just after it: a row marked
+            // read on the last open sinks now, synchronously, rather than
+            // waiting for a poll whose payload may be identical and therefore
+            // never re-renders (see render()'s signature guard).
+            if (open) { touchStamp(); applyReadState(); refresh(); }
         }
 
         btn.addEventListener('click', function (e) {
@@ -2391,7 +4611,7 @@
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' && panel.classList.contains('is-open')) {
                 setOpen(false);
-                btn.focus();
+                btn.focus({ preventScroll: true });
             }
         });
 
@@ -2404,22 +4624,25 @@
         }
 
         function render(data) {
-            const items = data.items || [];
+            // Audit rows ride along for admins; staff get an empty array.
+            // Sorted here as well as in orderRows() so the DOM is built in
+            // final order — appending in one order and immediately re-appending
+            // in another is a visible reflow on a panel that is already open.
+            const items = (data.items || []).concat(data.activity || [])
+                .sort(function (a, b) {
+                    const ta = Date.parse(a.sort_at || a.at || '');
+                    const tb = Date.parse(b.sort_at || b.at || '');
+                    return (isNaN(tb) ? -Infinity : tb) - (isNaN(ta) ? -Infinity : ta);
+                });
             const alerts = data.alerts || [];
 
             // Signature guard: re-rendering identical rows on every poll would
             // tear down a row the pointer is already on. Keyed on the item
             // bodies, since those carry the day counts that actually move.
-            const sig = items.map(i => i.kind + '|' + i.title + '|' + i.body).join('~')
+            const sig = items.map(i => (i.id || '') + '|' + i.kind + '|' + i.title + '|' + i.body).join('~')
                 + '#' + alerts.map(a => a.kind + ':' + a.count).join('|');
             if (sig === lastSignature) return;
             lastSignature = sig;
-
-            const n = data.count || 0;
-            countEl.textContent = n > 9 ? '9+' : String(n);
-            countEl.hidden = n < 1;
-            btn.title = n + ' notification' + (n === 1 ? '' : 's');
-            btn.setAttribute('aria-label', 'Alerts (' + n + ' notifications)');
 
             list.innerHTML = '';
 
@@ -2430,10 +4653,16 @@
                     const row = document.createElement('a');
                     row.className = 'topbar-bell-row ' + (it.cls || '');
                     row.href = it.href;
+                    row.dataset.group = it.group || 'alerts';
+                    row.dataset.sortAt = it.sort_at || it.at || '';
+                    if (it.at) row.dataset.at = it.at;
 
+                    const disc = document.createElement('span');
+                    disc.className = 'bell-icon';
+                    disc.setAttribute('aria-hidden', 'true');
                     const icon = document.createElement('i');
                     icon.className = 'ti ' + (it.icon || 'ti-bell');
-                    icon.setAttribute('aria-hidden', 'true');
+                    disc.appendChild(icon);
 
                     // textContent, not innerHTML: these strings carry product
                     // names straight from the catalogue, and this panel renders
@@ -2444,11 +4673,36 @@
                     body.textContent = it.body || '';
 
                     const text = document.createElement('span');
+                    text.className = 'bell-text';
                     text.appendChild(title);
                     text.appendChild(body);
 
-                    row.appendChild(icon);
+                    // Same shape the Blade render produces: data-when always,
+                    // data-at only for rows that are a real event. stampTimes()
+                    // below fills the text for both.
+                    if (it.when) {
+                        const time = document.createElement('em');
+                        time.className = 'bell-time';
+                        time.dataset.when = it.when;
+                        if (it.at) time.dataset.at = it.at;
+                        // No `at` means a standing condition: hand stampTimes()
+                        // the onset instead, so it can keep a live duration on
+                        // it. Blade emits the identical pair -- if these two
+                        // drift, the times stop moving on the first poll.
+                        else if (it.sort_at) time.dataset.since = it.sort_at;
+                        time.textContent = it.when;
+                        text.appendChild(time);
+                    }
+
+                    const dot = document.createElement('span');
+                    dot.className = 'unread-dot';
+                    dot.setAttribute('aria-hidden', 'true');
+
+                    if (it.id) row.dataset.alertId = it.id;
+
+                    row.appendChild(disc);
                     row.appendChild(text);
+                    row.appendChild(dot);
                     list.appendChild(row);
                 });
             }
@@ -2462,6 +4716,10 @@
                     foot.appendChild(link);
                 });
             }
+
+            stampTimes();
+            applyTab();
+            applyReadState();
         }
 
         // ── polling ──
@@ -2486,6 +4744,12 @@
                     lastFetched = Date.now();
                     render(data);
                     touchStamp();
+                    // One poll, several readers. The toast stack watches the
+                    // same payload for kinds whose count has gone up rather
+                    // than fetching /alerts a second time -- a second loop
+                    // would double the request rate and could still disagree
+                    // with the badge by one interval.
+                    window.dispatchEvent(new CustomEvent('remedi:alerts', { detail: data }));
                 })
                 .catch(function () { /* offline or aborted: keep the last known state */ })
                 .finally(function () { if (inFlight === ctl) inFlight = null; });
@@ -2509,7 +4773,270 @@
             start();
         });
 
+        // Coming back to the window catches up immediately rather than waiting
+        // out the rest of the interval -- the gap between "something happened"
+        // and "the badge says so" is what makes a polled bell feel stale.
+        window.addEventListener('focus', function () {
+            if (!document.hidden) refresh();
+        });
+
+        // Anything that moves stock invalidates the alert set. AlertService
+        // is cleared server-side by those actions (see AlertService::forget),
+        // so a poll right after one returns fresh numbers instead of showing
+        // the pre-action count until the next tick.
+        window.remediRefreshAlerts = refresh;
+
+        // Paint whatever the server rendered before the first poll lands, so
+        // the badge is an unread count from the very first frame.
+        stampTimes();
+        applyTab();
+        applyReadState();
+
         if (!document.hidden) start();
+    })();
+
+    /* ── Confirm + AJAX for destructive / state-changing actions ──────────
+       One handler for every `form.js-confirm` in the app: delete a product,
+       batch, category or user; activate/deactivate a user; mark a batch
+       returned. The form stays a real POST form and this only intercepts
+       submit, so with JavaScript off each still works unconfirmed rather than
+       becoming a dead button — the same trade-off #logoutModal makes.
+
+       Per-form data attributes:
+         data-confirm-title / -body / -label   dialog copy
+         data-confirm-icon                     Tabler class, default ti-alert-triangle
+         data-confirm-tone="neutral"           blue disc instead of destructive red
+         data-on-success="remove-row|reload|toggle|none"
+         data-row                              selector of the row to remove
+       ------------------------------------------------------------------- */
+    (function () {
+        const modal = document.getElementById('confirmModal');
+        if (!modal) return;
+
+        const panel = modal.querySelector('.remedi-modal__panel');
+        const iconWrap = document.getElementById('confirmModalIcon');
+        const titleEl = document.getElementById('confirmModalTitle');
+        const bodyEl = document.getElementById('confirmModalBody');
+        const confirmBtn = document.getElementById('confirmModalConfirm');
+        const cancelBtn = document.getElementById('confirmModalCancel');
+        let unlockScroll = null;
+
+        let form = null;
+        let lastFocus = null;
+        let submitting = false;
+        let defaultLabel = 'Confirm';
+
+        function open(target) {
+            const d = target.dataset;
+            form = target;
+            lastFocus = document.activeElement;
+
+            titleEl.textContent = d.confirmTitle || 'Are you sure?';
+            bodyEl.textContent = d.confirmBody || 'This action cannot be undone.';
+            defaultLabel = d.confirmLabel || 'Confirm';
+            confirmBtn.textContent = defaultLabel;
+
+            iconWrap.innerHTML = '';
+            const i = document.createElement('i');
+            i.className = 'ti ' + (d.confirmIcon || 'ti-alert-triangle');
+            i.setAttribute('aria-hidden', 'true');
+            iconWrap.appendChild(i);
+            iconWrap.classList.toggle('is-neutral', d.confirmTone === 'neutral');
+
+            // A reversible action should not be offered behind a red button.
+            confirmBtn.classList.toggle('btn-danger', d.confirmTone !== 'neutral');
+            confirmBtn.classList.toggle('btn-primary', d.confirmTone === 'neutral');
+
+            modal.classList.add('is-open');
+            unlockScroll = REMEDI.lockScroll();
+            confirmBtn.focus({ preventScroll: true });
+        }
+
+        function close() {
+            modal.classList.remove('is-open');
+            if (unlockScroll) { unlockScroll(); unlockScroll = null; }
+            if (lastFocus && lastFocus.focus) lastFocus.focus({ preventScroll: true });
+            form = null;
+        }
+
+        function reset() {
+            submitting = false;
+            confirmBtn.disabled = false;
+            cancelBtn.disabled = false;
+            confirmBtn.textContent = defaultLabel;
+        }
+
+        /* What to SAY when a confirmed action is refused.
+           ------------------------------------------------------------------
+           Two different 422 shapes arrive here and the user needs both:
+
+             - a controller's own refusal (Controller::actionFailed) answers
+               {success:false, error:"..."}
+             - a VALIDATION failure answers Laravel's own
+               {message:"...", errors:{field:["..."]}} -- with no `error` key
+
+           Reading only `error` turned every validation message in the app into
+           "That action could not be completed.", which is the one sentence that
+           does not say what to fix. Reported from Add User: an address with a
+           capital letter fails the `lowercase` rule, and the dialog said
+           nothing about it. Same bug the POS checkout had, and the same fix.
+
+           Field messages are joined with a space rather than a newline: the
+           dialog body is textContent, so a newline would render as a space
+           anyway -- doing it here keeps the sentences properly separated. */
+        function failureMessage(data) {
+            if (!data) return 'That action could not be completed.';
+            if (data.error) return data.error;
+
+            if (data.errors) {
+                var lines = [];
+
+                Object.keys(data.errors).forEach(function (field) {
+                    var messages = data.errors[field];
+                    (Array.isArray(messages) ? messages : [messages]).forEach(function (m) {
+                        if (m) lines.push(String(m));
+                    });
+                });
+
+                if (lines.length) return lines.join(' ');
+            }
+
+            return data.message || 'That action could not be completed.';
+        }
+
+        function notify(type, message) {
+            // Every outcome the app reports goes through the one dialog. It
+            // used to be an inline banner at the top of the content that
+            // scrolled itself into view, which meant a delete performed at row
+            // 40 threw the reader to row 1 to read one line.
+            REMEDI.showMessage({
+                title: type === 'success' ? 'Done' : 'Could not complete that',
+                body: message,
+                icon: type === 'success' ? 'ti-circle-check' : 'ti-alert-circle',
+                tone: type === 'success' ? 'neutral' : 'danger',
+            });
+        }
+
+        document.addEventListener('submit', function (e) {
+            const target = e.target.closest('form.js-confirm');
+            if (!target || submitting) return;
+            e.preventDefault();
+            open(target);
+        });
+
+        cancelBtn.addEventListener('click', close);
+
+        modal.addEventListener('mousedown', function (e) {
+            if (!panel.contains(e.target)) close();
+        });
+
+        document.addEventListener('keydown', function (e) {
+            if (!modal.classList.contains('is-open')) return;
+            if (e.key === 'Escape') { close(); return; }
+            if (e.key === 'Tab') {
+                e.preventDefault();
+                (document.activeElement === confirmBtn ? cancelBtn : confirmBtn).focus({ preventScroll: true });
+            }
+        });
+
+        confirmBtn.addEventListener('click', function () {
+            if (!form || submitting) return;
+            const target = form;
+            const mode = target.dataset.onSuccess || 'reload';
+
+            submitting = true;
+            confirmBtn.disabled = true;
+            cancelBtn.disabled = true;
+            confirmBtn.textContent = 'Working…';
+
+            // FormData carries the form's own CSRF token and its method-spoofing
+            // _method field, so this is byte-for-byte the request the plain form
+            // would have posted. (Do not write the Blade directive name here —
+            // Blade compiles it even inside a JS comment.)
+            fetch(target.action, {
+                method: 'POST',
+                body: new FormData(target),
+                credentials: 'same-origin',
+                headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+            })
+                .then(function (res) {
+                    return res.json().then(function (data) { return { ok: res.ok, data: data }; });
+                })
+                .then(function (result) {
+                    close();
+                    reset();
+
+                    if (!result.ok || !result.data.success) {
+                        notify('danger', failureMessage(result.data));
+                        return;
+                    }
+
+                    notify('success', result.data.message || 'Done.');
+
+                    // Deleting a batch or marking one returned changes what the
+                    // bell should be showing; ask it to catch up now rather
+                    // than up to POLL_MS later.
+                    if (typeof window.remediRefreshAlerts === 'function') window.remediRefreshAlerts();
+
+                    if (mode === 'remove-row') {
+                        const row = target.closest(target.dataset.row || 'tr');
+                        if (row) row.remove();
+                        const tbody = target.closest('tbody');
+                        // Nothing left to look at: let the server re-paginate.
+                        if (tbody && !tbody.querySelector('tr')) REMEDI.reloadKeepingPlace();
+                    } else if (mode === 'toggle') {
+                        applyToggle(target, result.data.state);
+                    } else if (mode !== 'none') {
+                        // Keeps the reader where they were: this is the branch
+                        // "Mark Returned", "Add Batch" and every other default
+                        // action lands in.
+                        REMEDI.reloadKeepingPlace();
+                    }
+                })
+                .catch(function () {
+                    // Offline, blocked, or a non-JSON error page: fall back to a
+                    // real form post rather than stranding a disabled dialog.
+                    submitting = true;
+                    target.submit();
+                });
+        });
+
+        /* Activate/deactivate flips one badge and one button label, so the row
+           is patched in place — reloading the whole list to change one word is
+           what made this feel heavy. */
+        function applyToggle(target, state) {
+            if (!state) { REMEDI.reloadKeepingPlace(); return; }
+
+            const row = target.closest('tr');
+            const btn = target.querySelector('button');
+
+            if (btn) {
+                btn.textContent = state.action;
+                btn.classList.toggle('btn-warning', state.is_active);
+                btn.classList.toggle('btn-success', !state.is_active);
+            }
+
+            if (row) {
+                // [data-user-status], not a colour class: an admin row's ROLE
+                // badge is .badge-success too and comes first, so a colour
+                // match relabelled the role instead of the status.
+                const badge = row.querySelector('[data-user-status]');
+                if (badge) {
+                    badge.textContent = state.badge;
+                    badge.classList.toggle('badge-success', state.is_active);
+                    badge.classList.toggle('badge-danger', !state.is_active);
+                }
+            }
+
+            // The dialog copy is built from the row's current state, so it has
+            // to move with it or the next click asks the previous question.
+            const nowActive = state.is_active;
+            target.dataset.confirmTitle = (nowActive ? 'Deactivate' : 'Activate') + ' this account?';
+            target.dataset.confirmLabel = nowActive ? 'Deactivate' : 'Activate';
+            target.dataset.confirmBody = nowActive
+                ? target.dataset.confirmBodyOff || 'They will be signed out and unable to sign in again.'
+                : target.dataset.confirmBodyOn || 'They will be able to sign in again.';
+        }
     })();
 
     /* ── Log out: centred confirm, then an AJAX POST ─────────────────────── */
@@ -2523,18 +5050,19 @@
         const panel = modal.querySelector('.remedi-modal__panel');
         let lastFocus = null;
         let submitting = false;
+        let unlockScroll = null;
 
         function open() {
             lastFocus = document.activeElement;
             modal.classList.add('is-open');
-            document.body.style.overflow = 'hidden';
-            confirmBtn.focus();
+            unlockScroll = REMEDI.lockScroll();
+            confirmBtn.focus({ preventScroll: true });
         }
 
         function close() {
             modal.classList.remove('is-open');
-            document.body.style.overflow = '';
-            if (lastFocus && lastFocus.focus) lastFocus.focus();
+            if (unlockScroll) { unlockScroll(); unlockScroll = null; }
+            if (lastFocus && lastFocus.focus) lastFocus.focus({ preventScroll: true });
         }
 
         form.addEventListener('submit', function (e) {
@@ -2558,7 +5086,7 @@
             // Focus trap: only two controls, so Tab just alternates.
             if (e.key === 'Tab') {
                 e.preventDefault();
-                (document.activeElement === confirmBtn ? cancelBtn : confirmBtn).focus();
+                (document.activeElement === confirmBtn ? cancelBtn : confirmBtn).focus({ preventScroll: true });
             }
         });
 
@@ -2589,6 +5117,423 @@
                 });
         });
     })();
+
+    /* -- Alert toasts ---------------------------------------------------
+       One bottom-right card at a time, drawn from a queue.
+
+       Two ways in:
+
+         GREETING -- the alerts that were already open when the page rendered,
+         played once per browser session.
+
+         LIVE -- queued whenever the bell's poll reports a notification that was
+         not in the list before, so someone already signed in and working is
+         told without reloading anything.
+
+       Both paths produce the same card and share one queue, one chime and one
+       dismissal rule, so there is no second vocabulary to keep in step. */
+    (function () {
+        var stack = document.getElementById('remediToasts');
+        if (!stack) return;                  // guest layout
+
+        var seed = { items: [], counts: {} };
+        var seedEl = document.getElementById('remediToastSeed');
+        if (seedEl) { try { seed = JSON.parse(seedEl.textContent) || seed; } catch (e) {} }
+
+        var DWELL_MS = 5000;                 // the "vanish in 5 seconds" window
+        var EXIT_MS = 260;                   // must clear the toastOut animation
+        var READY_FALLBACK_MS = 15000;
+        var STAGGER_MS = 140;                // so they arrive as a stack, not a slab
+        /* Five on screen at once. Past that the stack walks up the page and
+           starts covering the thing it is reporting on, so the oldest gives
+           way -- it has been readable longest. The bell still holds every one
+           of them. */
+        var MAX_VISIBLE = 5;
+
+        var reduced = window.matchMedia
+            && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+        /* -- The chime ---------------------------------------------------
+           Synthesised with WebAudio rather than served as an .mp3, for the same
+           reason the dashboard loader inlines its logo as a data URI: `php
+           artisan serve` is single-threaded, so a sound file requested while
+           something slow is in flight queues behind it and arrives after the
+           toast it was meant to accompany.
+
+           Fires once per BATCH -- one greeting, or one poll that turned up
+           several new alerts at once. The cards arrive 140ms apart, and five
+           chimes 140ms apart is an alarm rather than a notification.
+
+           Muting: localStorage 'remedi.toastSound' = 'off', flipped by
+           REMEDI.toastSound(false). Kept out of the per-user alert-read store
+           because it is a property of the WORKSTATION -- the machine on the
+           shop floor with customers next to it -- not of the account. */
+        var AudioCtx = window.AudioContext || window.webkitAudioContext;
+        var audio = null;                    // reused, so live pops need no unlock
+
+        function muted() {
+            try { return localStorage.getItem('remedi.toastSound') === 'off'; }
+            catch (e) { return false; }
+        }
+
+        window.REMEDI = window.REMEDI || {};
+        window.REMEDI.toastSound = function (on) {
+            try {
+                if (on === false) localStorage.setItem('remedi.toastSound', 'off');
+                else localStorage.removeItem('remedi.toastSound');
+            } catch (e) { /* storage unavailable; nothing to remember */ }
+            return on !== false;
+        };
+
+        /* Ramped, never switched. A gain that jumps straight from 0 to full
+           produces a click at the discontinuity that is harsher than the note
+           itself -- and exponentialRamp cannot touch exact zero, hence 0.0001. */
+        function note(ctx, freq, at, dur, peak) {
+            var osc = ctx.createOscillator();
+            var gain = ctx.createGain();
+
+            osc.type = 'sine';              // no harmonics, so nothing to rasp
+            osc.frequency.value = freq;
+
+            gain.gain.setValueAtTime(0.0001, at);
+            gain.gain.exponentialRampToValueAtTime(peak, at + 0.014);
+            gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(at);
+            osc.stop(at + dur + 0.02);
+        }
+
+        function chime() {
+            if (!AudioCtx || muted()) return;
+
+            /* One context for the tab, not one per chime. Browsers cap how many
+               a document may create, and a register left open all day can pop
+               dozens of alerts -- a fresh context each time eventually throws
+               and takes the sound out for the rest of the shift. Reusing it
+               also means that once it is unlocked it STAYS unlocked, which is
+               what makes live pops audible where the greeting may not be. */
+            if (!audio) {
+                try { audio = new AudioCtx(); } catch (e) { return; }
+            }
+
+            function play() {
+                var t = audio.currentTime + 0.02;
+                // A5 up to D6 -- a perfect fourth, which reads as "look here"
+                // without the minor-second edge that makes alarms unpleasant.
+                note(audio, 880.0, t, 0.18, 0.05);
+                note(audio, 1174.7, t + 0.12, 0.28, 0.045);
+            }
+
+            /* Autoplay policy: a context created before the user has interacted
+               with the document starts suspended, and resume() may reject. Both
+               are expected, not errors -- the toast is the notification and the
+               sound is a courtesy, so a blocked chime must never surface
+               anything or interrupt the pop. */
+            if (audio.state === 'suspended') {
+                var r = audio.resume();
+                if (r && r.then) { r.then(play).catch(function () {}); }
+                else { play(); }
+
+                return;
+            }
+
+            play();
+        }
+
+        /* -- The card ----------------------------------------------------
+           Built here rather than fetched as rendered HTML: /alerts answers JSON
+           for the bell, and asking it for markup as well would mean two shapes
+           of the same payload to keep in step. textContent throughout -- title
+           and body carry product names, which are user input. */
+        function build(row) {
+            var el = document.createElement('div');
+            el.className = 'remedi-toast ' + (row.cls || '');
+            el.hidden = true;
+
+            var link = document.createElement('a');
+            link.className = 'remedi-toast__link';
+            link.href = row.href || '#';
+
+            var icon = document.createElement('span');
+            icon.className = 'remedi-toast__icon';
+            var i = document.createElement('i');
+            i.className = 'ti ' + (row.icon || 'ti-bell');
+            i.setAttribute('aria-hidden', 'true');
+            icon.appendChild(i);
+
+            var text = document.createElement('span');
+            text.className = 'remedi-toast__text';
+
+            var title = document.createElement('span');
+            title.className = 'remedi-toast__title';
+            title.textContent = row.title || 'Alert';
+            text.appendChild(title);
+
+            var body = document.createElement('span');
+            body.className = 'remedi-toast__body';
+            body.textContent = row.body || '';
+            text.appendChild(body);
+
+            // Absent on the summary fallback below, which describes a kind
+            // rather than one batch and so has no single onset to quote.
+            if (row.when) {
+                var when = document.createElement('span');
+                when.className = 'remedi-toast__when';
+                when.textContent = row.when;
+                text.appendChild(when);
+            }
+
+            link.appendChild(icon);
+            link.appendChild(text);
+
+            var close = document.createElement('button');
+            close.type = 'button';
+            close.className = 'remedi-toast__close';
+            close.setAttribute('aria-label', 'Dismiss ' + (row.title || 'alert'));
+            var x = document.createElement('i');
+            x.className = 'ti ti-x';
+            x.setAttribute('aria-hidden', 'true');
+            close.appendChild(x);
+
+            el.appendChild(link);
+            el.appendChild(close);
+
+            return el;
+        }
+
+        /* -- Showing and dismissing --------------------------------------
+           Up to MAX_VISIBLE cards stand together, each with its own countdown
+           started when it actually appears -- otherwise the last of five would
+           be on screen for 5s minus its own stagger, and a live pop landing
+           beside a 4s-old card would inherit its remaining second. */
+        var paused = false;
+
+        function live() {
+            return [].slice.call(stack.querySelectorAll('.remedi-toast'))
+                .filter(function (el) { return !el.dataset.leaving; });
+        }
+
+        function drop(el) {
+            if (!el || el.dataset.leaving) return;
+            el.dataset.leaving = '1';
+            clearTimeout(el._timer);
+            el._timer = null;
+
+            function remove() {
+                el.remove();
+                // The stack is a permanent mount point for live pops, so it is
+                // emptied and hidden -- never removed.
+                if (!stack.querySelector('.remedi-toast')) stack.classList.remove('is-open');
+            }
+
+            if (reduced) { remove(); return; }
+            el.classList.add('is-leaving');
+            setTimeout(remove, EXIT_MS);
+        }
+
+        function pauseOne(el) {
+            if (!el._timer || el.dataset.leaving) return;
+            clearTimeout(el._timer);
+            el._timer = null;
+            el._left -= Date.now() - el._since;
+        }
+
+        /* Hovering or focusing anywhere in the stack pauses EVERY card: pulling
+           a row out from under someone who is reading it is the one thing a
+           timed popup must not do, and with five of them the cursor is rarely
+           over the one about to expire. */
+        function pause() {
+            paused = true;
+            live().forEach(pauseOne);
+        }
+
+        function resume() {
+            paused = false;
+            live().forEach(function (el) {
+                if (el._timer || el._left == null) return;
+                if (el._left <= 0) { drop(el); return; }
+                el._since = Date.now();
+                el._timer = setTimeout(function () { drop(el); }, el._left);
+            });
+        }
+
+        stack.addEventListener('mouseenter', pause);
+        stack.addEventListener('mouseleave', resume);
+        stack.addEventListener('focusin', pause);
+        stack.addEventListener('focusout', resume);
+
+        stack.addEventListener('click', function (e) {
+            var btn = e.target.closest('.remedi-toast__close');
+            if (!btn) return;
+            drop(btn.closest('.remedi-toast'));
+        });
+
+        function trim() {
+            var rows = live();
+            for (var i = 0; i < rows.length - MAX_VISIBLE; i++) drop(rows[i]);
+        }
+
+        function show(el) {
+            if (!el.isConnected) return;
+
+            stack.classList.add('is-open');
+            el.hidden = false;
+
+            el._left = DWELL_MS;
+            el._since = Date.now();
+            el._timer = setTimeout(function () { drop(el); }, el._left);
+            if (paused) pauseOne(el);        // landed while the cursor was in the stack
+
+            trim();
+        }
+
+        /* One batch in, staggered so they read as a stack building rather than
+           a slab appearing, and one chime for the whole batch. */
+        function enqueue(rows) {
+            if (!rows.length) return;
+
+            rows.slice(0, MAX_VISIBLE).forEach(function (row, i) {
+                var el = build(row);
+                stack.appendChild(el);
+                setTimeout(function () { show(el); }, reduced ? 0 : i * STAGGER_MS);
+            });
+
+            chime();
+        }
+
+        /* -- What has already been said ----------------------------------
+           Seeded from the server-rendered payload whether or not the greeting
+           plays, so a page opened later in the same session does not replay
+           everything the first page already showed. */
+        var WATCHED = {};
+        (seed.kinds || []).forEach(function (k) { WATCHED[k] = true; });
+
+        var seen = {};
+        (seed.items || []).forEach(function (i) { seen[i.id] = true; });
+
+        /* The per-device read store the bell and /notifications already share.
+           Only the expired rule consults it -- see pickGreeting below. */
+        function readIds() {
+            try {
+                return window.remediAlertReads ? window.remediAlertReads.get() : null;
+            } catch (e) { return null; }
+        }
+
+        /* -- Live watch ---------------------------------------------------
+           Driven by the bell's existing poll (see the remedi:alerts dispatch in
+           the bell script) rather than a loop of its own, so there is exactly
+           one request per interval and the toast can never disagree with the
+           badge it appears beside.
+
+           A card is raised for an ITEM ID that was not in the list before --
+           never for a kind whose total merely moved. A summary card ("Low stock
+           alert - 12 products") cannot say which product, cannot carry an onset
+           and cannot link at anything but a filter, so it is not a notification;
+           it is the badge restated.
+
+           The cost of that is real and worth writing down: payload.items is
+           capped at AlertService::PER_KIND per kind, so an alert that never
+           reaches its kind's slice never pops. The bell still lists it and the
+           badge still counts it -- this stack is deliberately the recent-news
+           surface, not the complete one. */
+        window.addEventListener('remedi:alerts', function (e) {
+            var items = ((e.detail || {}).items) || [];
+
+            var fresh = items.filter(function (i) {
+                return WATCHED[i.kind] && !seen[i.id];
+            });
+
+            fresh.forEach(function (i) { seen[i.id] = true; });
+
+            enqueue(fresh);
+        });
+
+        /* -- The greeting -------------------------------------------------
+           "Freshly opened" is a browser-session fact, not a server one, so the
+           gate is sessionStorage rather than a session flash: the app does full
+           page loads on every navigation, and a purely server-side flag would
+           either fire once at login only (missing someone who reopened a closed
+           tab) or fire on every single page view. sessionStorage dies with the
+           tab, which is exactly the lifetime of "this is a fresh visit".
+
+           A fresh sign-in clears the mark, so logging out and back in as
+           someone else greets the new user rather than staying silent because
+           the tab has already been greeted. The key is per user id for the same
+           reason. Note this gates the GREETING only -- live pops are never
+           suppressed, because they are news rather than a summary. */
+
+        /* What the greeting is allowed to say, in order.
+
+           EXPIRED stock is the exception to "recent only". Those units are on
+           the shelf right now and have to come off it, so they keep being
+           raised every time the app is opened until someone has actually opened
+           one -- read state, the same per-device store the bell paints from.
+           Everything else is a standing condition the bell will still be
+           holding tomorrow, so only the newest are worth interrupting for; the
+           payload already arrives newest-first, so taking from the front is
+           what "most recent, not the past" means here. */
+        function pickGreeting() {
+            var pool = (seed.items || []).filter(function (i) { return WATCHED[i.kind]; });
+            var read = readIds();
+
+            var expired = pool.filter(function (i) {
+                return i.kind === 'expired' && !(read && read.has(i.id));
+            });
+
+            var recent = pool.filter(function (i) { return i.kind !== 'expired'; });
+
+            return expired.concat(recent).slice(0, MAX_VISIBLE);
+        }
+
+        var greeting = pickGreeting();
+        if (!greeting.length) return;
+
+        var key = 'remedi.greeted:' + (stack.dataset.user || '0');
+
+        /* Storage throws in some privacy modes. Treat that as "cannot remember"
+           and still greet -- a few 5s cards are a smaller cost than silently
+           losing the feature for those users. */
+        function storage(fn, fallbackValue) {
+            try { return fn(window.sessionStorage); } catch (e) { return fallbackValue; }
+        }
+
+        if (stack.dataset.freshLogin === '1') {
+            storage(function (ss) { ss.removeItem(key); });
+        } else if (storage(function (ss) { return ss.getItem(key); }, null)) {
+            return;
+        }
+
+        storage(function (ss) { ss.setItem(key, '1'); });
+
+        function reveal() { enqueue(greeting); }
+
+        /* On /dashboard the body is fetched after the shell paints and the
+           loader owns the screen for 5-12s. Firing now would spend the whole
+           first card behind a loading card and be gone before the page the user
+           is waiting for arrives, so wait for the injector's ready event --
+           with a fallback timer, because a dashboard that fails to load must
+           not swallow the alerts too.
+
+           #dashboardRoot exists only in the shell (dashboard.index). The
+           ?full=1 escape hatch renders admin/staff.dashboard directly and has
+           no root, so its body is already on the page and needs no wait. */
+        var pendingBody = !!document.getElementById('dashboardRoot');
+
+        if (!pendingBody) { setTimeout(reveal, 400); return; }
+
+        var fired = false;
+        function once() {
+            if (fired) return;
+            fired = true;
+            setTimeout(reveal, 300);
+        }
+
+        window.addEventListener('remedi:dashboard-ready', once);
+        setTimeout(once, READY_FALLBACK_MS);
+    })();
+
 </script>
 </body>
 </html>

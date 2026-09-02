@@ -41,5 +41,11 @@ class AuditTrail extends Model
             // there is no request behind those, so there is no address.
             'ip_address' => request()?->ip(),
         ]);
+
+        // The bell's System/Updates tabs are built from these rows and cached
+        // for AlertService::TTL_SECONDS. Every write here is, by definition, a
+        // new notification, so retire that cache rather than showing a feed
+        // that is missing the thing the user just did.
+        \Illuminate\Support\Facades\Cache::forget('topbar_activity');
     }
 }

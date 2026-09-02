@@ -48,17 +48,14 @@
 {{-- Controls (hidden on print) --}}
 <div id="no-print">
 
-    {{-- Page Header --}}
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:1.5rem;">
-        <div style="display:flex;align-items:flex-start;gap:12px;">
-            <a href="{{ route('reports.index') }}" class="btn-back"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back </a>
-            
-            <div>
-                <div style="font-size:20px;font-weight:500;color:#111;">
-                    <i class="ti ti-chart-bar" style="font-size:18px;vertical-align:-2px;margin-right:7px;"></i>Sales Report
-                </div>
-                <div style="font-size:13px;color:#6b7280;margin-top:2px;">Generate and export sales transactions by date range</div>
-            </div>
+    {{-- Page Header. Shared .page-head pattern (layouts/app.blade.php) rather
+         than this page's own flex block, so Back lines up with the title the
+         same way it does on every other page. --}}
+    <div class="page-head">
+        <a href="{{ route('reports.index') }}" class="btn-back"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back</a>
+        <div class="page-head-text">
+            <h3><i class="ti ti-chart-bar" style="font-size:18px;vertical-align:-2px;margin-right:7px;"></i>Sales Report</h3>
+            <p>Generate and export sales transactions by date range</p>
         </div>
     </div>
 
@@ -68,7 +65,34 @@
     <form method="GET" action="{{ route('reports.sales') }}" class="report-filters">
         <div class="report-field">
             <label>Month</label>
-            <select name="month" onchange="this.form.submit()" class="report-select">
+            {{-- Choosing a month clears the date inputs before submitting. The
+                 form posts every field it owns, so a month left selected used
+                 to ride along with a later date edit and win on the server --
+                 which snapped the start date back to the 1st and made the date
+                 pickers look broken. --}}
+            @php
+                // Is a CUSTOM range driving this report? The month control has
+                // no value of its own then, and a <select> with nothing
+                // selected displays its first option -- so after generating a
+                // single day the picker sat there reading "All time (Sep 2022 -
+                // Sep 2026)" above a report showing one date. The figures were
+                // right; the control was describing a filter that was not in
+                // force.
+                //
+                // Same empty value as All time, and NOT disabled: submitting
+                // the form untouched must still let the dates drive, and
+                // choosing All time must still clear them.
+                $customRange = ! $month && ! ($start === $dataStart && $end === $dataEnd);
+
+                $customLabel = $start === $end
+                    ? \Carbon\Carbon::parse($start)->format('M j, Y')
+                    : \Carbon\Carbon::parse($start)->format('M j').' – '.\Carbon\Carbon::parse($end)->format('M j, Y');
+            @endphp
+            <select name="month" class="report-select"
+                    onchange="this.form.start_date.value=''; this.form.end_date.value=''; this.form.submit();">
+                @if($customRange)
+                    <option value="" selected>Custom range &middot; {{ $customLabel }}</option>
+                @endif
                 <option value="">All time ({{ \Carbon\Carbon::parse($dataStart)->format('M Y') }} &ndash; {{ \Carbon\Carbon::parse($dataEnd)->format('M Y') }})</option>
                 @foreach($months as $m)
                     <option value="{{ $m['ym'] }}" {{ $month === $m['ym'] ? 'selected' : '' }}>{{ $m['label'] }}</option>
@@ -77,11 +101,18 @@
         </div>
         <div class="report-field">
             <label>Start date</label>
-            <input type="date" name="start_date" value="{{ $start }}" min="{{ $dataStart }}" max="{{ $dataEnd }}" class="report-select">
+            {{-- max is today, not the end of the imported record: that data
+                 runs to the end of the current month, so without this the
+                 picker offered days that have not happened yet. --}}
+            <input type="date" name="start_date" value="{{ $start }}"
+                   min="{{ $dataStart }}" max="{{ min($dataEnd, now()->toDateString()) }}"
+                   onchange="this.form.month.value='';" class="report-select">
         </div>
         <div class="report-field">
             <label>End date</label>
-            <input type="date" name="end_date" value="{{ $end }}" min="{{ $dataStart }}" max="{{ $dataEnd }}" class="report-select">
+            <input type="date" name="end_date" value="{{ $end }}"
+                   min="{{ $dataStart }}" max="{{ min($dataEnd, now()->toDateString()) }}"
+                   onchange="this.form.month.value='';" class="report-select">
         </div>
         <div style="display:flex;gap:8px;align-items:flex-end;">
             <button type="submit" class="btn btn-primary btn-sm">
@@ -106,7 +137,20 @@
                 <span class="kpi-label">Total Sales</span>
             </div>
             <span class="kpi-value">&#8369;{{ number_format($totalSales, 2) }}</span>
-            <span class="kpi-sub">across the selected range</span>
+            {{-- Say what the figure is made of. It merges the imported sales
+                 record with live POS checkouts, but only the POS half can be
+                 listed as transactions below -- so without this the KPI and
+                 the table looked like a sum that did not add up. --}}
+            @if($historyTotal > 0 && $posTotal > 0)
+                <span class="kpi-sub">
+                    &#8369;{{ number_format($historyTotal, 2) }} imported
+                    + &#8369;{{ number_format($posTotal, 2) }} from POS
+                </span>
+            @elseif($posTotal > 0)
+                <span class="kpi-sub">all from POS transactions</span>
+            @else
+                <span class="kpi-sub">from the imported sales record</span>
+            @endif
         </div>
 
         <div class="kpi" style="--kpi-accent:#3b82f6;">
@@ -158,6 +202,72 @@
         @endif
     </div>
 
+    {{-- Breakdown of the headline figure.
+
+         The transactions table further down lists POS checkouts only, because
+         an imported sales_history row has no transaction number or cashier to
+         show. That left the biggest part of Total Sales unaccounted for on the
+         page -- Aug 21-25 showed P283,265.21 above 16 transactions worth
+         P31,195.98, with nothing to say where the rest came from.
+
+         This table is where the two records meet: every bucket in the range
+         with its imported and POS halves, and a footer that adds up to the KPI
+         exactly. --}}
+    @if($dailyBreakdown->isNotEmpty())
+    <div style="border:0.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;margin-bottom:1.5rem;">
+        <div style="padding:14px 16px;border-bottom:0.5px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <span style="font-size:14px;font-weight:500;color:#111;">
+                <i class="ti ti-list-details" style="font-size:14px;vertical-align:-1px;margin-right:6px;color:#185FA5;"></i>
+                Where the total comes from
+            </span>
+            <span style="font-size:12px;color:#6b7280;">
+                {{ $granularity === 'day' ? 'per day' : 'per month' }} &middot;
+                imported sales record + this terminal
+            </span>
+        </div>
+        <div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+                <tr style="background:#f9fafb;">
+                    <th style="width:38px;padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">#</th>
+                    <th style="padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">{{ $granularity === 'day' ? 'Date' : 'Month' }}</th>
+                    <th style="width:90px;padding:9px 14px;text-align:right;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Units</th>
+                    <th style="width:150px;padding:9px 14px;text-align:right;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Imported</th>
+                    <th style="width:140px;padding:9px 14px;text-align:right;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">This terminal</th>
+                    <th style="width:150px;padding:9px 14px;text-align:right;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($dailyBreakdown as $row)
+                    @php
+                        $rowTotal = (float) ($row['revenue'] ?? 0);
+                        $rowPos = (float) ($posByBucket[$row['key']] ?? 0);
+                        // Never render a negative "imported" cell: mergePos adds
+                        // POS onto the history figure, so the subtraction is the
+                        // right way round, but a rounding cent should not show.
+                        $rowHistory = max(0, round($rowTotal - $rowPos, 2));
+                    @endphp
+                    <tr style="border-bottom:0.5px solid #e5e7eb;">
+                        <td style="padding:10px 14px;color:#9ca3af;font-size:12px;">{{ $loop->iteration }}</td>
+                        <td style="padding:10px 14px;color:#374151;">{{ $row['label'] }}</td>
+                        <td style="padding:10px 14px;text-align:right;color:#6b7280;">{{ number_format($row['units'] ?? 0) }}</td>
+                        <td style="padding:10px 14px;text-align:right;color:#6b7280;">&#8369;{{ number_format($rowHistory, 2) }}</td>
+                        <td style="padding:10px 14px;text-align:right;color:{{ $rowPos > 0 ? '#2563eb' : '#cbd5e1' }};">&#8369;{{ number_format($rowPos, 2) }}</td>
+                        <td style="padding:10px 14px;text-align:right;font-weight:600;color:#16a34a;">&#8369;{{ number_format($rowTotal, 2) }}</td>
+                    </tr>
+                @endforeach
+            </tbody>
+            <tfoot>
+                <tr style="background:#f9fafb;">
+                    <td colspan="3" style="padding:10px 14px;font-weight:600;font-size:12px;color:#111;border-top:0.5px solid #e5e7eb;text-align:right;">Total</td>
+                    <td style="padding:10px 14px;text-align:right;font-weight:600;color:#6b7280;border-top:0.5px solid #e5e7eb;">&#8369;{{ number_format($historyTotal, 2) }}</td>
+                    <td style="padding:10px 14px;text-align:right;font-weight:600;color:#2563eb;border-top:0.5px solid #e5e7eb;">&#8369;{{ number_format($posTotal, 2) }}</td>
+                    <td style="padding:10px 14px;text-align:right;font-weight:700;color:#16a34a;border-top:0.5px solid #e5e7eb;">&#8369;{{ number_format($totalSales, 2) }}</td>
+                </tr>
+            </tfoot>
+        </table></div>
+    </div>
+    @endif
+
 </div>{{-- end #no-print --}}
 
 
@@ -199,9 +309,84 @@
         </div>
     </div>
 
-    {{-- Print Table --}}
+    {{-- PRINT TABLE 1: where the total comes from.
+         ------------------------------------------------------------------
+         This is the table the printout was missing, and its absence is why a
+         report for any month other than the current one printed nothing.
+
+         The only table in this print area used to be the POS transactions
+         below, and POS rows exist only for the handful of days this terminal
+         has actually rung up sales. So printing March -- or any month whose
+         sales live entirely in the imported record -- produced KPIs in the
+         millions above "No transactions found in this date range.", which
+         reads as a broken report rather than as "those sales were imported".
+
+         Same rows, same figures and the same footer as the screen's "Where
+         the total comes from" table, so the printed total matches the printed
+         KPI exactly. --}}
+    <div class="print-section-title" style="font-size:13px;font-weight:500;color:#111;margin-bottom:10px;">
+        Sales {{ $granularity === 'day' ? 'per day' : 'per month' }} &mdash; {{ \Carbon\Carbon::parse($start)->format('M d, Y') }} to {{ \Carbon\Carbon::parse($end)->format('M d, Y') }}
+        <span style="color:#6b7280;font-weight:400;">(imported sales record + this terminal)</span>
+    </div>
+
+    @if($dailyBreakdown->isNotEmpty())
+    <div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:26px;">
+        <thead>
+            <tr style="background:#f3f4f6;">
+                <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">#</th>
+                <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">{{ $granularity === 'day' ? 'Date' : 'Month' }}</th>
+                <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Units</th>
+                <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Imported</th>
+                <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">This terminal</th>
+                <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach($dailyBreakdown as $row)
+                @php
+                    $rowTotal = (float) ($row['revenue'] ?? 0);
+                    $rowPos = (float) ($posByBucket[$row['key']] ?? 0);
+                    // Same guard as the screen table: mergePos ADDS the POS
+                    // figure onto the history one, so the subtraction is the
+                    // right way round, but a rounding cent must not print as
+                    // a negative "imported" cell.
+                    $rowHistory = max(0, round($rowTotal - $rowPos, 2));
+                @endphp
+            <tr style="{{ $loop->even ? 'background:#f9fafb;' : 'background:#fff;' }}">
+                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#9ca3af;font-size:11px;">{{ $loop->iteration }}</td>
+                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#111;font-weight:500;">{{ $row['label'] }}</td>
+                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;text-align:right;">{{ number_format($row['units'] ?? 0) }}</td>
+                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;text-align:right;">&#8369;{{ number_format($rowHistory, 2) }}</td>
+                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;text-align:right;">&#8369;{{ number_format($rowPos, 2) }}</td>
+                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#16a34a;font-weight:600;text-align:right;">&#8369;{{ number_format($rowTotal, 2) }}</td>
+            </tr>
+            @endforeach
+        </tbody>
+        <tfoot>
+            <tr style="background:#f3f4f6;">
+                <td colspan="3" style="padding:9px 12px;font-weight:600;font-size:12px;color:#111;border:1px solid #e5e7eb;text-align:right;">Total</td>
+                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;text-align:right;">&#8369;{{ number_format($historyTotal, 2) }}</td>
+                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;text-align:right;">&#8369;{{ number_format($posTotal, 2) }}</td>
+                <td style="padding:9px 12px;border:1px solid #e5e7eb;text-align:right;font-weight:700;color:#16a34a;font-size:13px;">&#8369;{{ number_format($totalSales, 2) }}</td>
+            </tr>
+        </tfoot>
+    </table></div>
+    @else
+    <p style="margin:0 0 26px;padding:14px;border:1px solid #e5e7eb;text-align:center;color:#6b7280;font-size:12px;">
+        No sales recorded in this period.
+    </p>
+    @endif
+
+    {{-- PRINT TABLE 2: the POS transactions, and ONLY when there are some.
+         An empty "No transactions found" table under a report full of figures
+         is what made the printout look broken; a period whose sales are all
+         imported simply has no terminal section. --}}
+    @if($sales->isNotEmpty())
     <div class="print-section-title" style="font-size:13px;font-weight:500;color:#111;margin-bottom:10px;">
         Point-of-sale transactions recorded on this terminal &mdash; {{ \Carbon\Carbon::parse($start)->format('M d, Y') }} to {{ \Carbon\Carbon::parse($end)->format('M d, Y') }}
+        @if($totalTransactions > $salesForPrint->count())
+            <span style="color:#6b7280;font-weight:400;">(the first {{ number_format($salesForPrint->count()) }} of {{ number_format($totalTransactions) }}; the total below covers all of them)</span>
+        @endif
     </div>
 
     <div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:12px;">
@@ -215,7 +400,7 @@
             </tr>
         </thead>
         <tbody>
-            @forelse($sales as $i => $sale)
+            @foreach($salesForPrint as $i => $sale)
             <tr style="{{ $loop->even ? 'background:#f9fafb;' : 'background:#fff;' }}">
                 <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#9ca3af;font-size:11px;">{{ $loop->iteration }}</td>
                 <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#111;font-weight:500;">{{ $sale->transaction_no }}</td>
@@ -223,23 +408,22 @@
                 <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;">{{ $sale->user->name ?? 'N/A' }}</td>
                 <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#16a34a;font-weight:500;text-align:right;">₱{{ number_format($sale->total_amount, 2) }}</td>
             </tr>
-            @empty
-            <tr>
-                <td colspan="5" style="padding:24px;text-align:center;color:#9ca3af;border:1px solid #e5e7eb;">
-                    No transactions found in this date range.
-                </td>
-            </tr>
-            @endforelse
+            @endforeach
         </tbody>
         @if($totalTransactions > 0)
         <tfoot>
             <tr style="background:#f3f4f6;">
-                <td colspan="4" style="padding:9px 12px;font-weight:600;font-size:12px;color:#111;border:1px solid #e5e7eb;text-align:right;">Grand Total</td>
-                <td style="padding:9px 12px;font-weight:600;font-size:13px;color:#16a34a;border:1px solid #e5e7eb;text-align:right;">&#8369;{{ number_format($sales->sum('total_amount'), 2) }}</td>
+                {{-- $posTotal, not a sum of the PRINTED rows: the list is capped
+                     and the total is not. --}}
+                <td colspan="4" style="padding:9px 12px;font-weight:600;font-size:12px;color:#111;border:1px solid #e5e7eb;text-align:right;">
+                    Grand Total &mdash; all {{ number_format($totalTransactions) }} {{ Str::plural('transaction', $totalTransactions) }}
+                </td>
+                <td style="padding:9px 12px;font-weight:600;font-size:13px;color:#16a34a;border:1px solid #e5e7eb;text-align:right;">&#8369;{{ number_format($posTotal, 2) }}</td>
             </tr>
         </tfoot>
         @endif
     </table></div>
+    @endif
 
     {{-- Print Footer --}}
     <div style="margin-top:40px;padding-top:12px;border-top:0.5px solid #e5e7eb;display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;">
@@ -250,7 +434,31 @@
 </div>{{-- end #print-area --}}
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+@include('partials._chart-gradient')
 <script>
+    /* Gradient fill for a chart series.
+
+       `horizontal` follows indexAxis: a column chart fades from the value end
+       down to the baseline, a horizontal bar chart from the baseline out to the
+       value end -- so the fade always runs ALONG the bar rather than across it,
+       which is what makes it read as depth instead of a stripe.
+
+       Chart.js calls this per element with the chart area available; before the
+       first layout pass chartArea is undefined, hence the flat-colour fallback
+       (returning undefined there paints the bars black). */
+    function chartGradient(ctx, color, horizontal) {
+        const area = ctx.chart.chartArea;
+        if (!area) return color;
+
+        const g = horizontal
+            ? ctx.chart.ctx.createLinearGradient(area.left, 0, area.right, 0)
+            : ctx.chart.ctx.createLinearGradient(0, area.top, 0, area.bottom);
+
+        g.addColorStop(horizontal ? 1 : 0, color);
+        g.addColorStop(horizontal ? 0 : 1, color + '55');   // ~33% alpha
+        return g;
+    }
+
     @if($dailyBreakdown->isNotEmpty())
     const salesDates = {!! json_encode($dailyBreakdown->pluck('label')) !!};
     const salesTotals = {!! json_encode($dailyBreakdown->pluck('revenue')) !!};
@@ -262,10 +470,30 @@
             datasets: [{
                 label: 'Sales',
                 data: salesTotals,
-                backgroundColor: '#3b82f6',
+                backgroundColor: (ctx) => chartGradient(ctx, '#3b82f6', false),
                 borderRadius: 4,
                 maxBarThickness: 36,
-            }],
+                order: 1,   // drawn first, so the trend line sits on top
+            },
+                // Trend line over the bars. Same series, drawn as a line so
+                // the shape of the movement reads across the whole range --
+                // bar heights are easy to compare pairwise and hard to read
+                // as a direction. `order` puts the line in front of the
+                // bars; Chart.js draws higher `order` first.
+                {
+                    type: 'line',
+                    label: 'Trend',
+                    data: salesTotals,
+                    borderColor: '#1d4ed8',
+                    backgroundColor: '#1d4ed8',
+                    borderWidth: 2,
+                    tension: 0.35,
+                    pointRadius: 3,
+                    pointBackgroundColor: '#1d4ed8',
+                    fill: false,
+                    order: 0,
+                },
+            ],
         },
         options: {
             responsive: true,

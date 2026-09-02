@@ -1,9 +1,10 @@
 <div class="table-scroll"><table class="remedi-table">
     <thead>
         <tr>
+            <th style="width:52px; text-align:right;">#</th>
             <th>Product ID</th>
             <th>Product Name</th>
-            <th>SKU / Barcode</th>
+            <th>SKU</th>
             <th>Category</th>
             <th>Unit</th>
             <th>Selling Price</th>
@@ -16,12 +17,17 @@
     <tbody>
     @forelse($products as $product)
         <tr>
+            {{-- Row number, continuous across pages: firstItem() is the index of the first row on THIS page, so page 2 starts at 11 rather than restarting at 1. --}}
+            <td style="text-align:right; color:#94a3b8;">{{ $products->firstItem() + $loop->index }}</td>
             <td>{{ $product->id }}</td>
             <td>{{ $product->name }}</td>
 
+            {{-- Barcode number removed from the listing. The column still
+                 carries the SKU, which is the identifier staff actually quote,
+                 and `barcode` is still a real column that search matches on --
+                 it is simply not printed. --}}
             <td>
-                <small>SKU: {{ $product->sku }}</small><br>
-                <small>Barcode: {{ $product->barcode ?? '—' }}</small>
+                <small>SKU: {{ $product->sku }}</small>
             </td>
             <td>{{ $product->category->name }}</td>
             <td>{{ $product->unit }}</td>
@@ -36,7 +42,7 @@
             </td>
             <td class="col-status">
                 <div class="status-stack">
-                @if($product->is_low_stock)
+                @if($product->is_running_out)
                     <span class="badge badge-danger">Low Stock</span>
                 @else
                     <span class="badge badge-success">OK</span>
@@ -45,17 +51,23 @@
             </td>
             <td class="col-actions">
                 <div class="actions-cell">
-                    <a href="{{ route('products.edit', $product) }}" class="btn btn-info action-btn">Edit</a>
-                    <form method="POST" action="{{ route('products.destroy', $product) }}" onsubmit="return confirm('Delete this product and all its batches?');">
+                    <a href="{{ route('products.edit', $product) }}" class="btn btn-info action-btn"><i class="ti ti-pencil" aria-hidden="true"></i> Edit</a>
+                    <form method="POST" action="{{ route('products.destroy', $product) }}"
+                          class="js-confirm"
+                          data-confirm-title="Delete this product?"
+                          data-confirm-body="Deleting {{ $product->name }} ({{ $product->sku }}) also removes all of its batches and their stock. This cannot be undone."
+                          data-confirm-label="Delete"
+                          data-confirm-icon="ti-trash"
+                          data-on-success="remove-row">
                         @csrf
                         @method('DELETE')
-                        <button type="submit" class="btn btn-danger action-btn">Delete</button>
+                        <button type="submit" class="btn btn-danger action-btn"><i class="ti ti-trash" aria-hidden="true"></i> Delete</button>
                     </form>
                 </div>
             </td>
         </tr>
     @empty
-        <tr><td colspan="10">No products found.</td></tr>
+        <tr><td colspan="11">No products found.</td></tr>
     @endforelse
     </tbody>
 </table></div>

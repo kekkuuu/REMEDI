@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\SalesForecast;
+use App\Models\SalesHistory;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -42,7 +43,24 @@ class SalesForecastService
         // single LEFT JOIN aggregate was measured and is SLOWER (1339ms vs
         // 375+766ms): the units total needs no join at all, and merging makes
         // it pay for one. Keep them separate.
+        // Both actuals stop at reportableThrough(), the same cut-off every other
+        // aggregate over this table uses.
+        //
+        // The seeded history fills its final month to that month's last day
+        // regardless of the calendar -- 2026-08-31 while today is the 24th --
+        // so without this the "actual" series counted 1,730 rows and 10,640
+        // units of sales that have not happened. August 2026 came out at 45,790
+        // units / ₱1,699,579.63 here against the dashboard's clamped
+        // ₱1,282,779.84: two panels in the same app disagreeing about the same
+        // month by ₱416,799.79.
+        //
+        // It is the last actual point before the forecast begins, which is
+        // exactly the bar a user reads to judge whether the forecast looks
+        // sane -- so an inflated one discredits a correct forecast.
+        $through = SalesHistory::reportableThrough();
+
         $actualUnits = DB::table('sales_history')
+            ->where('sale_date', '<=', $through)
             ->selectRaw("DATE_FORMAT(sale_date, '%Y-%m') as month, SUM(quantity_sold) as total_qty")
             ->groupBy('month')
             ->orderBy('month')
@@ -50,6 +68,7 @@ class SalesForecastService
 
         $actualRevenue = DB::table('sales_history')
             ->join('products', 'products.sku', '=', 'sales_history.product_sku')
+            ->where('sale_date', '<=', $through)
             // STRAIGHT_JOIN: see SalesHistory::monthlyRevenue -- the optimiser's
             // own plan for this join measures 53.6s against 3.9s forced.
             ->selectRaw("STRAIGHT_JOIN DATE_FORMAT(sale_date, '%Y-%m') as month, SUM(sales_history.quantity_sold * products.selling_price) as total_revenue")
@@ -94,7 +113,12 @@ class SalesForecastService
         // just the winners. Grouping by products.name meant joining all
         // 100k+ history rows to products before grouping, which was the
         // single slowest query on the page.
+        // Clamped like the actuals above. On this data the ORDER happens not to
+        // change (42,276 -> 42,061 for the leader, and so on down), but the
+        // unit counts shown beside each name were overstated, and a closer pair
+        // of products would reorder.
         $topSkus = DB::table('sales_history')
+            ->where('sale_date', '<=', $through)
             ->selectRaw('product_sku, SUM(quantity_sold) as total_units')
             ->groupBy('product_sku')
             ->orderByDesc('total_units')

@@ -37,6 +37,18 @@ class AuthenticatedSessionController extends Controller
 
         AuditTrail::log('Login', auth()->user()->name.' logged in');
 
+        // Tell the next page -- normally the dashboard -- that this is an
+        // arrival, not a revisit.
+        //
+        // The dashboard's branded loading screen is for the moment you sign
+        // in, when there is nothing on screen yet and the wait needs
+        // explaining. Someone who is already working in the app and clicks
+        // Dashboard does not need to be told what the app is; they get the
+        // skeleton and nothing else. Flash data is exactly one request long,
+        // which is exactly how long this should last -- a refresh a second
+        // later is a revisit and correctly gets the quiet version.
+        session()->flash('remedi.just_signed_in', true);
+
         return redirect()->intended(RouteServiceProvider::HOME);
     }
 

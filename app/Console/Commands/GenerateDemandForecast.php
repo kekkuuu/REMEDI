@@ -35,6 +35,7 @@ class GenerateDemandForecast extends Command
 
         $scriptPath = resource_path('python/generate_forecasts.py');
         $outputPath = storage_path('app/forecasts/all_products_forecast.csv');
+        $metricsPath = storage_path('app/forecasts/all_products_accuracy.csv');
 
         $args = [
             $python, $scriptPath,
@@ -43,6 +44,7 @@ class GenerateDemandForecast extends Command
             '--horizon', (string) $horizon,
             '--workers', (string) (int) $this->option('workers'),
             '--env-path', base_path('.env'),
+            '--metrics', $metricsPath,
         ];
 
         if ($source === 'csv') {
@@ -84,6 +86,14 @@ class GenerateDemandForecast extends Command
         $this->info('Importing forecasts into the database...');
         $imported = $this->importCsv($outputPath);
         $this->info("Imported {$imported} forecast rows.");
+
+        // Accuracy is a separate file and a separate table: it is one summary
+        // row per product, not a row per month. A missing file is not a failure
+        // -- the forecast itself is the deliverable and is already in.
+        if (is_file($metricsPath)) {
+            $scored = $this->importMetrics($metricsPath);
+            $this->info("Imported holdout accuracy for {$scored} products.");
+        }
 
         return self::SUCCESS;
     }
@@ -146,5 +156,79 @@ class GenerateDemandForecast extends Command
             ['product_sku', 'forecast_date'],
             ['forecast_value', 'lower_ci', 'upper_ci', 'generated_at', 'updated_at']
         );
+    }
+
+    /**
+     * Load the holdout accuracy CSV into `forecast_accuracy`.
+     *
+     * Replaces the table wholesale rather than upserting: these are summary
+     * statistics for one run, and a stale row for a product this run could not
+     * score would sit there looking current. Same reasoning as the
+     * `generated_at <` sweep the forecast import does.
+     */
+    private function importMetrics(string $path): int
+    {
+        $handle = fopen($path, 'r');
+
+        if ($handle === false) {
+            return 0;
+        }
+
+        $header = fgetcsv($handle);
+
+        if ($header === false) {
+            fclose($handle);
+
+            return 0;
+        }
+
+        $now = now();
+        $rows = [];
+        $count = 0;
+
+        // Cleared up front, not swept afterwards. `product_sku` is unique, so
+        // inserting over last run's rows collides on every run after the first;
+        // and these are whole-run summary statistics, so a row this run could
+        // not score must not survive looking current.
+        DB::table('forecast_accuracy')->delete();
+
+        while (($line = fgetcsv($handle)) !== false) {
+            $row = array_combine($header, $line);
+
+            if (! $row || ($row['product_sku'] ?? '') === '') {
+                continue;
+            }
+
+            $rows[] = [
+                'product_sku' => $row['product_sku'],
+                'mae' => (float) $row['mae'],
+                'rmse' => (float) $row['rmse'],
+                // '' is what pandas writes for a null MAPE. Cast it to null,
+                // not 0.0 -- 'undefined' and 'perfect' must not collapse.
+                'mape' => ($row['mape'] ?? '') === '' ? null : (float) $row['mape'],
+                'smape' => ($row['smape'] ?? '') === '' ? null : (float) $row['smape'],
+                'holdout_months' => (int) $row['holdout_months'],
+                'points_scored' => (int) $row['points_scored'],
+                'points_scored_mape' => (int) $row['points_scored_mape'],
+                'method' => $row['method'] ?: null,
+                'generated_at' => $now,
+                'created_at' => $now,
+                'updated_at' => $now,
+            ];
+            $count++;
+
+            if (count($rows) >= 500) {
+                DB::table('forecast_accuracy')->insert($rows);
+                $rows = [];
+            }
+        }
+
+        fclose($handle);
+
+        if ($rows) {
+            DB::table('forecast_accuracy')->insert($rows);
+        }
+
+        return $count;
     }
 }

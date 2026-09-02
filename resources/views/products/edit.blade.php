@@ -3,107 +3,209 @@
 @section('title', 'Edit Product')
 
 @section('content')
-<div class="page-back"><a href="{{ route('products.index') }}" class="btn-back"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back</a></div>
+{{-- Back sits beside the title, the shared .page-head pattern (see the styles
+     in layouts/app.blade.php).
 
-{{-- Header mirrors products/create.blade.php: Back sits at the top of the
-     page where it's reachable without scrolling past the batch tables,
-     rather than buried under the form. --}}
-<div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:20px;">
-    {{-- Deliberately a fixed target, not url()->previous(): after a failed
-         validation redirect the previous URL is this same edit page, so a
-         "back" built on it would link to itself. --}}
-    
-    <div>
-        <h3 style="margin:0; font-size:1.15rem;">{{ $product->name }}</h3>
-        <span style="font-size:.85rem; color:#64748b;">SKU {{ $product->sku }}</span>
+     Deliberately a fixed target, not url()->previous(): after a failed
+     validation redirect the previous URL is this same edit page, so a "back"
+     built on it would link to itself. --}}
+<div class="page-head">
+    <a href="{{ route('products.index') }}" class="btn-back"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back</a>
+    <span class="form-chip" aria-hidden="true"><i class="ti ti-tag"></i></span>
+    <div class="page-head-text is-record">
+        <h3>{{ $product->name }}</h3>
+        <p>SKU {{ $product->sku }}</p>
     </div>
 </div>
 
-<div class="card" style="margin-bottom:20px;">
-    <h4>Product Details</h4>
-    <form method="POST" action="{{ route('products.update', $product) }}">
+{{-- Same fields and values as before; only the presentation changed. The
+     per-field chips the Add pages use are dropped here on purpose: the card
+     header already carries one, and six of them in a single row reads as a
+     wall of icons. --}}
+<div class="form-card" style="margin-bottom:20px;">
+    <div class="section-head">
+        <h4>Product Details</h4>
+    </div>
+
+    <form method="POST" action="{{ route('products.update', $product) }}"
+          class="js-confirm" data-confirm-tone="neutral" data-confirm-icon="ti-device-floppy"
+          data-confirm-title="Save changes?" data-confirm-body="Update this product details."
+          data-confirm-label="Save changes">
         @csrf
         @method('PUT')
-        {{-- Auto-fit columns: the form fills the width the card actually has
-             instead of a fixed 600px column, and collapses to one column on
-             narrow screens without a media query. --}}
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap:16px;">
-            <div>
-                <label>Product Name</label><br>
-                <input type="text" name="name" value="{{ old('name', $product->name) }}" required style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+
+        {{-- .form-grid / .form-field / .form-field-head: the chip belongs to the
+             LABEL and the input sits underneath it, full width. This card used
+             .field-aside, which put the chip in its own column beside the whole
+             field, so it read as an ornament on the input instead of a mark on
+             the label -- and it did not match Add Product, which has always
+             used this pattern. --}}
+        <div class="form-grid">
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-bottle"></i></span>
+                    <label for="name">Product Name</label>
+                </div>
+                <input type="text" id="name" name="name" value="{{ old('name', $product->name) }}" required>
             </div>
-            <div>
-                <label>SKU</label><br>
-                <input type="text" name="sku" value="{{ old('sku', $product->sku) }}" required style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-barcode"></i></span>
+                    <label for="sku">SKU (Product Code)</label>
+                </div>
+                <input type="text" id="sku" name="sku" value="{{ old('sku', $product->sku) }}" required>
             </div>
-            <div>
-                <label>Category</label><br>
-                <select name="category_id" required style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-category"></i></span>
+                    <label for="category_id">Category</label>
+                </div>
+                <select id="category_id" name="category_id" required>
                     @foreach($categories as $cat)
                         <option value="{{ $cat->id }}" {{ old('category_id', $product->category_id) == $cat->id ? 'selected' : '' }}>{{ $cat->name }}</option>
                     @endforeach
                 </select>
             </div>
-            <div>
-                <label>Unit</label><br>
-                <input type="text" name="unit" value="{{ old('unit', $product->unit) }}" required style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-box"></i></span>
+                    <label for="unit">Unit</label>
+                </div>
+                {{-- unitOptions($product->unit) keeps a legacy value selectable,
+                     so editing anything else does not rewrite it. --}}
+                <select id="unit" name="unit" required>
+                    @foreach(\App\Models\Product::unitOptions($product->unit) as $unitOption)
+                        <option value="{{ $unitOption }}" {{ old('unit', $product->unit) === $unitOption ? 'selected' : '' }}>{{ $unitOption }}</option>
+                    @endforeach
+                </select>
             </div>
-            <div>
-                <label>Selling Price (&#8369;)</label><br>
-                <input type="number" step="0.01" name="selling_price" value="{{ old('selling_price', $product->selling_price) }}" required style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-coin"></i></span>
+                    <label for="selling_price">Selling Price (&#8369;)</label>
+                </div>
+                <input type="number" step="0.01" id="selling_price" name="selling_price" value="{{ old('selling_price', $product->selling_price) }}" required>
             </div>
-            <div>
-                <label>Reorder Level</label><br>
-                <input type="number" name="reorder_level" value="{{ old('reorder_level', $product->reorder_level) }}" required style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-alert-triangle"></i></span>
+                    <label for="reorder_level">Reorder Level (Low Stock Threshold)</label>
+                </div>
+                <input type="number" id="reorder_level" name="reorder_level" value="{{ old('reorder_level', $product->reorder_level) }}" required>
+                <span class="form-field-note">
+                    <i class="ti ti-info-circle" aria-hidden="true"></i>
+                    Alerts fire when sellable stock falls to this level.
+                </span>
             </div>
+
         </div>
 
-        <div style="margin-top:18px; display:flex; gap:10px;">
-            <button type="submit" class="btn btn-primary">Update Product</button>
-            <a href="{{ route('products.index') }}" class="btn btn-secondary">Cancel</a>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-lg">
+                <i class="ti ti-check" aria-hidden="true"></i> Update Product
+            </button>
+            <a href="{{ route('products.index') }}" class="btn btn-secondary btn-lg">
+                <i class="ti ti-x" aria-hidden="true"></i> Cancel
+            </a>
         </div>
     </form>
 </div>
 
-<div class="card" style="margin-bottom:20px;">
-    <h4>Add New Batch</h4>
-    <form method="POST" action="{{ route('products.batches.store', $product) }}" style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
+<div class="form-card" style="margin-bottom:20px;">
+    <div class="section-head">
+        <h4>Add New Batch</h4>
+    </div>
+
+    <form method="POST" action="{{ route('products.batches.store', $product) }}">
         @csrf
-        <div>
-            <label>Batch Number</label><br>
-            <input type="text" name="batch_number" required style="padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+        {{-- Every field repopulates from old(). addBatch() answers a failed
+             validation with back()->withErrors(), so without this a typo in one
+             date threw away the batch number and quantity already typed. --}}
+        {{-- Both dates start EMPTY, so each shows the mm/dd/yyyy placeholder
+             the layout's date-placeholder script puts on an empty date field.
+             They used to be prefilled -- received = today, expiry = this
+             product's usual shelf life (ProductController::edit still computes
+             $suggestedExpiryDate, so restoring either is a one-line change) --
+             but a prefilled field has a VALUE, and a value is not a
+             placeholder: it showed a date where the format was wanted. Both
+             come off the same delivery document anyway, and an expiry date
+             accepted by accident because it was already in the box is the one
+             mistake on this form that reaches the shelf. --}}
+        <div class="form-grid cols-3">
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-hash"></i></span>
+                    <label for="batch_number">Batch Number</label>
+                </div>
+                <input type="text" id="batch_number" name="batch_number" value="{{ old('batch_number') }}"
+                       placeholder="Enter batch number" required>
+            </div>
+
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-stack-2"></i></span>
+                    <label for="quantity">Quantity</label>
+                </div>
+                <input type="number" id="quantity" name="quantity" value="{{ old('quantity') }}"
+                       min="1" placeholder="Enter quantity" required>
+            </div>
+
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-calendar"></i></span>
+                    <label for="received_date">Received Date</label>
+                </div>
+                {{-- max=today: a delivery cannot have arrived on a day that has
+                     not happened. addBatch() enforces it as well. --}}
+                <input type="date" id="received_date" name="received_date" value="{{ old('received_date') }}"
+                       max="{{ now()->toDateString() }}" required>
+            </div>
+
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-calendar-event"></i></span>
+                    <label for="expiry_date">Expiry Date</label>
+                </div>
+                {{-- min=tomorrow, matching the after:today the endpoint applies:
+                     a batch that expires today is already expired, and the till
+                     may not sell it (ProductBatch::is_expired counts the expiry
+                     date itself as expired). --}}
+                <input type="date" id="expiry_date" name="expiry_date" value="{{ old('expiry_date') }}"
+                       min="{{ now()->addDay()->toDateString() }}" required>
+            </div>
+
         </div>
-        <div>
-            <label>Quantity</label><br>
-            <input type="number" name="quantity" min="1" required style="padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+
+        {{-- Its own actions row, below the fields, exactly where Update
+             Product sits. It used to be a fifth cell in the grid with an
+             invisible chip holding its column open, which left it floating
+             mid-form and reflowed to a different place at every breakpoint. --}}
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-lg">
+                <i class="ti ti-plus" aria-hidden="true"></i> Add Batch
+            </button>
         </div>
-        <div>
-            <label>Received Date</label><br>
-            <input type="date" name="received_date" value="{{ now()->format('Y-m-d') }}" required style="padding:8px; border:1px solid #d1d5db; border-radius:6px;">
-        </div>
-        <div>
-            <label>Expiry Date</label><br>
-            <input type="date" name="expiry_date" value="{{ old('expiry_date', $suggestedExpiryDate?->format('Y-m-d')) }}" required style="padding:8px; border:1px solid #d1d5db; border-radius:6px;">
-            @if($suggestedExpiryDate)
-                <div style="font-size:11px; color:#94a3b8; margin-top:3px; max-width:180px;">Suggested from this product's usual shelf life — feel free to adjust.</div>
-            @endif
-        </div>
-        <button type="submit" class="btn btn-success">Add Batch</button>
     </form>
 </div>
 
 @php
     $existingBatches = $product->batches()->orderBy('expiry_date')->get();
 @endphp
-<div class="card">
-    {{-- Collapsed by default to keep the page from being dominated by a
-         long batch history table — expand only when you actually need to
-         inspect or manage individual batches/lots. --}}
-    <details>
-        <summary style="cursor:pointer; font-weight:600; font-size:1rem; list-style:revert;">
-            Existing Batches ({{ $existingBatches->count() }})
-        </summary>
-        <div style="margin-top:14px;">
+<div class="form-card">
+    {{-- Always open. This used to be a collapsed <details>, which hid the one
+         thing the page is actually for: stock lives on batches, not on the
+         product, so expiry, quantities and the return actions were all behind
+         a disclosure the user had to know to click. The table scrolls inside
+         .table-scroll, so a long batch history costs width, not page height. --}}
+    <div class="section-head">
+        <h4>Existing Batches ({{ $existingBatches->count() }})</h4>
+    </div>
+        <div>
     <div class="table-scroll"><table class="remedi-table">
         <thead>
             <tr><th>Batch No.</th><th>Quantity</th><th>Received</th><th>Expiry</th><th>Status</th><th>Return Status</th><th>Actions</th></tr>
@@ -153,13 +255,25 @@
                 <td>
                     <div style="display:flex; gap:6px; flex-wrap:wrap; align-items:center;">
                     @if($batch->is_returnable)
-                        <form method="POST" action="{{ route('batches.return', $batch) }}" style="margin:0;" onsubmit="return confirm('Mark this batch as returned to the supplier?');">
+                        <form method="POST" action="{{ route('batches.return', $batch) }}" style="margin:0;"
+                              class="js-confirm"
+                              data-confirm-title="Mark this batch as returned?"
+                              data-confirm-body="Record batch {{ $batch->batch_number }} as sent back to the supplier. It stops counting as sellable stock."
+                              data-confirm-label="Mark Returned"
+                              data-confirm-icon="ti-package-export"
+                              data-confirm-tone="neutral">
                             @csrf
                             @method('PATCH')
                             <button type="submit" class="btn btn-success" style="padding:4px 8px;">Mark Returned</button>
                         </form>
                     @endif
-                    <form method="POST" action="{{ route('batches.destroy', $batch) }}" style="margin:0;" onsubmit="return confirm('Remove this batch?');">
+                    <form method="POST" action="{{ route('batches.destroy', $batch) }}" style="margin:0;"
+                          class="js-confirm"
+                          data-confirm-title="Remove this batch?"
+                          data-confirm-body="Batch {{ $batch->batch_number }} and its {{ $batch->quantity }} remaining units will be removed from stock. This cannot be undone."
+                          data-confirm-label="Remove"
+                          data-confirm-icon="ti-trash"
+                          data-on-success="remove-row">
                         @csrf
                         @method('DELETE')
                         <button type="submit" class="btn btn-danger" style="padding:4px 8px;">Remove</button>
@@ -173,6 +287,5 @@
         </tbody>
     </table></div>
         </div>
-    </details>
 </div>
 @endsection

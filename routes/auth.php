@@ -23,7 +23,10 @@ Route::middleware('guest')->group(function () {
                 ->name('password.store');
 });
 
-Route::middleware('auth')->group(function () {
+// `active` here too: PUT /password is in this group, and a deactivated account
+// must not be able to change its own credentials. Logout still works -- the
+// middleware ends the session and lands on login either way.
+Route::middleware(['auth', 'active'])->group(function () {
     Route::get('verify-email', EmailVerificationPromptController::class)
                 ->name('verification.notice');
     Route::get('verify-email/{id}/{hash}', VerifyEmailController::class)

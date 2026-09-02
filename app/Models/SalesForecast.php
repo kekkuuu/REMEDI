@@ -37,22 +37,4 @@ class SalesForecast extends Model
     {
         return $query->where('product_sku', $productSku)->orderBy('forecast_date');
     }
-
-    public function scopeNextMonthOnly($query)
-    {
-        $nextMonth = now()->addMonthNoOverflow()->startOfMonth()->toDateString();
-
-        return $query->whereDate('forecast_date', $nextMonth);
-    }
-
-    public function scopeSixMonthTotals($query)
-    {
-        return $query->select(
-                'product_sku',
-                \DB::raw('SUM(forecast_units) as total_units'),
-                \DB::raw('SUM(forecast_revenue) as total_revenue')
-            )
-            ->groupBy('product_sku')
-            ->orderByDesc('total_revenue');
-    }
 }

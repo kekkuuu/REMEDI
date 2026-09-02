@@ -6,19 +6,19 @@
      reach. The sales-only panels moved into the Sales section instead. --}}
 @php
     $alerts = collect([
-        ['show' => $lowStockCount > 0, 'cls' => 'is-low', 'icon' => 'ti-alert-triangle',
+        ['show' => $lowStockCount > 0, 'cls' => 'is-low', 'icon' => 'ti-alert-triangle', 'kind' => 'low_stock',
          'title' => 'Low stock alert', 'body' => $lowStockCount.' products are at or below reorder level',
          'href' => route('inventory.index', ['filter' => 'low_stock'])],
-        ['show' => $expiringCount > 0, 'cls' => 'is-expiring', 'icon' => 'ti-clock-exclamation',
+        ['show' => $expiringCount > 0, 'cls' => 'is-expiring', 'icon' => 'ti-clock-exclamation', 'kind' => 'expiring',
          'title' => 'Expiring soon', 'body' => $expiringCount.' batches will expire within 30 days',
-         'href' => route('inventory.index', ['filter' => 'expiring'])],
-        ['show' => $expiredCount > 0, 'cls' => 'is-expired', 'icon' => 'ti-alert-octagon',
+         'href' => \App\Models\ProductBatch::expiringSoonUrl()],
+        ['show' => $expiredCount > 0, 'cls' => 'is-expired', 'icon' => 'ti-alert-octagon', 'kind' => 'expired',
          'title' => 'Expired stock', 'body' => $expiredCount.' expired batches are still in stock',
          'href' => route('inventory.index', ['filter' => 'expired'])],
-        ['show' => $needReturnCount > 0, 'cls' => 'is-return', 'icon' => 'ti-package-export',
+        ['show' => $needReturnCount > 0, 'cls' => 'is-return', 'icon' => 'ti-package-export', 'kind' => 'need_to_return',
          'title' => 'Return window open', 'body' => $needReturnCount.' batches can still go back to the supplier',
          'href' => route('inventory.index', ['filter' => 'need_to_return'])],
-        ['show' => $returnStats['fail_to_return'] > 0, 'cls' => 'is-missed', 'icon' => 'ti-calendar-x',
+        ['show' => $returnStats['fail_to_return'] > 0, 'cls' => 'is-missed', 'icon' => 'ti-calendar-x', 'kind' => 'fail_to_return',
          'title' => 'Return window missed', 'body' => $returnStats['fail_to_return'].' batches missed the return window',
          'href' => route('inventory.index', ['filter' => 'fail_to_return'])],
     ])->where('show', true)->values();
