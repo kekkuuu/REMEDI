@@ -103,6 +103,34 @@ class SalesHistory extends Model
     }
 
     /**
+     * The last day any aggregate here will report on.
+     *
+     * The seeded history fills its final month to the last day of that month
+     * regardless of the calendar (2026-08-31 while today is the 23rd), so
+     * without this the dashboard's monthly chart, Sales Summary ring and
+     * demand panels all counted sales that have not happened. The reports
+     * clamp the same way -- see ReportController::clampEnd.
+     */
+    public static function reportableThrough(): string
+    {
+        return today()->toDateString();
+    }
+
+    /**
+     * Expiry for the fixed-key aggregates below.
+     *
+     * They are clamped to "today", so a plain 24h TTL would keep yesterday's
+     * cut-off for most of the following day and hold a finished day out of the
+     * chart. Whichever comes first: the normal TTL, or midnight.
+     */
+    private static function cacheUntil()
+    {
+        $ttl = now()->addHours(self::CACHE_TTL_HOURS);
+
+        return $ttl->greaterThan(now()->endOfDay()) ? now()->endOfDay() : $ttl;
+    }
+
+    /**
      * Revenue per calendar month across the whole history, oldest first:
      * [ ['ym' => '2024-01', 'label' => 'Jan 2024', 'total' => 12345.67], ... ]
      *
@@ -110,12 +138,32 @@ class SalesHistory extends Model
      * current selling_price -- the same derivation SalesForecastService uses,
      * kept consistent deliberately.
      */
+    /**
+     * Revenue by calendar month, BOTH RECORDS.
+     *
+     * This read sales_history alone, and once the imported record was trimmed
+     * back to the day before the terminal went live (2026-08-16 here) that
+     * showed on the dashboard immediately: **September was missing from the
+     * chart entirely and August stopped on the 15th**, weeks after August had
+     * ended. Neither month was wrong in the table it came from -- they were
+     * simply the wrong table to ask.
+     *
+     * POS takings are `sales.total_amount`, which is what the till actually
+     * charged, matching the "this terminal" column on the Sales report. (The
+     * per-PRODUCT rankings in topProductsBetween() use units x current price on
+     * both halves instead, because there the two sources are being compared
+     * with each other rather than added up.)
+     */
     public static function monthlyRevenue(): Collection
     {
         return Cache::remember(
-            self::MONTHLY_CACHE_KEY,
-            now()->addHours(self::CACHE_TTL_HOURS),
+            // The POS stamp belongs in the key now: a checkout changes this
+            // series, and the fixed key would have served yesterday's chart
+            // until the TTL ran out.
+            self::MONTHLY_CACHE_KEY.':p'.static::posCacheVersion(),
+            self::cacheUntil(),
             fn () => DB::table('sales_history')
+                ->where('sale_date', '<=', self::reportableThrough())
                 ->join('products', 'products.sku', '=', 'sales_history.product_sku')
                 // STRAIGHT_JOIN forces sales_history to drive this join.
                 // Left to itself MySQL starts from products (2.7k rows) and does
@@ -133,15 +181,39 @@ class SalesHistory extends Model
                 ->groupBy('ym')
                 ->orderBy('ym')
                 ->get()
-                ->map(fn ($row) => [
-                    'ym' => $row->ym,
+                ->pluck('total', 'ym')
+                ->map(fn ($t) => (float) $t)
+                ->pipe(function (Collection $history) {
+                    // Add the till, month by month. A month present in only one
+                    // record still appears -- that is the entire point.
+                    foreach (static::posMonthlyRevenue() as $ym => $total) {
+                        $history[$ym] = ($history[$ym] ?? 0) + $total;
+                    }
+
+                    return $history->sortKeys();
+                })
+                ->map(fn ($total, $ym) => [
+                    'ym' => $ym,
                     // Month AND year: across 30+ months a bare "January"
                     // would repeat and read as the same bar.
-                    'label' => Carbon::createFromFormat('Y-m', $row->ym)->format('M Y'),
-                    'total' => round((float) $row->total, 2),
+                    'label' => Carbon::createFromFormat('Y-m', $ym)->format('M Y'),
+                    'total' => round($total, 2),
                 ])
                 ->values()
         );
+    }
+
+    /**
+     * Terminal takings by calendar month, clamped like every other aggregate.
+     */
+    private static function posMonthlyRevenue(): Collection
+    {
+        return DB::table('sales')
+            ->whereDate('created_at', '<=', static::reportableThrough())
+            ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') AS ym, SUM(total_amount) AS total")
+            ->groupBy('ym')
+            ->pluck('total', 'ym')
+            ->map(fn ($t) => (float) $t);
     }
 
     /**
@@ -156,9 +228,15 @@ class SalesHistory extends Model
      */
     public static function quarterlyRevenue(): array
     {
+        // dependsOnPos, because monthlyRevenue() below does. Derived caches
+        // inherit their source's invalidation: while this key was a bare
+        // constant, a checkout refreshed the monthly chart and left the
+        // quarterly ring beside it serving the previous figures until the TTL
+        // expired -- two panels on one dashboard disagreeing about the same
+        // quarter. Ask what a cached value READS, not what it is named after.
         return Cache::remember(
-            self::QUARTER_CACHE_KEY,
-            now()->addHours(self::CACHE_TTL_HOURS),
+            self::QUARTER_CACHE_KEY.':p'.static::posCacheVersion(),
+            self::cacheUntil(),
             function () {
                 $monthly = self::monthlyRevenue();
 
@@ -184,8 +262,12 @@ class SalesHistory extends Model
                     'year' => $year,
                     'quarters' => array_map(fn ($v) => round($v, 2), $quarters),
                     'total' => round($total, 2),
+                    // Same cut-off as the revenue above it, or the ring
+                    // would be labelled with a record count that includes
+                    // days the revenue deliberately excludes.
                     'records' => (int) DB::table('sales_history')
                         ->whereYear('sale_date', $year)
+                        ->where('sale_date', '<=', self::reportableThrough())
                         ->count(),
                 ];
             }
@@ -241,42 +323,64 @@ class SalesHistory extends Model
      */
     public static function recentDemand(int $days = 30, int $topN = 5, int $lowN = 5): array
     {
+        // dependsOnPos: the window now spans the till as well, so a checkout
+        // has to retire this. The key was a bare constant while this read
+        // history alone.
         return Cache::remember(
-            self::DEMAND_CACHE_KEY,
-            now()->addHours(self::CACHE_TTL_HOURS),
+            self::DEMAND_CACHE_KEY.':p'.static::posCacheVersion(),
+            self::cacheUntil(),
             function () use ($days, $topN, $lowN) {
-                $latest = DB::table('sales_history')->max('sale_date');
+                // Anchored to TODAY, and spanning both records.
+                //
+                // It used to anchor to the newest row in sales_history, which
+                // was right while that table ran to (and past) the present. It
+                // stopped being right the moment the imported record was cut
+                // back to the day before the terminal went live: the anchor
+                // froze on 2026-08-15, so the dashboard's High/Low Demand cards
+                // described the thirty days ending THERE and could not see a
+                // single one of the 918 sales the till had taken since. A card
+                // labelled "high demand" has to mean demand now.
+                //
+                // reportableThrough() still does the clamping the old anchor was
+                // there for -- no window may include days that have not
+                // happened.
+                $through = self::reportableThrough();
+                $since = Carbon::parse($through)->subDays($days)->toDateString();
 
-                if (! $latest) {
+                $history = DB::table('sales_history')
+                    ->whereBetween('sale_date', [$since, $through])
+                    ->selectRaw('product_sku, SUM(quantity_sold) as total_qty')
+                    ->groupBy('product_sku')
+                    ->pluck('total_qty', 'product_sku')
+                    ->map(fn ($q) => (float) $q);
+
+                foreach (static::posUnitsBetween($since, $through) as $sku => $qty) {
+                    $history[$sku] = ($history[$sku] ?? 0) + $qty;
+                }
+
+                if ($history->isEmpty()) {
                     return ['top' => collect(), 'low' => collect()];
                 }
 
-                $since = Carbon::parse($latest)->subDays($days)->toDateString();
-
-                $ranked = function (string $direction, int $limit) use ($since) {
-                    return DB::table('sales_history')
-                        ->where('sale_date', '>=', $since)
-                        ->selectRaw('product_sku, SUM(quantity_sold) as total_qty')
-                        ->groupBy('product_sku')
-                        ->orderBy('total_qty', $direction)
-                        ->limit($limit)
-                        ->get();
-                };
-
-                $top = $ranked('desc', $topN);
-                $low = $ranked('asc', $lowN);
+                // Sorted once, then read from both ends: ranking "slowest" by a
+                // separate ORDER BY ASC over the same rows is the same list
+                // upside down, and doing it twice invited the two to disagree.
+                $sorted = $history->sortDesc();
 
                 $names = DB::table('products')
-                    ->whereIn('sku', $top->pluck('product_sku')->merge($low->pluck('product_sku')))
+                    ->whereIn('sku', $sorted->keys())
                     ->pluck('name', 'sku');
 
-                $shape = fn ($rows) => $rows->map(fn ($row) => (object) [
-                    'product_sku' => $row->product_sku,
-                    'name' => $names[$row->product_sku] ?? $row->product_sku,
-                    'total_qty' => (float) $row->total_qty,
+                $shape = fn ($rows) => $rows->map(fn ($qty, $sku) => (object) [
+                    'product_sku' => $sku,
+                    'name' => $names[$sku] ?? $sku,
+                    'total_qty' => (float) $qty,
                 ])->values();
 
-                return ['top' => $shape($top), 'low' => $shape($low)];
+                return [
+                    'top' => $shape($sorted->take($topN)),
+                    'low' => $shape($sorted->reverse()->take($lowN)),
+                ];
             }
         );
     }
@@ -284,15 +388,50 @@ class SalesHistory extends Model
     /** Units sold per SKU within a range — powers the slow-mover filter. */
     public static function unitsSoldBetween(string $start, string $end): Collection
     {
+        // dependsOnPos: this now folds in the till, so a checkout has to retire
+        // it. See rangeKey() -- the POS stamp is bumped by every sale, the
+        // history stamp only by a reseed or an import.
         return Cache::remember(
-            static::rangeKey('units', [$start, $end]),
+            static::rangeKey('units', [$start, $end], true),
             now()->addHours(self::CACHE_TTL_HOURS),
-            fn () => DB::table('sales_history')
-                ->whereBetween('sale_date', [$start, $end])
-                ->selectRaw('product_sku, SUM(quantity_sold) AS qty')
-                ->groupBy('product_sku')
-                ->pluck('qty', 'product_sku')
+            function () use ($start, $end) {
+                $units = DB::table('sales_history')
+                    ->whereBetween('sale_date', [$start, $end])
+                    ->selectRaw('product_sku, SUM(quantity_sold) AS qty')
+                    ->groupBy('product_sku')
+                    ->pluck('qty', 'product_sku');
+
+                foreach (static::posUnitsBetween($start, $end) as $sku => $qty) {
+                    $units[$sku] = (float) ($units[$sku] ?? 0) + $qty;
+                }
+
+                return $units;
+            }
         );
+    }
+
+    /**
+     * Units sold per SKU ON THIS TERMINAL in a range.
+     *
+     * The imported record stops the day before the till went live (2026-08-16
+     * here), so anything reading sales_history alone reports nothing at all for
+     * a recent period -- which is what made the Analytics report print "No sales
+     * data." for the current month while the terminal had rung up 73 sales.
+     *
+     * Keyed on products.sku, like everything else that joins these two records:
+     * sale_items carries product_id, sales_history carries the SKU string, and
+     * products is the only place they meet.
+     */
+    private static function posUnitsBetween(string $start, string $end): Collection
+    {
+        return DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('products', 'products.id', '=', 'sale_items.product_id')
+            ->whereBetween(DB::raw('DATE(sales.created_at)'), [$start, $end])
+            ->selectRaw('products.sku AS sku, SUM(sale_items.quantity) AS qty')
+            ->groupBy('products.sku')
+            ->pluck('qty', 'sku')
+            ->map(fn ($q) => (float) $q);
     }
 
     /**
@@ -332,9 +471,21 @@ class SalesHistory extends Model
             return [now()->startOfMonth()->toDateString(), now()->toDateString()];
         }
 
+        // Never past today. The seeded history fills its final month to the
+        // last day of that month regardless of the calendar -- on this install
+        // it runs to 2026-08-31 while today is the 23rd -- so an unclamped
+        // bound put 2,005 rows of not-yet-happened sales into every report's
+        // default range. Clamping rather than deleting keeps the data intact:
+        // those days come back into range as the calendar reaches them.
+        $end = Carbon::parse(max($maxs));
+
+        if ($end->isAfter(today())) {
+            $end = today();
+        }
+
         return [
             Carbon::parse(min($mins))->toDateString(),
-            Carbon::parse(max($maxs))->toDateString(),
+            $end->toDateString(),
         ];
     }
 
@@ -373,7 +524,7 @@ class SalesHistory extends Model
         // Measured 2.8-3.6s uncached over the full 2024-2026 range, and it is
         // the default view of the Analytics report.
         return Cache::remember(
-            static::rangeKey('top', [$start, $end, $limit]),
+            static::rangeKey('top', [$start, $end, $limit], true),
             now()->addHours(self::CACHE_TTL_HOURS),
             fn () => static::computeTopProductsBetween($start, $end, $limit)
         );
@@ -392,9 +543,55 @@ class SalesHistory extends Model
                 .' SUM(sales_history.quantity_sold * products.selling_price) AS total_revenue'
             )
             ->groupBy('sales_history.product_sku')
-            ->orderByDesc('total_qty')
-            ->limit($limit)
+            // Ordered by REVENUE, which is what every consumer of this list
+            // actually presents: the analytics chart plots total_revenue, the
+            // table's Revenue column is the one people read down, and the KPI
+            // beside it is captioned "best seller by revenue".
+            //
+            // It used to order by total_qty, so the bars came out plainly
+            // unsorted -- P910,893.84 above P983,800.88 above P24,761.36 -- and
+            // the Top Product KPI named HERACLENE 1MG TAB X100 when HEMARATE FA
+            // TAB X100 had earned P72,907.04 more. The sort has to happen in SQL
+            // rather than on the result, or LIMIT still picks the top N by units
+            // and a high-revenue product that sells in small numbers never
+            // reaches the list to be re-sorted.
+            ->orderByDesc('total_revenue')
+            // NO LIMIT here any more: the till's units are folded in below, and
+            // a product the terminal sold well could sit outside the top N of
+            // the imported half. The ordering stays in SQL for the reason above;
+            // it is the CUT that has to wait. ~2,600 rows either way, so the
+            // scan is the cost, not the transfer.
             ->get();
+
+        // Fold in the terminal, then re-rank. Revenue on both halves is
+        // units x products.selling_price -- the same rule sales_history revenue
+        // has always used -- so the two sources are compared like for like. The
+        // Sales report's money columns are a different question: there, POS
+        // takings are what was actually charged.
+        $prices = DB::table('products')->pluck('selling_price', 'sku');
+        $names = DB::table('products')->pluck('name', 'sku');
+
+        $byKey = $rows->keyBy('product_sku');
+
+        foreach (static::posUnitsBetween($start, $end) as $sku => $qty) {
+            $price = (float) ($prices[$sku] ?? 0);
+
+            if ($existing = $byKey->get($sku)) {
+                $existing->total_qty += $qty;
+                $existing->total_revenue += $qty * $price;
+
+                continue;
+            }
+
+            $byKey->put($sku, (object) [
+                'product_sku' => $sku,
+                'name' => $names[$sku] ?? $sku,
+                'total_qty' => $qty,
+                'total_revenue' => $qty * $price,
+            ]);
+        }
+
+        $rows = $byKey->sortByDesc('total_revenue')->take($limit)->values();
 
         return $rows->map(fn ($r) => (object) [
             'product_sku' => $r->product_sku,
@@ -512,7 +709,35 @@ class SalesHistory extends Model
 
     /**
      * Fold live POS rows into an already-bucketed history series, keyed the
-     * same way, only for dates the import doesn't cover.
+     * same way, across the WHOLE requested range.
+     *
+     * This used to start at MAX(sales_history.sale_date) + 1 day, on the theory
+     * that the import owns everything up to its own last day and the POS owns
+     * everything after, so summing both would double-count the overlap.
+     *
+     * There is no overlap to guard against. `sales_history` is written only by
+     * SalesHistorySeeder and the receiving import; the POS records into `sales`
+     * / `sale_items` and never touches it. The two populations are disjoint by
+     * construction, so a boundary can only ever drop real rows — it can never
+     * prevent a double count.
+     *
+     * And drop them it did. The seeded history fills its final month to that
+     * month's last day regardless of the calendar (2026-08-31 while today is
+     * the 24th), while every report clamps its end to reportableThrough()
+     * (today). So `$posFrom` landed a week in the FUTURE, past every possible
+     * `$end`, the guard below returned early on every single call, and
+     * `$includePos` was a no-op: `trendBetween($s, $e, true)` and
+     * `trendBetween($s, $e, false)` returned byte-identical rows. Every live
+     * checkout was silently missing from the Sales and Analytics reports —
+     * ₱1,459.76 of real takings on the day this was found.
+     *
+     * Clamping `$historyMax` to today does NOT fix it: the history covers today
+     * too, so the boundary still lands on tomorrow, and today is exactly when
+     * POS sales happen. The boundary itself had to go.
+     *
+     * The per-key merge below already sums a day present in both sources, which
+     * is what makes dropping the boundary safe — and is a hint that it was
+     * written expecting the overlap it then refused to look at.
      */
     private static function mergePos(Collection $rows, string $granularity, string $start, string $end, bool $includePos): Collection
     {
@@ -520,16 +745,7 @@ class SalesHistory extends Model
             return $rows;
         }
 
-        $historyMax = DB::table('sales_history')->max('sale_date');
-        $posFrom = $historyMax
-            ? Carbon::parse($historyMax)->addDay()->toDateString()
-            : $start;
-
-        if ($posFrom > $end) {
-            return $rows;
-        }
-
-        $pos = static::posTotalsBetween(max($posFrom, $start), $end);
+        $pos = static::posTotalsBetween($start, $end);
 
         if ($pos->isEmpty()) {
             return $rows;

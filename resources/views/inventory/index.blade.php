@@ -5,6 +5,28 @@
 @section('content')
 
 <style>
+    /* The notification bell deep-links here as ?search=<sku>#product-row-<id>,
+       so the row it targets is highlighted — arriving at a list with no idea
+       which row you were sent to is barely better than arriving at the filter.
+
+       `> td`, not the `tr`: a background on a <tr> in these border-collapse
+       tables does not render at all, the same reason row hover is written
+       cell-level. The tint fades out on its own so it reads as "this one" on
+       arrival without permanently recolouring the row. */
+    .remedi-table tbody tr:target > td {
+        background: #fef9c3;
+        animation: remedi-row-target 2.4s ease-out forwards;
+    }
+
+    @keyframes remedi-row-target {
+        0%, 45% { background: #fef9c3; }
+        100% { background: transparent; }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .remedi-table tbody tr:target > td { animation: none; }
+    }
+
     /* Inventory filter pills — colors mirror the exact status badges shown
        in the results table (badge-danger, badge-warning, etc.) so the
        filter you pick visually matches the rows it produces. Solid when
@@ -136,14 +158,40 @@
     </div>
 @endif
 
-<div class="card" style="margin-bottom:16px; border:2px solid #4f46e5;">
+{{-- The Expiring tab defaults to a 90-day planning horizon; the dashboard and
+     bell alerts link here with days=30, their "pull these now" window. Say
+     which one is on screen, or arriving from an alert that promised 28 and
+     landing on a list is unexplained. --}}
+@if($filter === 'expiring' && $expiringDays === \App\Models\ProductBatch::EXPIRY_SOON_DAYS)
+    <div class="category-banner">
+        <i class="ti ti-clock-exclamation" aria-hidden="true"></i>
+        Showing batches expiring within {{ $expiringDays }} days
+        <a href="{{ route('inventory.index', array_filter(['filter' => 'expiring', 'search' => request('search'), 'category_id' => $categoryId])) }}">Widen to {{ \App\Models\ProductBatch::EXPIRY_WATCH_DAYS }} days &rarr;</a>
+    </div>
+@endif
+
+{{-- Barcode scanner: hidden, not deleted -- the same treatment pos/index
+     gives its own card, and for the same reasons. The markup stays in the DOM
+     so `barcode-input`, `barcode-status` and the keydown listener all still
+     resolve, and focusEntryField() below decides where the caret belongs
+     instead of the unconditional barcode-input.focus() calls that would
+     otherwise leave it nowhere once the field cannot take focus.
+
+     NOTE: Quick Restock lives inside this card and is only ever revealed by a
+     successful scan (see showQuickRestock), so hiding the scanner takes it with
+     it. Restocking is still available on the product edit page, which posts to
+     the same ProductController::addBatch.
+
+     To bring both back, drop the `hidden` attribute; nothing else needs
+     changing. `autofocus` was removed with it -- a hidden input cannot take
+     focus, so it was a promise the page could not keep. --}}
+<div class="card" hidden style="margin-bottom:16px; border:2px solid #4f46e5;">
     <label style="font-weight:600; font-size:.85rem;">Scan Barcode</label>
     <input
         type="text"
         id="barcode-input"
         placeholder="Click here, then scan a product's barcode to look it up..."
         autocomplete="off"
-        autofocus
         style="width:100%; padding:12px; border:1px solid #d1d5db; border-radius:6px; font-size:1.1rem; margin-top:6px;">
     <div id="barcode-status" style="margin-top:6px; font-size:.85rem; min-height:1.2em;"></div>
 
@@ -165,7 +213,7 @@
                 </div>
                 <div>
                     <label style="font-size:.8rem;">Received Date</label><br>
-                    <input type="date" name="received_date" id="qr-received-date" value="{{ now()->format('Y-m-d') }}" required style="padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+                    <input type="date" name="received_date" id="qr-received-date" value="{{ now()->format('Y-m-d') }}" max="{{ now()->toDateString() }}" required style="padding:8px; border:1px solid #d1d5db; border-radius:6px;">
                 </div>
                 <div>
                     <label style="font-size:.8rem;">Expiry Date</label><br>
@@ -181,7 +229,7 @@
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
     <form method="GET" id="search-form" style="display:flex; gap:8px; flex:1; min-width:280px;">
         <input type="text" name="search" id="search-input"
-            data-suggest-url="{{ route('suggest.products') }}" placeholder="Search product by name, SKU, or barcode..." value="{{ request('search') }}" style="flex:1; min-width:0; padding:9px 12px; border:1px solid #d1d5db; border-radius:7px;" autocomplete="off">
+            data-suggest-url="{{ route('suggest.products') }}" placeholder="Search product by name or SKU..." value="{{ request('search') }}" style="flex:1; min-width:0; padding:9px 12px; border:1px solid #d1d5db; border-radius:7px;" autocomplete="off">
         <input type="hidden" name="filter" id="filter-input" value="{{ $filter }}">
         <input type="hidden" name="category_id" id="category-input" value="{{ $categoryId }}">
         <button type="submit" class="btn btn-secondary" style="flex-shrink:0;">Search</button>
@@ -233,6 +281,11 @@
 
         // 'working' instead of leaving the previous results on screen.
 
+        // Read before the skeleton replaces the rows, not after: resolve the
+        // scroller once the page has shrunk and REMEDI.scroller() can answer
+        // with a different element entirely. See REMEDI.holdScroll.
+        const restoreScroll = REMEDI.holdScroll();
+
         REMEDI.showListSkeleton(resultsWrapper, { rows: 6 });
 
 
@@ -242,17 +295,9 @@
         })
             .then(res => res.json())
             .then(data => {
-                // Hold the scroll offset across the swap. A filter that returns
-                // far fewer rows shortens the page, the browser clamps the
-                // offset to the new maximum, and you get thrown back up the
-                // page after clicking a tab -- which is the one thing an AJAX
-                // filter is supposed to avoid.
-                const scroller = REMEDI.scroller();
-                const y = scroller.scrollTop;
-
                 REMEDI.clearListSkeleton(resultsWrapper);
                 resultsWrapper.innerHTML = data.html + `<div style="margin-top:16px;" id="pagination-wrapper">${data.pagination}</div>`;
-                scroller.scrollTop = y;
+                restoreScroll();
 
                 if (pushState) window.history.pushState({}, '', url);
             })
@@ -323,13 +368,42 @@
     const barcodeStatus = document.getElementById('barcode-status');
     const isAdmin = @json(auth()->user()->isAdmin());
 
+    /* Keep the scanner armed WITHOUT dragging the page around.
+       This refocuses a field that sits at the top of the page, and a plain
+       .focus() scrolls it into view -- so every click on a card, a row or a
+       label threw the reader back to the top. preventScroll keeps the caret
+       where the scanner needs it and leaves the viewport alone.
+
+       It also bails out while a selection is live: refocusing collapses the
+       selection, so highlighting a product name to copy it both wiped the
+       highlight and jumped the page. */
+    /* Where the caret belongs: the scanner while it is visible, the product
+       search box when it is not. A hidden input cannot take focus, so without
+       this the refocus calls would silently leave the caret nowhere after every
+       click -- which is exactly the trap pos/index documents. */
+    function focusEntryField() {
+        const target = (barcodeInput && barcodeInput.offsetParent !== null)
+            ? barcodeInput
+            : document.getElementById('search-input');
+
+        if (target) target.focus({ preventScroll: true });
+    }
+
     document.addEventListener('click', function (e) {
+        // With the scanner hidden there is no field that needs re-arming, and
+        // stealing focus back to the search box on every click would fight the
+        // person using the page.
+        if (!barcodeInput || barcodeInput.offsetParent === null) return;
+
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed) return;
+
         const tag = e.target.tagName;
         if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'BUTTON' && tag !== 'A') {
-            barcodeInput.focus();
+            focusEntryField();
         }
     });
-    barcodeInput.focus();
+    focusEntryField();
 
     barcodeInput.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
@@ -388,15 +462,33 @@
         // (see PosController::lookupBySku) — still just a starting point,
         // adjust it if this batch's actual expiry is different.
         document.getElementById('qr-expiry-date').value = suggestedExpiryDate || '';
-        document.getElementById('qr-received-date').value = new Date().toISOString().split('T')[0];
+        // LOCAL date parts, never toISOString(): that converts to UTC first,
+        // and this app runs in Asia/Manila (UTC+8), so between midnight and
+        // 08:00 it would stamp the delivery YESTERDAY -- and now that
+        // received_date is capped at today, a date built the wrong way could
+        // also land in the future for a negative-offset workstation and be
+        // refused by the endpoint. Same trap as the audit trail's date presets.
+        (function () {
+            var d = new Date();
+            var pad = function (n) { return String(n).padStart(2, '0'); };
+            document.getElementById('qr-received-date').value =
+                d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+        })();
 
-        document.getElementById('quick-restock-card').style.display = 'block';
-        document.getElementById('qr-batch-number').focus();
+        const card = document.getElementById('quick-restock-card');
+        card.style.display = 'block';
+
+        // Reveal the card deliberately, then focus without a second (and
+        // differently-aimed) scroll. A bare .focus() here jumped the page to
+        // wherever the field happened to be; scrollIntoView puts the whole card
+        // on screen, which is what someone who just scanned an item wants.
+        card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        document.getElementById('qr-batch-number').focus({ preventScroll: true });
     }
 
     function closeQuickRestock() {
         document.getElementById('quick-restock-card').style.display = 'none';
-        barcodeInput.focus();
+        focusEntryField();
     }
     @endif
 </script>

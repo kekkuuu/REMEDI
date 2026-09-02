@@ -3,49 +3,100 @@
 @section('title', 'Add New User')
 
 @section('content')
-<div class="page-back">
+{{-- This is the admin "Add User" form, not public signup — hence the back
+     link to the user list rather than to login. --}}
+<div class="page-head">
     <a href="{{ route('users.index') }}" class="btn-back"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back</a>
+    <div class="page-head-text">
+        <h3>Add New User</h3>
+        <p>Create an account and assign it a role.</p>
+    </div>
 </div>
 
-<div class="card">
-    <form method="POST" action="{{ route('register') }}">
+{{-- Same .form-card vocabulary as Add Product and Edit User. --}}
+<div class="form-card">
+    <div class="section-head">
+        <h4>Account Details</h4>
+    </div>
+
+    <form method="POST" action="{{ route('register') }}"
+          class="js-confirm" data-confirm-tone="neutral" data-confirm-icon="ti-user-plus"
+          data-confirm-title="Create this account?" data-confirm-body="A new account will be created with the role selected above."
+          data-confirm-label="Create account">
         @csrf
 
-        <div style="display:grid; grid-template-columns: repeat(2, 1fr); gap:16px;">
-            <div>
-                <label>Name</label><br>
-                <input type="text" name="name" value="{{ old('name') }}" required autofocus style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+        <div class="form-grid">
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip"><i class="ti ti-user" aria-hidden="true"></i></span>
+                    <label for="name">Name</label>
+                </div>
+                <input type="text" id="name" name="name" value="{{ old('name') }}"
+                       placeholder="Enter full name" required autofocus>
             </div>
 
-            <div>
-                <label>Email</label><br>
-                <input type="email" name="email" value="{{ old('email') }}" required style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip"><i class="ti ti-mail" aria-hidden="true"></i></span>
+                    <label for="email">Email</label>
+                </div>
+                {{-- The whole address is typed here, and the placeholder shows
+                     the shape of one. No domain is appended for you: a field
+                     that completes what you typed has to say so, and this one
+                     is plain. --}}
+                <input type="email" id="email" name="email" value="{{ old('email') }}"
+                       placeholder="e.g. jane@remedi.com" autocomplete="off" required>
             </div>
 
-            <div>
-                <label>Role</label><br>
-                <select name="role" required style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip"><i class="ti ti-shield-lock" aria-hidden="true"></i></span>
+                    <label for="role">Role</label>
+                </div>
+                <select id="role" name="role" required>
                     <option value="staff" {{ old('role') === 'staff' ? 'selected' : '' }}>Staff</option>
                     <option value="admin" {{ old('role') === 'admin' ? 'selected' : '' }}>Admin</option>
                 </select>
             </div>
 
-            <div></div>
+            {{-- Keeps Role alone on its row, so the two password fields pair up
+                 on the next one. --}}
+            <div class="form-field" aria-hidden="true"></div>
 
-            <div>
-                <label>Password</label><br>
-                <input type="password" name="password" required style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip"><i class="ti ti-lock" aria-hidden="true"></i></span>
+                    <label for="password">Password</label>
+                </div>
+                <div class="pw-wrap">
+                    <input type="password" id="password" name="password"
+                           placeholder="Enter password" required>
+                    <button type="button" class="pw-toggle" data-pw-toggle="password"
+                            aria-label="Show password"><i class="ti ti-eye" aria-hidden="true"></i></button>
+                </div>
             </div>
 
-            <div>
-                <label>Confirm Password</label><br>
-                <input type="password" name="password_confirmation" required style="width:100%; padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip"><i class="ti ti-lock-check" aria-hidden="true"></i></span>
+                    <label for="password_confirmation">Confirm Password</label>
+                </div>
+                <div class="pw-wrap">
+                    <input type="password" id="password_confirmation" name="password_confirmation"
+                           placeholder="Confirm password" required>
+                    <button type="button" class="pw-toggle" data-pw-toggle="password_confirmation"
+                            aria-label="Show password"><i class="ti ti-eye" aria-hidden="true"></i></button>
+                </div>
             </div>
         </div>
 
-        <div style="margin-top:20px;">
-            <button type="submit" class="btn btn-primary">Create Account</button>
-            <a href="{{ route('users.index') }}" class="btn btn-secondary">Cancel</a>
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-lg">
+                <i class="ti ti-user-plus" aria-hidden="true"></i> Create Account
+            </button>
+            <a href="{{ route('users.index') }}" class="btn btn-secondary btn-lg">
+                <i class="ti ti-x" aria-hidden="true"></i> Cancel
+            </a>
         </div>
     </form>
 </div>

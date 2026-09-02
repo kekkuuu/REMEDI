@@ -5,7 +5,9 @@ namespace App\Providers;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductBatch;
+use App\Models\SalesHistory;
 use App\Services\AlertService;
+use App\Services\SalesForecastService;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\View;
@@ -35,12 +37,52 @@ class AppServiceProvider extends ServiceProvider
             $model::deleted(fn () => AlertService::forget());
         }
 
+        // The sidebar's category list is `withCount('products')`, so a PRODUCT
+        // write changes it just as much as a category write does — and only the
+        // category writes were clearing it. Creating a product, deleting one, or
+        // moving one between categories left the sidebar counts wrong for up to
+        // the full 6-hour TTL. Verified: created a product in Household through
+        // the normal form and the sidebar kept reading 7 against a real 8.
+        //
+        // Hooked here rather than in ProductController so it covers every write
+        // path — the controller, `import:receiving-reports`, the seeders and
+        // tinker — the same reasoning as the AlertService hooks above.
+        foreach (['saved', 'deleted'] as $event) {
+            Product::{$event}(fn () => Cache::forget('sidebar_categories'));
+        }
+
+        // Every revenue figure in the app is `sales_history.quantity_sold *
+        // products.selling_price` — sales_history stores units only. So editing
+        // a product's price rewrites HISTORICAL revenue everywhere, and those
+        // aggregates are cached for 24h (monthlyRevenue, quarterlyRevenue, the
+        // range-keyed trend/top-product keys) and 6h (the Sales Forecasting
+        // trend). Nothing cleared them: only a reseed or a POS checkout did.
+        //
+        // Measured by doubling one product's price through the normal edit
+        // form: August 2026 actually moved by ₱20,884.92 while the dashboard,
+        // the reports and the forecast page all kept showing the old total.
+        //
+        // Deletion counts too. sales_history joins products on `sku` with no
+        // foreign key, so removing a product silently drops its rows from every
+        // revenue join — and the sale_items guard on destroy() does not cover a
+        // product that has history but no POS line items.
+        Product::saved(function (Product $product) {
+            if ($product->wasChanged('selling_price')) {
+                self::forgetRevenueCaches();
+            }
+        });
+
+        Product::deleted(fn () => self::forgetRevenueCaches());
+
         // The sidebar (layouts.app, rendered on every authenticated page)
         // shows a category sub-link under "Inventory". Categories rarely
         // change, so cache the list instead of running this query on
-        // literally every single page load in the app. CategoryController
-        // clears this cache whenever a category is created, renamed, or
-        // deleted, so the sidebar never shows stale data for long.
+        // literally every single page load in the app.
+        //
+        // Invalidated from two directions, because the payload depends on both:
+        // CategoryController clears it when a category is created, renamed or
+        // deleted, and the Product hook above clears it when a product is
+        // created, deleted or moved — the counts are products_count.
         View::composer('layouts.app', function ($view) {
             $view->with('sidebarCategories', Cache::remember(
                 'sidebar_categories',
@@ -62,6 +104,25 @@ class AppServiceProvider extends ServiceProvider
             $view->with('topbarAlertCount', $alerts['count']);
             $view->with('topbarAlertItems', $alerts['items']);
             $view->with('topbarAlerts', $alerts['alerts']);
+
+            // Audit-derived rows are admin-only; see AlertService::activity().
+            $view->with('topbarActivity', auth()->user()?->isAdmin()
+                ? app(AlertService::class)->activity()
+                : []);
         });
+    }
+
+    /**
+     * Retire everything that derives revenue from `products.selling_price`.
+     *
+     * SalesHistory::forgetCaches() drops the three fixed keys (monthly,
+     * quarterly, recent demand) and bumps both version stamps, which retires the
+     * range-keyed trend/top-product entries too. SalesForecastService keeps its
+     * own separate key for the Sales Forecasting page's actual-revenue series.
+     */
+    private static function forgetRevenueCaches(): void
+    {
+        SalesHistory::forgetCaches();
+        Cache::forget(SalesForecastService::CACHE_KEY);
     }
 }

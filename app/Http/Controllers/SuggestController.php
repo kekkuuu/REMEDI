@@ -45,7 +45,8 @@ class SuggestController extends Controller
             return $this->empty();
         }
 
-        $like = '%' . $q . '%';
+        // likeTerm() escapes the user's own % and _ — see Controller.
+        $like = $this->likeTerm($q);
 
         $rows = Product::query()
             ->with('category')
@@ -80,10 +81,32 @@ class SuggestController extends Controller
             return $this->empty();
         }
 
-        $like = '%' . $q . '%';
+        // likeTerm() escapes the user's own % and _ — see Controller.
+        $like = $this->likeTerm($q);
 
-        $rows = Sale::query()
-            ->with('user')
+        $query = Sale::query()->with('user');
+
+        // Same role scope SaleController applies to the list and the detail
+        // page. This endpoint had none, so a staff account could read back
+        // every cashier's transaction numbers, names and dates -- 8 results
+        // against the 2 sales /sales will actually show them -- and could
+        // enumerate a named colleague's takings by searching that name, since
+        // the filter below matches on the cashier too.
+        //
+        // The scope sits OUTSIDE the search closure on purpose: it has to be
+        // `user_id = X AND (transaction_no LIKE … OR cashier LIKE …)`. Folded
+        // in, the OR would escape it and the guard would do nothing.
+        //
+        // No part of the UI currently fetches this route -- REMEDI.attachSuggest
+        // only dispatches `suggest:live` and never calls the URL -- but the
+        // route is registered and sits behind `auth` + `active` alone, so any
+        // signed-in staff member can request it directly. Unused endpoints are
+        // exactly where an authorisation gap survives unnoticed.
+        if ($request->user()->isStaff()) {
+            $query->where('user_id', $request->user()->id);
+        }
+
+        $rows = $query
             ->where(fn ($w) => $w->where('transaction_no', 'like', $like)
                 ->orWhereHas('user', fn ($u) => $u->where('name', 'like', $like)))
             ->latest('created_at')
@@ -107,7 +130,8 @@ class SuggestController extends Controller
             return $this->empty();
         }
 
-        $like = '%' . $q . '%';
+        // likeTerm() escapes the user's own % and _ — see Controller.
+        $like = $this->likeTerm($q);
 
         $rows = User::query()
             ->where(fn ($w) => $w->where('name', 'like', $like)->orWhere('email', 'like', $like))
@@ -132,7 +156,8 @@ class SuggestController extends Controller
             return $this->empty();
         }
 
-        $like = '%' . $q . '%';
+        // likeTerm() escapes the user's own % and _ — see Controller.
+        $like = $this->likeTerm($q);
 
         $rows = AuditTrail::query()
             ->where(fn ($w) => $w->where('username', 'like', $like)

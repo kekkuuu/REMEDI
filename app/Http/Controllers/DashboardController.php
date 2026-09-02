@@ -12,31 +12,92 @@ use Illuminate\Http\Request;
 
 class DashboardController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
         // Use the global request() helper instead of injecting it
         $user = request()->user();
 
-        // Shared stats (both admin and staff see these) — one query
-        // instead of two separate sum()/count() queries over the same
-        // "today" filter.
-        $todayStats = Sale::whereDate('created_at', today())
-            ->selectRaw('COALESCE(SUM(total_amount), 0) as total, COUNT(*) as cnt')
-            ->first();
-        $todaySales = (float) $todayStats->total;
-        $todayTransactions = (int) $todayStats->cnt;
+        // ── Shell first, data second ──
+        //
+        // This route is the slowest in the app: ~5s with warm caches and 10-12s
+        // cold, because it totals sales and stock across the whole catalogue.
+        // Rendering it synchronously meant the browser sat on the LOGIN page
+        // for that entire time, so signing in looked like a hang before any of
+        // the app appeared.
+        //
+        // So the first hit returns only the shell -- no queries at all, which
+        // is why this test sits above every one of them -- and the page fetches
+        // its own body over AJAX. Move a query above this line and the shell
+        // stops being instant, which is the only thing it is for.
+        //
+        // `full=1` is the escape hatch: <noscript> redirects to it, and the
+        // loader's failure panel offers it. It renders the old way, in one
+        // synchronous pass, so the dashboard is never unreachable without JS.
+        $wantsBody = $request->wantsJson() || $request->ajax() || $request->boolean('full');
+
+        if (! $wantsBody) {
+            return view('dashboard.index', [
+                'isAdmin' => (bool) ($user && $user->isAdmin()),
+
+                // Set by AuthenticatedSessionController on the redirect out of
+                // login, and gone by the next request. Only an arrival gets
+                // the branded loading card; a revisit gets the skeleton alone.
+                'justSignedIn' => (bool) session('remedi.just_signed_in'),
+            ]);
+        }
+
+        // Shared stats (both admin and staff see these) — still ONE query for
+        // all four numbers. Grouping by cashier rather than aggregating the
+        // whole day lets the terminal total and the signed-in user's own share
+        // come out of the same pass: the totals are the group sums, and "mine"
+        // is the row for this user.
+        //
+        // The split exists because the dashboard used to show the terminal's
+        // takings on every dashboard, including a staff member's — so a cashier
+        // who had rung up nothing still saw the whole shop's transaction count
+        // presented as their day. Sales are already per-user everywhere else
+        // (SaleController scopes staff to their own rows), so the dashboard was
+        // the odd one out.
+        $todayByUser = Sale::whereDate('created_at', today())
+            ->selectRaw('user_id, COALESCE(SUM(total_amount), 0) as total, COUNT(*) as cnt')
+            ->groupBy('user_id')
+            ->get();
+
+        $todaySales = (float) $todayByUser->sum('total');
+        $todayTransactions = (int) $todayByUser->sum('cnt');
+
+        $mine = $todayByUser->firstWhere('user_id', $user->id);
+        $myTodaySales = (float) ($mine->total ?? 0);
+        $myTodayTransactions = (int) ($mine->cnt ?? 0);
 
         // Every stat below (low stock, expiring soon, expired, medicine
         // returns) used to run as four separate queries that each
         // re-fetched overlapping batch + product + category data from
-        // scratch. We now load active batches ONCE, with product+category
+        // scratch. We now load batches ONCE, with product+category
         // eager-loaded, and derive everything else from that single
         // collection in memory — no extra round trips.
+        //
+        // In-stock batches PLUS every returned one whatever its quantity —
+        // the same widening InventoryController already does, and for the same
+        // reason. A returned batch has been shipped back, so its quantity is 0
+        // (markBatchReturned zeroes it), and loading `quantity > 0` alone made
+        // the "Successfully Returned" figures on both return cards drop to zero
+        // the moment a return actually completed. The card existed; its data
+        // source was never widened to match, so it only ever worked while
+        // returned batches happened to still carry stock.
+        //
+        // Everything derived below that means "on the shelf" therefore has to
+        // say `quantity > 0` for itself — see $onShelf.
         $activeBatches = ProductBatch::with('product.category')
-            ->where('quantity', '>', 0)
+            ->where(fn ($w) => $w->where('quantity', '>', 0)->orWhereNotNull('returned_at'))
             ->get();
 
-        $batchesByProduct = $activeBatches->groupBy('product_id');
+        // The stock-bearing subset. Used by every expiry/stock derivation, so
+        // a zero-quantity returned batch can never be counted as sitting on the
+        // shelf expiring.
+        $onShelf = $activeBatches->where('quantity', '>', 0);
+
+        $batchesByProduct = $onShelf->groupBy('product_id');
 
         // Lightweight product listing (no per-product batch query): each
         // product gets its slice of $activeBatches attached directly via
@@ -44,7 +105,7 @@ class DashboardController extends Controller
         // read from memory instead of falling back to a query per product.
         $lowStockProducts = Product::all()
             ->each(fn ($p) => $p->setRelation('batches', $batchesByProduct->get($p->id, collect())))
-            ->filter(fn ($p) => $p->is_low_stock)
+            ->filter(fn ($p) => $p->is_running_out)
             ->values();
 
         // Chart-only slice: the 10 most critical items (stock furthest below
@@ -67,13 +128,29 @@ class DashboardController extends Controller
         // Inventory page's "Expiring" filter.
         $expiringCutoff = today()->addDays(ProductBatch::EXPIRY_SOON_DAYS);
 
-        $expiringSoonBatches = $activeBatches
-            ->filter(fn ($b) => $b->expiry_date && $b->expiry_date->between($today, $expiringCutoff))
+        // Both lists gate on is_expired, the same way is_expiring_soon,
+        // expiryOverview below and the Inventory page's filters already do.
+        //
+        // They used to hand-roll the dates instead -- between($today, cutoff)
+        // for expiring and lt($today) for expired -- and the two disagreed
+        // about a batch whose expiry_date IS today. between() includes today,
+        // lt() excludes it, so those batches landed in "Expiring Soon" and
+        // nowhere else, while is_expired (and therefore the bell, the Inventory
+        // "Expired" filter and every row badge) already called them expired.
+        // The dashboard reported 77 expired against the bell's 79.
+        //
+        // That is not just an inconsistent tally. Expiring Soon is the "pull
+        // these" action list, so stock the app considers unsellable today --
+        // ProductBatch::is_expired treats the expiry date itself as expired,
+        // deliberately: we do not sell on it -- was being presented as still
+        // having shelf life.
+        $expiringSoonBatches = $onShelf
+            ->filter(fn ($b) => $b->expiry_date && ! $b->is_expired && $b->expiry_date->lte($expiringCutoff))
             ->sortBy('expiry_date')
             ->values();
 
-        $expiredBatches = $activeBatches
-            ->filter(fn ($b) => $b->expiry_date && $b->expiry_date->lt($today))
+        $expiredBatches = $onShelf
+            ->filter(fn ($b) => $b->is_expired)
             ->values();
 
         // Medicine return-window tracking (see ProductBatch::getReturnStatusAttribute):
@@ -92,6 +169,21 @@ class DashboardController extends Controller
             'fail_to_return' => $statusTally->get('Fail to Return', 0),
         ];
 
+        // Every batch that can actually be sent back, medicine and non-pharma
+        // alike — the same definition AlertService's `need_to_return` kind and
+        // the Inventory filter use, and the one that gates the "Mark Returned"
+        // button (ProductBatch::is_returnable).
+        //
+        // The Alerts panel and its KPI showed $returnStats['need_to_return']
+        // instead, which is medicine only: 26 under a label reading "batches
+        // can still go back to the supplier", while the bell said 78 and the
+        // filter it linked to listed 78. The 52 non-pharma batches it omitted
+        // are returnable and have a working button on their row.
+        //
+        // $returnStats stays as it is — the Medicine Returns card is a
+        // deliberate per-category breakdown and wants the narrow figure.
+        $returnableCount = $onShelf->filter(fn ($b) => $b->is_returnable)->count();
+
         // Specific batches currently inside the return window, soonest-expiring
         // first, so admins know exactly which ones to pull — same idea as the
         // Expiring Soon list.
@@ -109,15 +201,29 @@ class DashboardController extends Controller
         // pulled soon). See Product::getNeedsReturnAttribute().
         $nonPharmaBatches = $activeBatches->filter(fn ($b) => $b->product && ! $b->product->is_medicine && $b->expiry_date);
 
+        // Three buckets, mutually exclusive, returned first -- the same shape
+        // and the same precedence as the medicine tally above.
+        //
+        // "Successfully Returned" used to be missing here entirely: it existed
+        // only on the medicine card, which filters to is_medicine, so marking a
+        // NON-medicine batch returned (a Baby Care line, say) showed up in the
+        // bell and in the Inventory "Returned" filter while both dashboard
+        // cards reported nothing. The same batch was also still being counted
+        // as "Expired" by this card, so one ring double-counted it.
         $nonPharmaReturnStats = [
-            'expired' => $nonPharmaBatches->filter(fn ($b) => $b->is_expired)->count(),
-            'need_to_return' => $nonPharmaBatches->filter(fn ($b) => ! $b->is_expired
+            'returned' => $nonPharmaBatches->filter(fn ($b) => $b->returned_at)->count(),
+            'expired' => $nonPharmaBatches->filter(fn ($b) => ! $b->returned_at && $b->is_expired)->count(),
+            'need_to_return' => $nonPharmaBatches->filter(fn ($b) => ! $b->returned_at && ! $b->is_expired
                 && $b->expiry_date->diffInDays(now(), true) <= Product::NON_PHARMA_RETURN_WINDOW_DAYS)->count(),
         ];
 
+        // "N batches inside the return window" under the ring — so it must
+        // exclude the ones already sent back, or the footer contradicts the
+        // Successfully Returned count directly above it.
         $nonPharmaNeedToReturnBatches = $nonPharmaBatches
-            ->filter(fn ($b) => $b->is_expired
-                || $b->expiry_date->diffInDays(now(), true) <= Product::NON_PHARMA_RETURN_WINDOW_DAYS)
+            ->filter(fn ($b) => ! $b->returned_at
+                && ($b->is_expired
+                    || $b->expiry_date->diffInDays(now(), true) <= Product::NON_PHARMA_RETURN_WINDOW_DAYS))
             ->sortBy('expiry_date')
             ->values();
 
@@ -126,11 +232,17 @@ class DashboardController extends Controller
         // admin and staff dashboards. Derived from the $activeBatches
         // collection already loaded above (product+category eager-loaded),
         // so this costs zero extra queries.
-        $categoryBreakdown = $activeBatches
+        $categoryBreakdown = $onShelf
             ->filter(fn ($b) => $b->product && $b->product->category)
             ->groupBy(fn ($b) => $b->product->category->name)
             ->map(fn ($batches, $categoryName) => [
                 'name' => $categoryName,
+                // Carried so the legend rows can link to Inventory filtered to
+                // this category. Grouping is by name (that is what the chart
+                // labels), and the id is not derivable from it — read off the
+                // first batch's already-eager-loaded category, so still no
+                // extra query.
+                'id' => $batches->first()->product->category->id,
                 'stock' => (int) $batches->sum('quantity'),
                 'products' => $batches->pluck('product_id')->unique()->count(),
             ])
@@ -187,7 +299,7 @@ class DashboardController extends Controller
         // Expiry Overview: every in-stock batch that has an expiry date, split
         // into the three horizons the app already works in. Derived from
         // $activeBatches, so no extra query.
-        $datedBatches = $activeBatches->filter(fn ($b) => $b->expiry_date);
+        $datedBatches = $onShelf->filter(fn ($b) => $b->expiry_date);
         $soonCutoff = today()->addDays(ProductBatch::EXPIRY_SOON_DAYS);
         $midCutoff = today()->addDays(60);
 
@@ -199,7 +311,7 @@ class DashboardController extends Controller
             'good' => $datedBatches->filter(fn ($b) => ! $b->is_expired && $b->expiry_date > $midCutoff)->count(),
         ];
 
-        $data += compact('todaySales', 'todayTransactions', 'lowStockProducts', 'lowestStockChart', 'expiringSoonBatches', 'expiredBatches', 'returnStats', 'needToReturnBatches', 'nonPharmaReturnStats', 'nonPharmaNeedToReturnBatches', 'categoryBreakdown');
+        $data += compact('returnableCount', 'todaySales', 'todayTransactions', 'myTodaySales', 'myTodayTransactions', 'lowStockProducts', 'lowestStockChart', 'expiringSoonBatches', 'expiredBatches', 'returnStats', 'needToReturnBatches', 'nonPharmaReturnStats', 'nonPharmaNeedToReturnBatches', 'categoryBreakdown');
 
         // The full sales/inventory dashboard (monthly sales chart, high/low
         // demand, lowest stock vs. reorder level, expiring soon) is shared
@@ -281,9 +393,31 @@ class DashboardController extends Controller
             // adds no query of its own.
             $data['seasonalTrends'] = SalesHistory::seasonalTrends();
 
-            return view('admin.dashboard', $data);
+            return $this->dashboardResponse($request, 'admin', $data);
         }
 
-        return view('staff.dashboard', $data);
+        return $this->dashboardResponse($request, 'staff', $data);
+    }
+
+    /**
+     * Answer with the dashboard body in whichever shape the caller asked for.
+     *
+     * Two shapes, same data and the same Blade partial behind both, so the
+     * AJAX page and the ?full=1 fallback can never drift into showing
+     * different dashboards:
+     *
+     *   - `?full=1`  -> the whole page, body rendered inline in the layout.
+     *   - AJAX       -> {html} for the shell to inject, matching the
+     *                   ['html' => ...] shape the list controllers already use.
+     */
+    private function dashboardResponse(Request $request, string $role, array $data)
+    {
+        if ($request->boolean('full')) {
+            return view($role.'.dashboard', $data);
+        }
+
+        return response()->json([
+            'html' => view($role.'._dashboard-body', $data)->render(),
+        ]);
     }
 }

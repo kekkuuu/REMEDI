@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Collection;
 
 class Product extends Model
 {
@@ -43,9 +44,86 @@ class Product extends Model
         return (int) $this->batches()->sum('quantity');
     }
 
+    /**
+     * Units the till may actually sell — excludes expired and returned batches.
+     *
+     * Distinct from total_stock, deliberately. `total_stock` is what is
+     * physically on the shelf, which is the right number for the inventory
+     * report's valuation and for "how much is sitting here". `sellable_stock`
+     * is what checkout is allowed to draw on. They differ by exactly the stock
+     * that needs pulling: on this install 79 expired batches (3,434 units) plus
+     * anything marked returned.
+     *
+     * Same relationLoaded() shape as total_stock so the eager-loaded pages do
+     * not re-query per product.
+     */
+    public function getSellableStockAttribute(): int
+    {
+        if ($this->relationLoaded('batches')) {
+            return (int) $this->batches->filter(fn ($b) => $b->is_sellable)->sum('quantity');
+        }
+
+        return (int) $this->batches()->sellable()->sum('quantity');
+    }
+
+    /**
+     * Is this product at or below the level where it should be reordered?
+     *
+     * Measured against SELLABLE stock, not total_stock.
+     *
+     * A reorder level answers "when do I need to buy more?", and that depends
+     * on what can actually be dispensed — not on how many unsellable boxes are
+     * sitting in the back awaiting disposal. Comparing total_stock hid 37
+     * products here that had NOTHING sellable and were still reported as
+     * adequately stocked. The worst was ASICLAV 625 MG TAB X14, a prescription
+     * antibiotic: one batch of 301 units, expired three months ago, reorder
+     * level 30, is_low_stock false. The till would dispense none of it and
+     * nobody was ever told to order more.
+     *
+     * total_stock remains the right number for the inventory report's
+     * valuation — those units are physically present and are an asset (or a
+     * disposal liability) either way. It is the reorder decision specifically
+     * that has to read sellable_stock.
+     */
     public function getIsLowStockAttribute(): bool
     {
-        return $this->total_stock <= $this->reorder_level;
+        return $this->sellable_stock <= $this->reorder_level;
+    }
+
+    /**
+     * "Reorder this" — as opposed to is_low_stock's "cannot sell this".
+     *
+     * is_low_stock compares SELLABLE stock, which is the right question for the
+     * till: expired units cannot be dispensed, so a shelf full of them is
+     * functionally empty. It is the wrong question for a Low Stock LIST, where
+     * every row is an instruction to buy more. A product with 301 units that
+     * happen to be expired is not a purchasing problem; it is a clearing
+     * problem, and the Expired filter beside it already says so.
+     *
+     * Two tests, and it took both:
+     *
+     *   1. total_stock <= reorder_level — running out of what it physically
+     *      has. Drops the obvious case, 301 expired units against a reorder
+     *      level of 5.
+     *   2. Not holding stock it cannot sell. Test 1 alone still listed 82
+     *      products that were under their reorder level AND had nothing but
+     *      expired units left.
+     *
+     * total_stock <= 0 deliberately still counts: a product with nothing at all
+     * is genuinely out and does need reordering. The exclusion is only for
+     * shelves holding unsellable stock.
+     *
+     * ONE definition, because the bell's low-stock alert links straight at the
+     * Inventory tab's low-stock filter. When those two disagreed about the
+     * expiring horizon the badge promised 28 batches and opened a list of 85 —
+     * see InventoryController. Anything that counts or lists "low stock" for a
+     * human reads this; only the POS grid still asks is_low_stock, because at
+     * the register "can I sell this?" really is the whole question.
+     */
+    public function getIsRunningOutAttribute(): bool
+    {
+        return $this->total_stock <= $this->reorder_level
+            && ! ($this->total_stock > 0 && $this->sellable_stock <= 0);
     }
 
     // The supplier-return window rule (90-120 days before expiry) only
@@ -114,10 +192,41 @@ class Product extends Model
      */
     protected array $derivedMemo = [];
 
+    /**
+     * Drop the memo whenever the underlying attributes change.
+     *
+     * The accessors above cache into $derivedMemo for the length of the
+     * request, which is right while an instance is read-only -- but an instance
+     * that is UPDATED or refresh()ed mid-request keeps answering from values
+     * that no longer exist. Reproduced: an expired batch whose expiry_date was
+     * moved into the future still reported is_expired = true, and therefore
+     * is_sellable = false, on the same instance after refresh().
+     *
+     * setRawAttributes() covers hydration and refresh(); setAttribute() covers
+     * fill()/update()/direct assignment. Hydration sets raw attributes on a
+     * fresh instance whose memo is already empty, so this costs nothing on the
+     * read path the memo exists to speed up.
+     */
+    public function setRawAttributes(array $attributes, $sync = false)
+    {
+        $this->derivedMemo = [];
+
+        return parent::setRawAttributes($attributes, $sync);
+    }
+
+    public function setAttribute($key, $value)
+    {
+        $this->derivedMemo = [];
+
+        return parent::setAttribute($key, $value);
+    }
+
     public function getIsMedicineAttribute(): bool
     {
         return $this->derivedMemo['is_medicine'] ??= (
-            $this->category?->name === 'Medicine / Pharmaceutical'
+            // Category::MEDICINE, not a literal: this string is matched in two
+            // places and both must agree or the return window silently changes.
+            $this->category?->name === Category::MEDICINE
             && ! $this->is_personal_care_item
         );
     }
@@ -175,6 +284,39 @@ class Product extends Model
     // already expired, or within 10 days of expiry, is flagged as needing
     // return. There is no separate "fail to return" state for non-pharma
     // stock, since the 90/120-day miss window is pharma-only.
+    /**
+     * The units a product may be stocked in.
+     *
+     * Free text before this, which is how the catalogue ended up with one
+     * product whose unit is the string "20". It also let the Add Product form
+     * default to lowercase "pcs" while all 2,637 other rows say "PCS" -- every
+     * product added through the form would have started a second spelling of
+     * the same unit, and anything grouping by unit would have split it in two.
+     *
+     * Uppercase because that is what the catalogue already uses. Ordered by how
+     * common they are, so the usual choice is near the top of the list rather
+     * than alphabetically buried.
+     *
+     * unitOptions() is what the forms should render: it folds in a product's
+     * own current value when that value is not on this list, so editing the
+     * odd legacy row does not silently rewrite its unit.
+     */
+    const UNITS = ['PCS', 'BOX', 'BOTTLE', 'PACK', 'TUBE', 'SACHET'];
+
+    /**
+     * @return list<string>
+     */
+    public static function unitOptions(?string $current = null): array
+    {
+        $units = self::UNITS;
+
+        if ($current !== null && $current !== '' && ! in_array($current, $units, true)) {
+            $units[] = $current;
+        }
+
+        return $units;
+    }
+
     const NON_PHARMA_RETURN_WINDOW_DAYS = 10;
 
     /**
@@ -204,7 +346,19 @@ class Product extends Model
         }
 
         return $batches->contains(function ($b) {
-            if ($b->quantity <= 0 || ! $b->expiry_date) {
+            // A batch already sent back is not still waiting to be sent back.
+            // The medicine branch above gets this for free -- ProductBatch's
+            // return_status answers "Successfully Returned" before it considers
+            // the window -- but this branch computed the window itself and
+            // never looked at returned_at, so a returned non-pharma batch kept
+            // raising "Need to Return" in the row badge, the Inventory filter
+            // and the dashboard counts. It sat next to the "Returned" badge on
+            // the same row, telling the user to do a thing they had just done.
+            //
+            // The batch is NOT hidden by this: it keeps its row, its expiry
+            // badge and its place in the Returned filter. Only the claim that
+            // it still needs returning goes away.
+            if ($b->returned_at || $b->quantity <= 0 || ! $b->expiry_date) {
                 return false;
             }
 
@@ -239,6 +393,42 @@ class Product extends Model
         $batches = $this->relationLoaded('batches') ? $this->batches : $this->batches()->get();
 
         return $batches->contains(fn ($b) => $b->quantity > 0 && $b->failed_return);
+    }
+
+    /**
+     * Expired batches still physically on the shelf.
+     *
+     * The inventory report has referenced `$product->expiredBatches` since it
+     * was written, but nothing ever defined it: Product has `batches` and
+     * nothing else. Eloquent resolves an unknown name to NULL rather than
+     * erroring, so `@if($p->expiredBatches && ...)` was simply always false and
+     * the per-row "N expired batches" badge never rendered -- on screen or on
+     * the printout -- while the Expired Stock KPI above it counted them
+     * correctly. A page reporting a non-zero expired count with no way to see
+     * which products.
+     *
+     * `quantity > 0` because this is what still needs pulling off the shelf; a
+     * returned batch has been shipped back and is 0. Same relationLoaded()
+     * shape as total_stock, so the report's eager load is not undone by a query
+     * per product.
+     *
+     * @return Collection<int, ProductBatch>
+     */
+    public function getExpiredBatchesAttribute()
+    {
+        if ($this->relationLoaded('batches')) {
+            return $this->batches
+                ->filter(fn ($b) => $b->quantity > 0 && $b->is_expired)
+                ->sortBy('expiry_date')
+                ->values();
+        }
+
+        return $this->batches()
+            ->where('quantity', '>', 0)
+            ->whereNotNull('expiry_date')
+            ->whereDate('expiry_date', '<=', today())
+            ->orderBy('expiry_date')
+            ->get();
     }
 
     public function getNearestExpiryAttribute()

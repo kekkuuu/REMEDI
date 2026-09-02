@@ -80,7 +80,7 @@
 
     <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:18px;">
         <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
-            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Last actual month</p>
+            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Last month with sales</p>
             <p style="font-size:22px; font-weight:500; margin:0;">{{ $trend['lastActualMonth'] ?? '—' }}</p>
         </div>
         <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
@@ -89,7 +89,11 @@
         </div>
         <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
             <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast total, revenue (upcoming months)</p>
-            <p style="font-size:22px; font-weight:500; margin:0;">₱{{ number_format($forecastRevenueTotal) }}</p>
+            {{-- Money keeps its centavos. number_format() with no precision rounds
+                 to whole pesos, so this KPI silently reported a figure that was
+                 up to 50 centavos away from the number it was summing. The units
+                 KPI above it stays whole on purpose -- demand is integral. --}}
+            <p style="font-size:22px; font-weight:500; margin:0;">₱{{ number_format($forecastRevenueTotal, 2) }}</p>
         </div>
     </div>
 
@@ -110,6 +114,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+@include('partials._chart-gradient')
 <script>
 new Chart(document.getElementById('unitsTrendChart'), {
     type: 'line',
@@ -238,7 +243,9 @@ new Chart(document.getElementById('revenueTrendChart'), {
                 mode: 'index',
                 intersect: false,
                 filter: (item) => item.dataset.label === 'Actual' || item.dataset.label === 'Forecast',
-                callbacks: { label: (c) => c.dataset.label + ': ₱' + Math.round(c.parsed.y).toLocaleString() },
+                // Two decimals, not Math.round(): this axis is pesos. The units
+                    // chart above rounds on purpose -- that one counts boxes.
+                    callbacks: { label: (c) => c.dataset.label + ': ₱' + c.parsed.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
             },
         },
         scales: {

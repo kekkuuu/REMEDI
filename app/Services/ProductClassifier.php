@@ -2,6 +2,8 @@
 
 namespace App\Services;
 
+use App\Models\Category;
+
 /**
  * Works out which category a product belongs in, from its name alone.
  *
@@ -32,7 +34,8 @@ namespace App\Services;
  */
 class ProductClassifier
 {
-    public const MEDICINE = 'Medicine / Pharmaceutical';
+    /** Defined on the model, since Product::is_medicine matches against it. */
+    public const MEDICINE = Category::MEDICINE;
 
     public const VITAMINS = 'Vitamins & Supplements';
 

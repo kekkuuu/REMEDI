@@ -3,8 +3,12 @@
 @section('title', 'Transaction Details')
 
 @section('content')
-<div class="page-back">
-    <a href="{{ route('sales.index') }}" class="btn-back"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back to Sales History</a>
+<div class="page-head">
+    <a href="{{ route('sales.index') }}" class="btn-back"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back</a>
+    <div class="page-head-text">
+        <h3>{{ $sale->transaction_no }}</h3>
+        <p>{{ $sale->created_at->format('M d, Y h:i A') }} &middot; {{ $sale->user->name }}</p>
+    </div>
 </div>
 
 <div class="card">
@@ -17,12 +21,17 @@
     <div class="table-scroll"><table class="remedi-table">
         <thead><tr><th>Product</th><th>Qty</th><th>Price</th><th>Subtotal</th></tr></thead>
         <tbody>
-        @foreach($sale->items as $item)
+        {{-- Grouped per product, same as the receipt: FEFO records one
+             sale_item per batch drawn from, and this table has no batch column,
+             so a split line just showed the same product twice with nothing to
+             explain why. Add a Batch column here if that detail is ever wanted;
+             until then the rows would be indistinguishable. --}}
+        @foreach($sale->items->groupBy(fn ($i) => $i->product_id.'|'.$i->price) as $group)
             <tr>
-                <td>{{ $item->product->name ?? 'Deleted Product' }}</td>
-                <td>{{ $item->quantity }}</td>
-                <td>₱{{ number_format($item->price, 2) }}</td>
-                <td>₱{{ number_format($item->subtotal, 2) }}</td>
+                <td>{{ $group->first()->product->name ?? 'Deleted Product' }}</td>
+                <td>{{ $group->sum('quantity') }}</td>
+                <td>₱{{ number_format($group->first()->price, 2) }}</td>
+                <td>₱{{ number_format($group->sum('subtotal'), 2) }}</td>
             </tr>
         @endforeach
         </tbody>

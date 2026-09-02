@@ -42,22 +42,97 @@
     /* Keep a section's title glued to the content that follows it */
     .print-section-title { page-break-after: avoid; break-after: avoid; }
 }
+
+/* Both tables below are styled from here rather than from a style="" on every
+   cell, and that is a page-weight decision, not a tidiness one. This report is
+   the whole catalogue rendered TWICE -- the capped screen table and the
+   unpaginated print copy -- so a style attribute on a cell is paid for ~5,300
+   times. Measured before this change: 58,360 style attributes totalling
+   3.35 MB, of a 7.6 MB page.
+
+   Row hover paints the CELLS, not the row (see REMEDI.md "Table row hover"),
+   which is also why the two onmouseover/onmouseout handlers that used to ride
+   on every row are gone: 5,276 of them, 216 KB, doing what one CSS rule does. */
+
+/* Screen copy */
+.inv-rep { width: 100%; min-width: 100%; border-collapse: collapse; font-size: 13px; table-layout: fixed; }
+.inv-rep thead tr { background: #f9fafb; }
+.inv-rep th {
+    padding: 9px 11px; text-align: left; font-size: 11px; font-weight: 500; color: #6b7280;
+    text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 0.5px solid #e5e7eb;
+}
+.inv-rep th:nth-child(1) { width: 4%; }
+.inv-rep th:nth-child(2) { width: 31%; }
+.inv-rep th:nth-child(3) { width: 15%; }
+.inv-rep th:nth-child(4) { width: 11%; }
+.inv-rep th:nth-child(5) { width: 12%; }
+.inv-rep th:nth-child(6) { width: 14%; }
+.inv-rep th:nth-child(7) { width: 13%; }
+.inv-rep td { padding: 11px 14px; }
+.inv-rep tbody tr { border-bottom: 0.5px solid #e5e7eb; }
+.inv-rep tbody tr:hover td { background: #f9fafb; }
+.inv-rep .num { text-align: right; }
+.inv-rep .mid { text-align: center; }
+.inv-rep .idx { color: #9ca3af; font-size: 12px; }
+.inv-rep .muted { color: #6b7280; }
+.inv-rep .strong { font-weight: 500; color: #111; }
+.inv-rep .unit { color: #9ca3af; font-size: 12px; }
+.inv-rep .expired-note { font-size: 11px; color: #dc2626; margin-top: 2px; }
+.inv-rep .expired-note i { font-size: 11px; }
+.inv-rep .empty { padding: 48px; text-align: center; color: #9ca3af; font-size: 14px; }
+.inv-rep .empty i { font-size: 28px; display: block; margin-bottom: 8px; }
+
+/* Stock figure. Graphite at zero, matching the alert legend: an empty shelf is
+   an absence, not a louder warning. */
+.inv-rep .stock { font-weight: 500; color: #111; }
+.inv-rep .stock.is-out { color: #334155; }
+.inv-rep .stock.is-low { color: #dc2626; }
+
+/* Status badge. The four states are the four the Low Stock filter decided
+   between, in the same order -- see the row markup for why that order. */
+.inv-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; font-weight: 500; padding: 3px 8px; border-radius: 20px;
+}
+.inv-badge i { font-size: 11px; }
+.inv-badge.is-out { background: #e2e8f0; color: #334155; }
+.inv-badge.is-expired { background: #FCEBEB; color: #791F1F; }
+.inv-badge.is-low { background: #fee2e2; color: #991b1b; }
+.inv-badge.is-ok { background: #EAF3DE; color: #27500A; }
+
+/* Print copy: bordered and zebra-striped, unlike the screen table. */
+.inv-print { width: 100%; border-collapse: collapse; font-size: 12px; }
+.inv-print thead tr, .inv-print tfoot tr { background: #f3f4f6; }
+.inv-print th {
+    padding: 9px 12px; text-align: left; font-size: 11px; font-weight: 600; color: #374151;
+    text-transform: uppercase; letter-spacing: 0.04em; border: 1px solid #e5e7eb;
+}
+.inv-print td { padding: 8px 12px; border: 1px solid #e5e7eb; color: #111; }
+/* nth-child rather than a $loop->even style attribute on every row. */
+.inv-print tbody tr:nth-child(even) { background: #f9fafb; }
+.inv-print .num { text-align: right; }
+.inv-print .mid { text-align: center; }
+.inv-print .idx { color: #9ca3af; font-size: 11px; }
+.inv-print .muted { color: #6b7280; }
+.inv-print .strong { font-weight: 500; }
+.inv-print .expired-note { font-size: 10px; color: #dc2626; }
+.inv-print .stock.is-low { color: #dc2626; }
+.inv-print .st-low { font-size: 11px; font-weight: 600; color: #dc2626; }
+.inv-print .st-ok { font-size: 11px; font-weight: 600; color: #16a34a; }
+.inv-print .empty { padding: 24px; text-align: center; color: #9ca3af; }
+.inv-print tfoot .label { padding: 9px 12px; font-weight: 600; font-size: 12px; text-align: right; }
+.inv-print tfoot .total { padding: 9px 12px; font-weight: 600; font-size: 13px; color: #4f46e5; text-align: right; }
 </style>
 
 {{-- ===================== SCREEN ONLY ===================== --}}
 <div id="no-print">
 
-    {{-- Page Header --}}
-    <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:12px;margin-bottom:1.5rem;">
-        <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-            <a href="{{ route('reports.index') }}" class="btn-back"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back </a>
-            
-            <div>
-                <div style="font-size:20px;font-weight:500;color:#111;">
-                    <i class="ti ti-package" style="font-size:18px;vertical-align:-2px;margin-right:7px;"></i>Inventory Report
-                </div>
-                <div style="font-size:13px;color:#6b7280;margin-top:2px;">Current stock levels, values, and status for all products</div>
-            </div>
+    {{-- Page Header. Shared .page-head pattern — see layouts/app.blade.php. --}}
+    <div class="page-head">
+        <a href="{{ route('reports.index') }}" class="btn-back"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back</a>
+        <div class="page-head-text">
+            <h3><i class="ti ti-package" style="font-size:18px;vertical-align:-2px;margin-right:7px;"></i>Inventory Report</h3>
+            <p>Current stock levels, values, and status for all products</p>
         </div>
     </div>
 
@@ -77,11 +152,17 @@
             <input type="checkbox" name="low_stock" value="1" {{ $lowStockOnly ? 'checked' : '' }} style="width:16px;height:16px;">
             Low stock only
         </label>
+        {{-- Expired stock still on the shelf. Narrows to the same set the
+             Expired Stock KPI counts, so the figure and the rows agree. --}}
+        <label style="display:flex;align-items:center;gap:6px;height:34px;font-size:13px;color:#374151;cursor:pointer;">
+            <input type="checkbox" name="expired" value="1" {{ $expiredOnly ? 'checked' : '' }} style="width:16px;height:16px;">
+            Expired only
+        </label>
         <div style="display:flex;gap:8px;">
             <button type="submit" class="btn btn-primary btn-sm">
                 <i class="ti ti-filter" style="font-size:14px;"></i> Apply
             </button>
-            @if($categoryId || $lowStockOnly)
+            @if($categoryId || $lowStockOnly || $expiredOnly)
                 <a href="{{ route('reports.inventory') }}" class="btn btn-secondary btn-sm">
                     Clear
                 </a>
@@ -112,7 +193,10 @@
             <span class="kpi-sub">in the catalog</span>
         </div>
 
-        <div class="kpi {{ $lowStockCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#f59e0b;">
+        {{-- Low Stock and Expired Stock have their accents swapped relative to
+             where they started: low stock now carries the red, expired the
+             amber. --}}
+        <div class="kpi {{ $lowStockCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#ef4444;">
             <div class="kpi-head">
                 <i class="ti ti-alert-triangle" aria-hidden="true"></i>
                 <span class="kpi-label">Low Stock</span>
@@ -121,7 +205,7 @@
             <span class="kpi-sub">at or below reorder level</span>
         </div>
 
-        <div class="kpi {{ $expiredCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#ef4444;">
+        <div class="kpi {{ $expiredCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#f59e0b;">
             <div class="kpi-head">
                 <i class="ti ti-alert-octagon" aria-hidden="true"></i>
                 <span class="kpi-label">Expired Stock</span>
@@ -165,7 +249,7 @@
              #print-area is untouched — a printed report stays complete. --}}
         <input type="text" id="report-search"
                data-suggest-url="{{ route('suggest.products') }}"
-               placeholder="Filter by product, category or status..."
+               placeholder="Filter by product or category..."
                autocomplete="off"
                style="flex:1;min-width:220px;max-width:340px;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;">
 
@@ -173,59 +257,63 @@
               data-total="{{ $products->count() }}">{{ number_format($products->count()) }} products &middot; scroll inside the table</span>
     </div>
     <div style="border:0.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;">
-        <div class="table-scroll list-scroll" style="max-height:560px;"><table style="width:100%;min-width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed;">
+        <div class="table-scroll list-scroll" style="max-height:560px;"><table class="inv-rep">
             <thead class="sticky-head">
-                <tr style="background:#f9fafb;">
-                    <th style="width:4%;padding:9px 11px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">#</th>
-                    <th style="padding:9px 11px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;width:31%;">Product</th>
-                    <th style="width:15%;padding:9px 11px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Category</th>
-                    <th style="width:11%;padding:9px 11px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Stock</th>
-                    <th style="width:12%;padding:9px 11px;text-align:right;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Unit Price</th>
-                    <th style="width:14%;padding:9px 11px;text-align:right;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Stock Value</th>
-                    <th style="width:13%;padding:9px 11px;text-align:center;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Status</th>
+                <tr>
+                    <th>#</th>
+                    <th>Product</th>
+                    <th>Category</th>
+                    <th>Stock</th>
+                    <th class="num">Unit Price</th>
+                    <th class="num">Stock Value</th>
+                    <th class="mid">Status</th>
                 </tr>
             </thead>
             <tbody>
                 @forelse($products as $p)
-                <tr data-search="{{ Str::lower($p->name.' '.($p->category->name ?? '').' '.$p->sku) }}"
-                    style="border-bottom:0.5px solid #e5e7eb;"
-                    onmouseover="this.style.background='#f9fafb'"
-                    onmouseout="this.style.background=''">
-                    <td style="padding:11px 14px;color:#9ca3af;font-size:12px;">{{ $loop->iteration }}</td>
-                    <td style="padding:11px 14px;">
-                        <div style="font-weight:500;color:#111;">{{ $p->name }}</div>
-                        @if($p->expiredBatches && $p->expiredBatches->count())
-                            <div style="font-size:11px;color:#dc2626;margin-top:2px;">
-                                <i class="ti ti-alert-triangle" style="font-size:11px;"></i>
-                                {{ $p->expiredBatches->count() }} expired batch{{ $p->expiredBatches->count() > 1 ? 'es' : '' }}
-                            </div>
-                        @endif
-                    </td>
-                    <td style="padding:11px 14px;color:#6b7280;">{{ $p->category->name ?? '—' }}</td>
-                    <td style="padding:11px 14px;">
-                        <span style="font-weight:500;color:{{ $p->is_low_stock ? '#dc2626' : '#111' }};">
-                            {{ $p->total_stock }}
-                        </span>
-                        <span style="color:#9ca3af;font-size:12px;"> {{ $p->unit }}</span>
-                    </td>
-                    <td style="padding:11px 14px;text-align:right;color:#6b7280;">₱{{ number_format($p->selling_price, 2) }}</td>
-                    <td style="padding:11px 14px;text-align:right;font-weight:500;color:#111;">₱{{ number_format($p->total_stock * $p->selling_price, 2) }}</td>
-                    <td style="padding:11px 14px;text-align:center;">
-                        @if($p->is_low_stock)
-                            <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;padding:3px 8px;border-radius:20px;background:#FCEBEB;color:#791F1F;">
-                                <i class="ti ti-alert-circle" style="font-size:11px;"></i> Low Stock
-                            </span>
-                        @else
-                            <span style="display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;padding:3px 8px;border-radius:20px;background:#EAF3DE;color:#27500A;">
-                                <i class="ti ti-circle-check" style="font-size:11px;"></i> OK
-                            </span>
-                        @endif
-                    </td>
+                    @php
+                        // Ordered so the badge says the same thing the Low Stock
+                        // filter decided.
+                        //
+                        // Out of stock first, in the same graphite the bell and the
+                        // toasts use: at zero a product is also "low", and "Low
+                        // Stock" on an empty shelf understates it.
+                        //
+                        // Then stock that exists but cannot be sold -- every unit
+                        // expired. That row is excluded from the Low Stock filter
+                        // (see ReportController), so calling it "Low Stock" here
+                        // would contradict the list it is missing from.
+                        //
+                        // Resolved once per row into a class + icon + label rather
+                        // than four branches of markup, because every byte here is
+                        // paid for 2,638 times.
+                        $badge = $p->total_stock <= 0
+                            ? ['is-out', 'ti-alert-circle', 'Out of Stock']
+                            : ($p->sellable_stock <= 0
+                                ? ['is-expired', 'ti-alert-octagon', 'Expired Stock']
+                                : ($p->total_stock <= $p->reorder_level
+                                    ? ['is-low', 'ti-alert-circle', 'Low Stock']
+                                    : ['is-ok', 'ti-circle-check', 'OK']));
+
+                        $stockCls = $p->total_stock <= 0
+                            ? 'stock is-out'
+                            : ($p->total_stock <= $p->reorder_level ? 'stock is-low' : 'stock');
+
+                        $expired = $p->expiredBatches ? $p->expiredBatches->count() : 0;
+                    @endphp
+                <tr data-search="{{ Str::lower($p->name.' '.($p->category->name ?? '').' '.$p->sku) }}">
+                    <td class="idx">{{ $loop->iteration }}</td>
+                    <td><div class="strong">{{ $p->name }}</div>@if($expired)<div class="expired-note"><i class="ti ti-alert-triangle"></i> {{ $expired }} expired batch{{ $expired > 1 ? 'es' : '' }}</div>@endif</td>
+                    <td class="muted">{{ $p->category->name ?? '—' }}</td>
+                    <td><span class="{{ $stockCls }}">{{ $p->total_stock }}</span><span class="unit"> {{ $p->unit }}</span></td>
+                    <td class="num muted">₱{{ number_format($p->selling_price, 2) }}</td>
+                    <td class="num strong">₱{{ number_format($p->total_stock * $p->selling_price, 2) }}</td>
+                    <td class="mid"><span class="inv-badge {{ $badge[0] }}"><i class="ti {{ $badge[1] }}"></i> {{ $badge[2] }}</span></td>
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="7" style="padding:48px;text-align:center;color:#9ca3af;font-size:14px;">
-                        <i class="ti ti-package-off" style="font-size:28px;display:block;margin-bottom:8px;"></i>
+                    <td colspan="7" class="empty">
+                        <i class="ti ti-package-off"></i>
                         No products found.
                     </td>
                 </tr>
@@ -295,13 +383,27 @@
             <div style="font-size:12px;color:#6b7280;margin-top:2px;">Point of Sale System</div>
         </div>
         <div style="text-align:right;">
+            @php
+                // The filters actually in force, built once for both print
+                // headings. Assembled in PHP rather than as a run of inline
+                // @if/@endif pairs, because Blade will not compile a directive
+                // that sits immediately after another one's @endif: its regex
+                // requires a non-word character before the @, and "f" is a word
+                // character. So `@endif@if(...)` leaves the second @if as
+                // literal text while its @endif compiles anyway -- an
+                // unbalanced endif that only fails when the page is RENDERED.
+                // `php artisan view:cache` writes the broken PHP without
+                // executing it, so it reports success; only a request finds it.
+                $activeFilters = array_values(array_filter([
+                    $categoryId ? optional($categories->firstWhere('id', $categoryId))->name : null,
+                    $lowStockOnly ? 'Low Stock Only' : null,
+                    $expiredOnly ? 'Expired Only' : null,
+                ]));
+            @endphp
             <div style="font-size:18px;font-weight:600;color:#111;">Inventory Report</div>
-            @if($categoryId || $lowStockOnly)
+            @if($activeFilters)
                 <div style="font-size:12px;color:#6b7280;margin-top:2px;">
-                    Filtered by:
-                    @if($categoryId){{ optional($categories->firstWhere('id', $categoryId))->name }}@endif
-                    @if($categoryId && $lowStockOnly) &middot; @endif
-                    @if($lowStockOnly)Low Stock Only @endif
+                    Filtered by: {{ implode(' · ', $activeFilters) }}
                 </div>
             @endif
             <div style="font-size:11px;color:#9ca3af;margin-top:4px;">Generated: {{ now()->format('M d, Y h:i A') }}</div>
@@ -331,62 +433,49 @@
     {{-- Print Table --}}
     <div class="print-section-title" style="font-size:13px;font-weight:500;color:#111;margin-bottom:10px;">
         Product Inventory — {{ now()->format('M d, Y') }}
-        @if($categoryId || $lowStockOnly)
+        @if($activeFilters)
             <span style="color:#6b7280;font-weight:400;">
-                ({{ $categoryId ? optional($categories->firstWhere('id', $categoryId))->name : 'All Categories' }}@if($lowStockOnly), Low Stock Only @endif)
+                ({{ implode(', ', $categoryId ? $activeFilters : array_merge(['All Categories'], $activeFilters)) }})
             </span>
         @endif
     </div>
 
-    <div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+    <div class="table-scroll"><table class="inv-print">
         <thead>
-            <tr style="background:#f3f4f6;">
-                <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">#</th>
-                <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Product</th>
-                <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Category</th>
-                <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Stock</th>
-                <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Unit Price</th>
-                <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Stock Value</th>
-                <th style="padding:9px 12px;text-align:center;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Status</th>
+            <tr>
+                <th>#</th>
+                <th>Product</th>
+                <th>Category</th>
+                <th>Stock</th>
+                <th class="num">Unit Price</th>
+                <th class="num">Stock Value</th>
+                <th class="mid">Status</th>
             </tr>
         </thead>
         <tbody>
             @forelse($products as $p)
-            <tr style="{{ $loop->even ? 'background:#f9fafb;' : 'background:#fff;' }}">
-                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#9ca3af;font-size:11px;">{{ $loop->iteration }}</td>
-                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#111;font-weight:500;">
-                    {{ $p->name }}
-                    @if($p->expiredBatches && $p->expiredBatches->count())
-                        <div style="font-size:10px;color:#dc2626;">{{ $p->expiredBatches->count() }} expired batch{{ $p->expiredBatches->count() > 1 ? 'es' : '' }}</div>
-                    @endif
-                </td>
-                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;">{{ $p->category->name ?? '—' }}</td>
-                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:{{ $p->is_low_stock ? '#dc2626' : '#111' }};font-weight:500;">
-                    {{ $p->total_stock }} {{ $p->unit }}
-                </td>
-                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;text-align:right;">₱{{ number_format($p->selling_price, 2) }}</td>
-                <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#111;font-weight:500;text-align:right;">₱{{ number_format($p->total_stock * $p->selling_price, 2) }}</td>
-                <td style="padding:8px 12px;border:1px solid #e5e7eb;text-align:center;">
-                    @if($p->is_low_stock)
-                        <span style="font-size:11px;font-weight:600;color:#dc2626;">Low Stock</span>
-                    @else
-                        <span style="font-size:11px;font-weight:600;color:#16a34a;">OK</span>
-                    @endif
-                </td>
+                @php $expired = $p->expiredBatches ? $p->expiredBatches->count() : 0; @endphp
+            <tr>
+                <td class="idx">{{ $loop->iteration }}</td>
+                <td class="strong">{{ $p->name }}
+                    @if($expired)<div class="expired-note">{{ $expired }} expired batch{{ $expired > 1 ? 'es' : '' }}</div>@endif</td>
+                <td class="muted">{{ $p->category->name ?? '—' }}</td>
+                <td class="strong {{ $p->is_running_out ? 'stock is-low' : '' }}">{{ $p->total_stock }} {{ $p->unit }}</td>
+                <td class="num muted">₱{{ number_format($p->selling_price, 2) }}</td>
+                <td class="num strong">₱{{ number_format($p->total_stock * $p->selling_price, 2) }}</td>
+                <td class="mid"><span class="{{ $p->is_running_out ? 'st-low' : 'st-ok' }}">{{ $p->is_running_out ? 'Low Stock' : 'OK' }}</span></td>
             </tr>
             @empty
             <tr>
-                <td colspan="7" style="padding:24px;text-align:center;color:#9ca3af;border:1px solid #e5e7eb;">
-                    No products found.
-                </td>
+                <td colspan="7" class="empty">No products found.</td>
             </tr>
             @endforelse
         </tbody>
         <tfoot>
-            <tr style="background:#f3f4f6;">
-                <td colspan="5" style="padding:9px 12px;font-weight:600;font-size:12px;color:#111;border:1px solid #e5e7eb;text-align:right;">Total Stock Value</td>
-                <td style="padding:9px 12px;font-weight:600;font-size:13px;color:#4f46e5;border:1px solid #e5e7eb;text-align:right;">₱{{ number_format($totalStockValue, 2) }}</td>
-                <td style="border:1px solid #e5e7eb;"></td>
+            <tr>
+                <td colspan="5" class="label">Total Stock Value</td>
+                <td class="total">₱{{ number_format($totalStockValue, 2) }}</td>
+                <td></td>
             </tr>
         </tfoot>
     </table></div>
@@ -400,6 +489,7 @@
 </div>{{-- end #print-area --}}
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+@include('partials._chart-gradient')
 <script>
     // The doughnut legends sit to the right on desktop/tablet; a phone has no
     // horizontal room for that, so they drop back underneath.

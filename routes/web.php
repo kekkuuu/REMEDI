@@ -25,7 +25,10 @@ Route::get('/', function () {
     return redirect()->route('login');
 });
 
-Route::middleware('auth')->group(function () {
+// `active` rides with `auth` on the whole group, not just the role-gated part.
+// Deactivating an account has to end its live session on the next request, and
+// most of what staff touch -- the POS included -- never passes through `role`.
+Route::middleware(['auth', 'active'])->group(function () {
 
     // Dashboard - shared, role-aware
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
@@ -52,6 +55,11 @@ Route::middleware('auth')->group(function () {
     // can already open.
     Route::get('/alerts', [AlertController::class, 'index'])->name('alerts.index');
 
+    // The full list behind the bell's "View all notifications" link. Shared,
+    // like /alerts: it shows staff only the inventory alerts they can already
+    // reach, and the audit-derived rows only to admins.
+    Route::get('/notifications', [AlertController::class, 'page'])->name('notifications.index');
+
     Route::get('/inventory', [InventoryController::class, 'index'])->name('inventory.index');
 
     Route::get('/sales', [SaleController::class, 'index'])->name('sales.index');
@@ -71,7 +79,13 @@ Route::middleware('auth')->group(function () {
         Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
 
         // Products & batches
-        Route::resource('products', ProductController::class);
+        // except('show'): there is no product DETAIL page -- the edit screen is
+        // where stock, batches and the return actions live -- but the resource
+        // route registered products.show anyway, so /products/{id} reached a
+        // method that does not exist and answered 500 (BadMethodCallException)
+        // instead of 404. Nothing links there; a stale bookmark or a typed URL
+        // was enough. Every other verb is implemented.
+        Route::resource('products', ProductController::class)->except(['show']);
         Route::post('/products/{product}/batches', [ProductController::class, 'addBatch'])->name('products.batches.store');
         Route::put('/batches/{batch}', [ProductController::class, 'updateBatch'])->name('batches.update');
         Route::delete('/batches/{batch}', [ProductController::class, 'destroyBatch'])->name('batches.destroy');

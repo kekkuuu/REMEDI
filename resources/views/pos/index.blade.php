@@ -209,7 +209,18 @@
     .pos-cart-bar:hover { background: #f8fafc; }
 </style>
 
-<div class="card" style="margin-bottom: 12px; border: 2px solid #4f46e5;">
+{{-- Barcode scanner: hidden, not deleted.
+
+     The markup stays in the DOM so every handle below it (barcode-input,
+     barcode-status and the keydown listener) still resolves and the scanning
+     path keeps working for a hardware reader, which types into whatever holds
+     focus. Deleting it would mean null-guarding four call sites and losing the
+     feature; hiding it is one attribute and reversible.
+
+     To bring it back, drop the `hidden` attribute -- focusEntryField() below
+     detects that the field is visible again and re-arms it automatically, so
+     nothing else needs changing. --}}
+<div class="card" hidden style="margin-bottom: 12px; border: 2px solid #4f46e5;">
     <label style="font-weight:600; font-size:.85rem;">Scan Barcode</label>
     <input
         type="text"
@@ -226,7 +237,7 @@
     <div class="pos-products">
         <form method="GET" id="search-form" style="margin-bottom:12px;">
             <input type="text" name="search" id="search-input"
-            data-suggest-url="{{ route('suggest.products') }}" placeholder="Search product by name, SKU, or barcode..." value="{{ request('search') }}"
+            data-suggest-url="{{ route('suggest.products') }}" placeholder="Search product by name or SKU..." value="{{ request('search') }}"
                    class="pos-input pos-input-search" autocomplete="off">
         </form>
         <p id="stock-live-status" style="font-size:.8rem; color:#64748b; margin:-6px 0 10px;">
@@ -331,14 +342,78 @@
 <script>
     let cart = {};
 
-    function addToCart(id, name, price, maxStock) {
-        if (maxStock <= 0) { alert(name + ' is out of stock!'); return; }
+    /* Stock refusals go through the app's message modal, not window.alert().
+       A browser alert reads as a browser error, blocks the tab, and can only
+       repeat the number this page was rendered with — which at a busy counter
+       is exactly the number that may have just changed. So the modal opens
+       immediately with what we know, then confirms against /pos/lookup and
+       replaces its detail line with the figure on the shelf right now.
+
+       `sku` is optional: the grid passes it, the barcode path already holds a
+       code it scanned. Without one the modal simply shows no live line rather
+       than blocking on a lookup it cannot make. */
+    function stockMessage(title, body, sku) {
+        const dialog = REMEDI.showMessage({
+            title: title,
+            body: body,
+            icon: 'ti-package-off',
+            detail: sku ? 'Checking current stock…' : '',
+        });
+
+        if (!sku) return;
+
+        fetch(`{{ route('pos.lookup') }}?sku=${encodeURIComponent(sku)}`, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+            credentials: 'same-origin',
+        })
+            .then((res) => (res.ok ? res.json() : null))
+            .then((data) => {
+                if (!data || !data.found) {
+                    dialog.setDetail('');
+                    return;
+                }
+
+                // Keep the grid honest too: if the shelf moved under us, the
+                // badge and the cart cap should not keep quoting the old figure.
+                syncStockBadge(data.id, data.stock);
+                if (cart[data.id]) cart[data.id].maxStock = data.stock;
+
+                dialog.setDetail(data.stock > 0
+                    ? `${data.stock} on hand right now.`
+                    : 'None on hand right now.');
+            })
+            .catch(() => dialog.setDetail(''));
+    }
+
+    /* The grid badge carries the figure addToCart trusts, so a live lookup that
+       finds a different number updates both or they disagree on the next tap. */
+    function syncStockBadge(productId, stock) {
+        const badge = document.getElementById(`product-stock-${productId}`);
+        if (!badge) return;
+
+        badge.dataset.trueStock = stock;
+        badge.textContent = `Stock: ${stock}`;
+
+        const reorder = Number(badge.dataset.reorderLevel || 0);
+        badge.classList.remove('badge-danger', 'badge-warning', 'badge-success');
+        badge.classList.add(stock <= 0 ? 'badge-danger' : (stock <= reorder ? 'badge-warning' : 'badge-success'));
+    }
+
+    function addToCart(id, name, price, maxStock, sku) {
+        if (maxStock <= 0) {
+            stockMessage('Out of stock', `${name} has no sellable stock.`, sku);
+            return;
+        }
 
         if (!cart[id]) {
             cart[id] = { name, price, qty: 0, maxStock };
         }
         if (cart[id].qty + 1 > maxStock) {
-            alert('Cannot add more. Only ' + maxStock + ' in stock.');
+            stockMessage(
+                'Not enough stock',
+                `${name}: only ${maxStock} available, and the cart already holds ${cart[id].qty}.`,
+                sku
+            );
             return;
         }
         cart[id].qty += 1;
@@ -382,7 +457,11 @@
         clearCartError();
 
         if (qty > cart[id].maxStock) {
-            alert('Cannot exceed available stock of ' + cart[id].maxStock);
+            stockMessage(
+                'Not enough stock',
+                `${cart[id].name}: only ${cart[id].maxStock} available. The quantity has been set to that.`,
+                cart[id].sku
+            );
             cart[id].qty = cart[id].maxStock;
             renderCart();
             return;
@@ -513,7 +592,9 @@
         amountPaidInput.value = '';
         updatePaymentState();
         modalOverlay.style.display = 'flex';
-        setTimeout(() => amountPaidInput.focus(), 50);
+        // preventScroll: the field is inside a fixed overlay, and revealing it
+        // scrolls the document behind the dialog to the top.
+        setTimeout(() => amountPaidInput.focus({ preventScroll: true }), 50);
     }
 
     function closeCheckoutModal() {
@@ -544,13 +625,13 @@
         // Park focus on "New Transaction" so the cashier can just hit Enter
         // to start the next sale. printReceipt() hands focus to the print
         // iframe, so this has to come after it settles.
-        setTimeout(() => receiptNewTxnBtn.focus(), 400);
+        setTimeout(() => receiptNewTxnBtn.focus({ preventScroll: true }), 400);
     }
 
     function closeReceiptModal() {
         receiptOverlay.style.display = 'none';
         receiptBody.innerHTML = '';
-        barcodeInput.focus(); // straight back to scanning the next sale
+        focusEntryField(); // straight back to the next sale's first entry
     }
 
     // Print the receipt through an offscreen iframe rather than window.print().
@@ -640,9 +721,18 @@
             .then(res => res.json().catch(() => null).then(data => ({ res, data })))
             .then(({ res, data }) => {
                 if (!res.ok || !data || !data.success) {
-                    // 422 carries the controller's own message (out of stock,
-                    // short payment); anything else is unexpected.
-                    throw new Error((data && data.error) || 'Checkout failed. Please try again.');
+                    // Two different 422 shapes reach here and the cashier needs
+                    // both. The controller's own refusals (out of stock, short
+                    // payment) arrive as {error}; Laravel's VALIDATION failures
+                    // arrive as {message, errors} with no `error` key at all, so
+                    // reading only `error` turned "The amount paid must not be
+                    // greater than 99999999.99" into a bare "Checkout failed.
+                    // Please try again." -- the one message that does not say
+                    // what to change. Anything else really is unexpected.
+                    throw new Error(
+                        (data && (data.error || data.message))
+                        || 'Checkout failed. Please try again.'
+                    );
                 }
 
                 closeCheckoutModal();
@@ -726,6 +816,9 @@
 
         // 'working' instead of leaving the previous results on screen.
 
+        // See REMEDI.holdScroll: read the offset before the grid is gone.
+        const restoreScroll = REMEDI.holdScroll();
+
         REMEDI.showListSkeleton(resultsWrapper, { rows: 6, grid: true });
 
 
@@ -737,6 +830,7 @@
             .then(data => {
                 REMEDI.clearListSkeleton(resultsWrapper);
                 resultsWrapper.innerHTML = data.html + `<div style="margin-top:16px;" id="pagination-wrapper">${data.pagination}</div>`;
+                restoreScroll();
                 if (pushState) window.history.pushState({}, '', url);
                 updateLiveStatus();
                 syncStockBadges();
@@ -823,16 +917,46 @@
 
     // ===== Barcode Scanner Support =====
     const barcodeInput = document.getElementById('barcode-input');
+
+    /* Where should the caret sit?
+
+       The scanner card is hidden, and a hidden input cannot take focus -- so
+       every barcodeInput.focus() below would silently do nothing and the caret
+       would end up nowhere at all: after a sale, after closing the receipt, and
+       after every click on the page. This routes focus to whichever entry field
+       is actually on screen, which is the product search box while the scanner
+       is hidden and the scanner itself the moment it is shown again. */
+    function focusEntryField() {
+        const scanner = document.getElementById('barcode-input');
+        const target = (scanner && scanner.offsetParent !== null)
+            ? scanner
+            : document.getElementById('search-input');
+
+        if (target) target.focus({ preventScroll: true });
+    }
     const barcodeStatus = document.getElementById('barcode-status');
 
+    /* Keep the scanner armed WITHOUT dragging the page around.
+       This refocuses a field that sits at the top of the page, and a plain
+       .focus() scrolls it into view -- so every click on a card, a row or a
+       label threw the reader back to the top. preventScroll keeps the caret
+       where the scanner needs it and leaves the viewport alone.
+
+       It also bails out while a selection is live: refocusing collapses the
+       selection, so highlighting a product name to copy it both wiped the
+       highlight and jumped the page. */
     document.addEventListener('click', function (e) {
         if (anyModalOpen()) return; // don't steal focus from an open modal
+
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed) return;
+
         const tag = e.target.tagName;
         if (tag !== 'INPUT' && tag !== 'SELECT' && tag !== 'BUTTON' && tag !== 'A') {
-            barcodeInput.focus();
+            focusEntryField();
         }
     });
-    barcodeInput.focus();
+    focusEntryField();
 
     barcodeInput.addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
@@ -852,7 +976,7 @@
                 })
                 .then(function (data) {
                     if (data.found) {
-                        addToCart(data.id, data.name, data.price, data.stock);
+                        addToCart(data.id, data.name, data.price, data.stock, code);
                         barcodeStatus.textContent = '\u2705 Added: ' + data.name;
                         barcodeStatus.style.color = '#16a34a';
                     } else {

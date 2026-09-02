@@ -32,7 +32,7 @@
             name="search"
             id="search-input"
             data-suggest-url="{{ route('suggest.products') }}"
-            placeholder="Search by name, SKU, or barcode"
+            placeholder="Search by name or SKU"
             value="{{ request('search') }}"
             style="flex:1; min-width:0; padding:9px 12px; border:1px solid #d1d5db; border-radius:7px;"
             autocomplete="off"
@@ -53,8 +53,12 @@
              submits natively even with no submit button present. --}}
     </form>
     <div>
-        <a href="{{ route('categories.index') }}" class="btn btn-secondary">Manage Categories</a>
-        <a href="{{ route('products.create') }}" class="btn btn-primary">+ Add Product</a>
+        <a href="{{ route('categories.index') }}" class="btn btn-primary btn-lg">
+            <i class="ti ti-category" aria-hidden="true"></i> Manage Categories
+        </a>
+        <a href="{{ route('products.create') }}" class="btn btn-primary btn-lg">
+            <i class="ti ti-plus" aria-hidden="true"></i> Add Product
+        </a>
     </div>
 </div>
 
@@ -89,6 +93,11 @@ function runSearch(pushState = true) {
 
     // 'working' instead of leaving the previous results on screen.
 
+    // Captured before the skeleton goes in, restored after the real rows
+    // land -- otherwise a search that returns fewer rows throws the reader back
+    // to the top of the list. See REMEDI.holdScroll.
+    const restoreScroll = REMEDI.holdScroll();
+
     REMEDI.showListSkeleton(wrapper, { rows: 6 });
 
 
@@ -100,6 +109,7 @@ function runSearch(pushState = true) {
         .then(data => {
             REMEDI.clearListSkeleton(wrapper);
             wrapper.innerHTML = data.html + `<div style="margin-top:16px;" id="pagination-wrapper">${data.pagination}</div>`;
+            restoreScroll();
 
             if (pushState) {
                 window.history.pushState({}, '', url);

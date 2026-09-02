@@ -10,13 +10,21 @@
                 <th>SKU</th>
                 <th>Category</th>
                 <th>Forecast Qty</th>
+                <th>Accuracy</th>
                 <th>Trend</th>
                 <th>Generated At</th>
             </tr>
         </thead>
         <tbody>
             @foreach ($forecasts as $forecast)
-                <tr class="clickable-row" onclick="window.location='{{ route('forecast.show', $forecast->product_sku) }}'" style="cursor:pointer;">
+                {{-- data-href, not an inline onclick. `onclick="window.location=..."`
+                     fired on ANY click inside the row, including the one that ends
+                     a text selection -- so selecting a SKU to copy it navigated you
+                     off the page instead. It also swallowed ctrl/middle-click (no
+                     opening in a new tab) and bypassed the layout's loading
+                     skeleton. The delegated handler below applies the same guards
+                     every other link in the app gets. --}}
+                <tr class="clickable-row" data-href="{{ route('forecast.show', $forecast->product_sku) }}">
                     <td><a href="{{ route('forecast.show', $forecast->product_sku) }}">{{ $forecast->product_name ?? '—' }}</a></td>
                     <td>{{ $forecast->product_sku }}</td>
                     <td>{{ $forecast->category_name ?? '—' }}</td>
@@ -31,6 +39,15 @@
                         <div style="font-size:11px; color:{{ $forecast->is_stale ? '#b45309' : '#94a3b8' }};">
                             {{ $forecast->is_stale ? 'as of ' : '' }}{{ $forecast->forecast_date->format('M Y') }}
                         </div>
+                    </td>
+                    {{-- Verdict per row, so the list can be scanned for forecasts worth
+                         trusting without opening each product. Same grader as the detail page. --}}
+                    <td>
+                        <span style="display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px;
+                                     font-weight:600; color:#fff; background:{{ $forecast->grade['colour'] }};"
+                              title="{{ $forecast->grade['note'] }}">
+                            {{ $forecast->grade['label'] }}
+                        </span>
                     </td>
                     <td>
                         <canvas

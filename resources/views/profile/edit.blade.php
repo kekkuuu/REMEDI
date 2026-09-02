@@ -189,6 +189,77 @@
         margin: 0 0 18px;
     }
 
+    /* Change Password card, matched to the supplied design. Scoped to
+       .password-card so the airier metrics do not leak into the profile form
+       beside it, which is a denser two-column layout and reads worse at these
+       sizes. Measured against the reference: 46px inputs (we had 40), a 50px
+       button (39), and 10px radii throughout (7-8). */
+    .password-card .icon-head { margin-bottom: 18px; }
+    .password-card .icon-head strong { font-size: 17px; }
+    .password-card .icon-head small { font-size: 13px; line-height: 1.5; }
+
+    /* The form itself now lives in #changePasswordModal, so these are scoped
+       there rather than to the card it used to sit in. */
+    #changePasswordModal .field { margin-bottom: 16px !important; }
+    #changePasswordModal .field label { font-size: 13.5px; font-weight: 600; margin-bottom: 8px; }
+
+    #changePasswordModal .field input {
+        height: 46px;
+        padding: 12px 14px;
+        border-radius: 10px;
+        border: 1px solid #e2e8f0;
+        font-size: 14.5px;
+    }
+
+    #changePasswordModal .field input:focus {
+        border-color: var(--brand);
+        box-shadow: 0 0 0 3px var(--brand-soft);
+        outline: none;
+    }
+
+    #changePasswordModal .remedi-modal__actions .btn {
+        height: 50px;
+        border-radius: 10px;
+        font-size: 15px;
+        font-weight: 600;
+    }
+
+    /* .remedi-modal__panel centres its text for the confirm dialogs; a form
+       needs its labels left-aligned, and a little more room than the 400px a
+       yes/no question wants. */
+    .remedi-modal__panel--form {
+        text-align: left;
+        max-width: 440px;
+    }
+
+    .remedi-modal__panel--form .icon-head { margin-bottom: 20px; }
+    .remedi-modal__panel--form .icon-head strong { font-size: 17px; }
+    .remedi-modal__panel--form .icon-head small { font-size: 13px; line-height: 1.5; }
+    .remedi-modal__panel--form .remedi-modal__actions { margin-top: 4px; }
+
+    /* Collapsed-state trigger: outlined, not filled. The filled green button is
+       the one that actually changes the password — giving both the same weight
+       made the card look like it had two submits. */
+    .btn-outline-brand {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        height: 44px;
+        padding: 0 22px;
+        border: 1px solid var(--brand);
+        border-radius: 10px;
+        background: #fff;
+        color: var(--brand-darker);
+        font-family: inherit;
+        font-size: 14.5px;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background .14s ease;
+    }
+
+    .btn-outline-brand:hover { background: var(--brand-tint); }
+    .btn-outline-brand[hidden] { display: none; }
+
     .icon-head { display: flex; align-items: flex-start; gap: 12px; margin-bottom: 14px; }
 
     .icon-head i {
@@ -319,7 +390,7 @@
     </div>
 
     {{-- ── Change password ── --}}
-    <div class="card">
+    <div class="card password-card">
         <div class="icon-head">
             <i class="ti ti-lock" aria-hidden="true"></i>
             <span>
@@ -335,31 +406,255 @@
             </div>
         @endif
 
-        <form method="POST" action="{{ route('password.update') }}">
+        {{-- Where the AJAX submit reports back. The server-rendered session and
+             @error output around it is untouched, so with JavaScript off this
+             form behaves exactly as it always did. --}}
+        <div id="passwordFlash" aria-live="polite"></div>
+
+        {{-- The card only ever shows this trigger; the form itself lives in a
+             centred dialog below, the same way the POS shows its receipt. --}}
+        <button type="button" id="changePasswordTrigger" class="btn-outline-brand">
+            Change Password
+        </button>
+    </div>
+
+    {{-- Centred dialog, .remedi-modal like #logoutModal and the POS receipt:
+         fixed and flex-centred so it opens over the page rather than pushing
+         the profile layout around. --}}
+    <div class="remedi-modal" id="changePasswordModal" role="dialog" aria-modal="true"
+         aria-labelledby="changePasswordModalTitle">
+      <div class="remedi-modal__panel remedi-modal__panel--form">
+        <div class="icon-head">
+            <i class="ti ti-lock" aria-hidden="true"></i>
+            <span>
+                <strong id="changePasswordModalTitle">Change Password</strong>
+                <small>Update your password periodically to keep your account secure.</small>
+            </span>
+        </div>
+
+        <form method="POST" action="{{ route('password.update') }}" id="changePasswordForm">
             @csrf
             @method('PUT')
 
             <div class="field" style="margin-bottom:14px;">
                 <label for="current_password">Current password</label>
                 <input id="current_password" type="password" name="current_password" autocomplete="current-password">
+                <p class="err" data-err-for="current_password" hidden></p>
                 @error('current_password', 'updatePassword')<p class="err">{{ $message }}</p>@enderror
             </div>
 
             <div class="field" style="margin-bottom:14px;">
                 <label for="password">New password</label>
                 <input id="password" type="password" name="password" autocomplete="new-password">
+                <p class="err" data-err-for="password" hidden></p>
                 @error('password', 'updatePassword')<p class="err">{{ $message }}</p>@enderror
             </div>
 
             <div class="field" style="margin-bottom:18px;">
                 <label for="password_confirmation">Confirm new password</label>
                 <input id="password_confirmation" type="password" name="password_confirmation" autocomplete="new-password">
+                <p class="err" data-err-for="password_confirmation" hidden></p>
                 @error('password_confirmation', 'updatePassword')<p class="err">{{ $message }}</p>@enderror
             </div>
 
-            <button type="submit" class="btn btn-primary" style="width:100%;">Change Password</button>
+            <div class="remedi-modal__actions">
+                <button type="button" class="btn btn-secondary" id="changePasswordCancel">Cancel</button>
+                <button type="submit" class="btn btn-primary">Change Password</button>
+            </div>
         </form>
+      </div>
     </div>
+
+    {{-- No JavaScript: the trigger cannot open anything, so drop the dialog out
+         of its overlay and render it as a plain block in the flow, with the
+         dead trigger hidden. The form still posts and still works. --}}
+    <noscript>
+        <style>
+            #changePasswordTrigger { display: none; }
+            #changePasswordModal { position: static; display: block; padding: 0; background: none; z-index: auto; }
+            #changePasswordModal .remedi-modal__panel { max-width: none; padding: 0; box-shadow: none; animation: none; background: none; }
+            #changePasswordModal .icon-head { display: none; }
+        </style>
+    </noscript>
+
+        <script>
+        /* Change password over AJAX. The page also carries the profile form,
+           the avatar and the activity list, and a full reload to report one
+           line of text threw all of that away — including anything half-typed
+           in the profile form beside it.
+
+           Laravel already answers a failed validation with 422 + {errors} when
+           the request is AJAX, so the failure path needs no server-side
+           branching; only the success shape is explicit in PasswordController. */
+        (function () {
+            const form = document.getElementById('changePasswordForm');
+            const flash = document.getElementById('passwordFlash');
+            if (!form || !flash) return;
+
+            const btn = form.querySelector('button[type=submit]');
+            const label = btn.textContent;
+            let busy = false;
+
+            /* ── The dialog ──
+               Same shell and the same guards as #logoutModal: Escape, backdrop
+               click, focus moved in on open and restored to the trigger on
+               close. The trap here walks every focusable control rather than
+               alternating between two, because this panel holds three inputs
+               and two buttons. */
+            const trigger = document.getElementById('changePasswordTrigger');
+            const modal = document.getElementById('changePasswordModal');
+            const panel = modal ? modal.querySelector('.remedi-modal__panel') : null;
+            const cancel = document.getElementById('changePasswordCancel');
+            let lastFocus = null;
+
+            function focusable() {
+                return [...panel.querySelectorAll('input, button')].filter(function (el) {
+                    return !el.disabled && el.offsetParent !== null;
+                });
+            }
+
+            // REMEDI.lockScroll + preventScroll, same as the layout's dialogs:
+            // body{overflow:hidden} clamps the page offset to zero, and focusing
+            // a field inside a fixed overlay lets the browser scroll the
+            // document to reveal it. Between them, opening this dialog part way
+            // down the profile page threw you back to the top.
+            let unlockScroll = null;
+
+            function openModal() {
+                lastFocus = document.activeElement;
+                modal.classList.add('is-open');
+                unlockScroll = REMEDI.lockScroll();
+                form.querySelector('#current_password').focus({ preventScroll: true });
+            }
+
+            function closeModal() {
+                modal.classList.remove('is-open');
+                if (unlockScroll) { unlockScroll(); unlockScroll = null; }
+                clearErrors();
+                form.reset();
+
+                // Fall back to the trigger: lastFocus can be <body>, and
+                // body.focus() is a no-op that leaves the caret on a password
+                // field inside a now-hidden dialog.
+                var back = (lastFocus && lastFocus !== document.body && lastFocus.focus) ? lastFocus : trigger;
+                if (back) back.focus({ preventScroll: true });
+            }
+
+            if (trigger && modal) {
+                trigger.addEventListener('click', openModal);
+                if (cancel) cancel.addEventListener('click', closeModal);
+
+                modal.addEventListener('mousedown', function (e) {
+                    if (!panel.contains(e.target)) closeModal();
+                });
+
+                document.addEventListener('keydown', function (e) {
+                    if (!modal.classList.contains('is-open')) return;
+
+                    if (e.key === 'Escape') { closeModal(); return; }
+
+                    if (e.key === 'Tab') {
+                        const items = focusable();
+                        if (!items.length) return;
+                        const first = items[0], last = items[items.length - 1];
+                        if (e.shiftKey && document.activeElement === first) {
+                            e.preventDefault(); last.focus({ preventScroll: true });
+                        } else if (!e.shiftKey && document.activeElement === last) {
+                            e.preventDefault(); first.focus({ preventScroll: true });
+                        }
+                    }
+                });
+
+                // A server-rendered validation error means the form was posted
+                // without JS and came back with something to fix, so open
+                // straight onto it rather than hiding it behind the trigger.
+                if (form.querySelector('.err:not([hidden])')) openModal();
+            }
+
+            function clearErrors() {
+                form.querySelectorAll('[data-err-for]').forEach(function (p) {
+                    p.hidden = true;
+                    p.textContent = '';
+                });
+                flash.innerHTML = '';
+            }
+
+            function notify(type, message) {
+                flash.innerHTML = '';
+                const el = document.createElement('div');
+                el.className = 'alert alert-' + type;
+                const icon = document.createElement('i');
+                icon.className = type === 'success' ? 'ti ti-circle-check' : 'ti ti-alert-circle';
+                icon.setAttribute('aria-hidden', 'true');
+                const span = document.createElement('span');
+                span.textContent = message;
+                el.appendChild(icon);
+                el.appendChild(span);
+                flash.appendChild(el);
+            }
+
+            function showErrors(errors) {
+                let placed = false;
+
+                Object.keys(errors || {}).forEach(function (field) {
+                    const p = form.querySelector('[data-err-for="' + field + '"]');
+                    const msg = Array.isArray(errors[field]) ? errors[field][0] : errors[field];
+                    if (p) { p.textContent = msg; p.hidden = false; placed = true; }
+                });
+
+                // An error for a field this form has no box for (an expired
+                // session, say) still has to surface somewhere.
+                if (!placed) notify('danger', 'Could not update the password.');
+            }
+
+            form.addEventListener('submit', function (e) {
+                if (busy) return;
+                e.preventDefault();
+                clearErrors();
+
+                busy = true;
+                btn.disabled = true;
+                btn.textContent = 'Updating…';
+
+                fetch(form.action, {
+                    method: 'POST',
+                    body: new FormData(form),
+                    credentials: 'same-origin',
+                    headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+                })
+                    .then(function (res) {
+                        return res.json().then(function (data) {
+                            return { ok: res.ok, status: res.status, data: data };
+                        });
+                    })
+                    .then(function (r) {
+                        busy = false;
+                        btn.disabled = false;
+                        btn.textContent = label;
+
+                        if (r.ok && r.data.success) {
+                            notify('success', r.data.message || 'Password updated.');
+
+                            // Close the dialog: the job is done, and leaving
+                            // three empty password boxes open invites a second
+                            // change nobody asked for. The message lands on the
+                            // card behind it, which is still on screen.
+                            if (modal) closeModal();
+                            return;
+                        }
+
+                        if (r.status === 422) { showErrors(r.data.errors); return; }
+                        notify('danger', r.data.message || 'Could not update the password.');
+                    })
+                    .catch(function () {
+                        // Offline or a non-JSON error page: fall back to a real
+                        // post rather than leaving the button disabled.
+                        busy = true;
+                        form.submit();
+                    });
+            });
+        })();
+        </script>
   </div>
 
   <div class="profile-col">
@@ -375,7 +670,10 @@
             </p>
         @endunless
 
-        <form method="POST" action="{{ route('profile.update') }}">
+        <form method="POST" action="{{ route('profile.update') }}"
+          class="js-confirm" data-confirm-tone="neutral" data-confirm-icon="ti-user-edit"
+          data-confirm-title="Save profile changes?" data-confirm-body="Your personal information will be updated."
+          data-confirm-label="Save changes">
             @csrf
             @method('PATCH')
 
@@ -526,16 +824,8 @@
   </div>
 </div>
 
-{{-- Account deletion stays available but well out of the way of everything
-     above, since it is irreversible. --}}
-<div class="card" style="margin-top:20px; border-color:#fecaca;">
-    <div class="icon-head">
-        <i class="ti ti-alert-triangle" aria-hidden="true" style="background:#fee2e2; color:#dc2626;"></i>
-        <span>
-            <strong>Delete Account</strong>
-            <small>Once deleted, this account and its data cannot be recovered.</small>
-        </span>
-    </div>
-    @include('profile.partials.delete-user-form')
-</div>
+{{-- Delete Account was removed from this page by request. The route
+     (profile.destroy) and profile/partials/delete-user-form.blade.php are left
+     in place, so restoring it is re-adding the card, not rebuilding it. Admins
+     can still remove accounts from User Management. --}}
 @endsection

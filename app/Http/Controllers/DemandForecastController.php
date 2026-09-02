@@ -38,7 +38,13 @@ class DemandForecastController extends Controller
 
         $categories = Category::orderBy('name')->get();
 
-        return view('forecast.index', compact('search', 'categoryId', 'categories', 'forecasts'));
+        // Below the AJAX branch on purpose: the top-10 chart is not filtered by
+        // the search box, so re-sending it on every keystroke would be wasted
+        // work. Same reasoning as the KPI cards on the sales list.
+        $topDemand = $this->forecasts->topDemandSeries(5);
+        $accuracy = $this->forecasts->accuracySummary();
+
+        return view('forecast.index', compact('search', 'categoryId', 'categories', 'forecasts', 'topDemand', 'accuracy'));
     }
 
     /**

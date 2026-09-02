@@ -87,132 +87,19 @@
             .brand-name { font-size: 2.1rem; }
         }
 
-        /* ── Sign-in skeleton ──
-           Authenticating then loading the dashboard takes a moment; without
-           this the button just sits there and the click reads as ignored. */
-        @keyframes remedi-shimmer {
-            0%   { background-position: -420px 0; }
-            100% { background-position: 420px 0; }
-        }
+        /* ── Signing in ──
+           No skeleton here any more. It used to paint a full-screen mock of
+           the dashboard over this page, but /dashboard now answers with a
+           shell in ~0.3s and does its own branded wait (dashboard/_loading),
+           so the skeleton was a grey impression of a page that the real
+           loading screen was about to replace half a second later -- two
+           different waiting states back to back, the throwaway one first.
 
-        /* ── Post-login skeleton ──
-           Signing in redirects to the dashboard, and until that document
-           arrives the browser still shows this page. So the skeleton is
-           shaped like the DASHBOARD, not like the login card: you see the
-           app's sidebar/topbar/panels filling in, which is where you're
-           actually going. */
-        .auth-skeleton {
-            display: none;
-            position: fixed;
-            inset: 0;
-            z-index: 999;
-            background: #f1f5f9;
-        }
+           What survives is the part that was actually load-bearing: the click
+           has to register, and it must not be possible to post the credentials
+           twice while the redirect is in flight. */
+        .auth-card button[disabled] { opacity: .75; cursor: default; }
 
-        body.is-authenticating { overflow: hidden; }
-        body.is-authenticating .auth-skeleton { display: flex; }
-        body.is-authenticating .auth-card { visibility: hidden; }
-
-        /* Sidebar is the app's dark teal slab (--nav-bg), not the slate it
-           used to be -- the skeleton has to look like the page it precedes. */
-        .auth-skeleton .sk-sidebar {
-            width: 280px;
-            flex-shrink: 0;
-            background: #0c3b33;
-            padding: 26px 16px;
-        }
-
-        .auth-skeleton .sk-main { flex: 1; display: flex; flex-direction: column; }
-
-        .auth-skeleton .sk-topbar {
-            height: 78px;
-            background: #fff;
-            border-bottom: 0.5px solid #e2e8f0;
-            display: flex;
-            align-items: center;
-            padding: 0 32px;
-            gap: 14px;
-        }
-
-        .auth-skeleton .sk-content { padding: 28px 32px; }
-
-        .auth-skeleton .sk-kpis {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
-            gap: 14px;
-            margin-bottom: 24px;
-        }
-
-        .auth-skeleton .sk-block {
-            background: #e2e8f0;
-            background-image: linear-gradient(90deg, #e2e8f0 0, #eef2f7 180px, #e2e8f0 360px);
-            background-size: 840px 100%;
-            border-radius: 8px;
-            animation: remedi-shimmer 1.3s linear infinite;
-        }
-
-        .auth-skeleton .sk-sidebar .sk-block {
-            background: #14554a;
-            background-image: linear-gradient(90deg, #14554a 0, #1b6a5c 180px, #14554a 360px);
-            height: 40px;
-            margin-bottom: 8px;
-            border-radius: 7px;
-        }
-
-        /* Same proportions as the real dashboard: 118px KPI tiles, a greeting
-           bar with a date pill, two charts side by side. */
-        .auth-skeleton .sk-kpi   { height: 118px; border-radius: 14px; }
-        .auth-skeleton .sk-bar   { height: 26px; width: 220px; }
-
-        .auth-skeleton .sk-greeting {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            gap: 14px;
-            margin-bottom: 20px;
-        }
-
-        .auth-skeleton .sk-h    { height: 24px; width: 260px; margin-bottom: 8px; }
-        .auth-skeleton .sk-sub  { height: 13px; width: 320px; }
-        .auth-skeleton .sk-pill { height: 38px; width: 230px; border-radius: 10px; }
-
-        .auth-skeleton .sk-tabs { display: flex; gap: 10px; margin-bottom: 22px; }
-        .auth-skeleton .sk-tab  { height: 41px; width: 104px; border-radius: 999px; }
-
-        .auth-skeleton .sk-charts {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px;
-        }
-
-        .auth-skeleton .sk-chart { height: 280px; border-radius: 14px; }
-
-        @media (max-width: 1000px) {
-            .auth-skeleton .sk-charts { grid-template-columns: 1fr; }
-        }
-
-        .auth-signing-in {
-            position: fixed;
-            left: 50%;
-            bottom: 34px;
-            transform: translateX(-50%);
-            background: #1e293b;
-            color: #e2e8f0;
-            font-size: 13px;
-            font-weight: 500;
-            padding: 9px 18px;
-            border-radius: 999px;
-            box-shadow: 0 8px 22px -8px rgba(15, 23, 42, .6);
-        }
-
-        @media (max-width: 767px) {
-            .auth-skeleton .sk-sidebar { display: none; }
-            .auth-skeleton .sk-content { padding: 16px 14px; }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-            .auth-skeleton .sk-block { animation: none; }
-        }
     </style>
 </head>
 <body>
@@ -241,64 +128,29 @@
         {{ $slot }}
     </div>
 
-    <div class="auth-skeleton" aria-hidden="true">
-        <div class="sk-sidebar">
-            {{-- Brand lockup, then the nav items the dashboard shows. --}}
-            <div class="sk-block" style="height:46px; margin-bottom:24px;"></div>
-            <div class="sk-block"></div>
-            <div class="sk-block"></div>
-            <div class="sk-block"></div>
-            <div class="sk-block"></div>
-            <div class="sk-block" style="width:60%; height:12px; margin:18px 0 10px;"></div>
-            <div class="sk-block"></div>
-            <div class="sk-block"></div>
-            <div class="sk-block"></div>
-        </div>
-        <div class="sk-main">
-            <div class="sk-topbar">
-                <div class="sk-block sk-bar"></div>
-                <div class="sk-block" style="height:40px; width:360px; border-radius:999px; margin:0 auto;"></div>
-                <div class="sk-block" style="height:38px; width:38px; border-radius:50%;"></div>
-            </div>
-            <div class="sk-content">
-                <div class="sk-greeting">
-                    <div>
-                        <div class="sk-block sk-h"></div>
-                        <div class="sk-block sk-sub"></div>
-                    </div>
-                    <div class="sk-block sk-pill"></div>
-                </div>
-
-                <div class="sk-kpis">
-                    <div class="sk-block sk-kpi"></div>
-                    <div class="sk-block sk-kpi"></div>
-                    <div class="sk-block sk-kpi"></div>
-                    <div class="sk-block sk-kpi"></div>
-                    <div class="sk-block sk-kpi"></div>
-                    <div class="sk-block sk-kpi"></div>
-                </div>
-
-                <div class="sk-tabs">
-                    <div class="sk-block sk-tab"></div>
-                    <div class="sk-block sk-tab"></div>
-                </div>
-
-                <div class="sk-charts">
-                    <div class="sk-block sk-chart"></div>
-                    <div class="sk-block sk-chart"></div>
-                </div>
-            </div>
-        </div>
-        <p class="auth-signing-in">Signing you in&hellip;</p>
-    </div>
-
 <script>
-    // Show the skeleton once the credentials are on their way. Guarded on
-    // the form's own validity so an empty submit (which the browser blocks)
-    // doesn't blank the fields the user still has to fill in.
+    // Mark the sign-in as under way, and refuse a second one.
+    //
+    // The whole visible wait now lives on the other side of the redirect, in
+    // the dashboard's own loading screen -- this only has to cover the POST
+    // and the redirect after it, which is well under a second. So: no overlay,
+    // no skeleton, just a button that shows it heard the click.
     (function () {
         var card = document.querySelector('.auth-card');
         if (!card) return;
+
+        var pending = false;
+
+        function release() {
+            pending = false;
+            Array.prototype.forEach.call(
+                card.querySelectorAll('button[type=submit][disabled]'),
+                function (b) {
+                    b.disabled = false;
+                    if (b.dataset.label) b.textContent = b.dataset.label;
+                }
+            );
+        }
 
         card.addEventListener('submit', function (e) {
             var form = e.target;
@@ -306,14 +158,37 @@
             if (form.hasAttribute('data-no-skeleton')) return;
             if (typeof form.checkValidity === 'function' && !form.checkValidity()) return;
 
+            // Signing in is slow enough to invite a second click, and each one
+            // posts the credentials again.
+            if (pending) {
+                e.preventDefault();
+                return;
+            }
+            pending = true;
+
             setTimeout(function () {
-                if (!e.defaultPrevented) document.body.classList.add('is-authenticating');
+                if (e.defaultPrevented) {
+                    release();
+                    return;
+                }
+
+                // Disabled only AFTER the browser has serialised and sent the
+                // form -- doing it inside the handler can drop the submitter
+                // from the POST body.
+                Array.prototype.forEach.call(
+                    form.querySelectorAll('button[type=submit]'),
+                    function (b) {
+                        b.dataset.label = b.textContent;
+                        b.textContent = 'Signing you in…';
+                        b.disabled = true;
+                    }
+                );
             }, 0);
         });
 
-        // Coming back via the back button must not leave the skeleton up.
+        // A bfcache restore must not bring back a dead disabled button.
         window.addEventListener('pageshow', function (ev) {
-            if (ev.persisted) document.body.classList.remove('is-authenticating');
+            if (ev.persisted) release();
         });
     })();
 </script>

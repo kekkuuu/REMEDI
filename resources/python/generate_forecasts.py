@@ -12,7 +12,8 @@ Two data sources:
                      01/02/2025, YAKULT 5S, ..., 10, 50.00, 500.00, 01/02/2025
                      , , , , TOTAL, 500.00,
 
-  --source=mysql Read historical monthly units sold from the `sales_history` table
+  --source=mysql Read monthly units sold from `sales_history` PLUS this terminal's
+                 own sales (sale_items), which is the record after the handoff
                  in the app's own database (credentials read from --env-path). This is
                  real customer demand -- what was actually bought -- as opposed to
                  restocking/receiving data, which reflects supplier order patterns
@@ -175,9 +176,32 @@ def load_from_mysql(env_path: str) -> pd.DataFrame:
         password=env.get("DB_PASSWORD"),
         database=env.get("DB_DATABASE"),
     )
+    # BOTH RECORDS, not just the imported one.
+    #
+    # `sales_history` stops the day before this terminal went live, so reading
+    # it alone means the newest month the model ever sees is the month of the
+    # handoff -- and since monthly_series() drops an incomplete trailing month,
+    # training ended in JULY while the shop had been trading through the till
+    # into September. The horizon then opened on a month that had already
+    # happened, which is the "forecasting the past" fault REMEDI.md records:
+    # every product forecasting a window nobody can act on.
+    #
+    # UNION ALL, not a join: these are two records of the same event stream, and
+    # monthly_series() aggregates by (product, month) anyway, so duplicate
+    # (sku, date) pairs across the two sources sum exactly as they should.
+    # Joined through products.sku, the only place sale_items.product_id and
+    # sales_history.product_sku meet.
     query = """
         SELECT sale_date AS date, product_sku, quantity_sold AS qty
         FROM sales_history
+
+        UNION ALL
+
+        SELECT DATE(sales.created_at) AS date, products.sku AS product_sku,
+               sale_items.quantity AS qty
+        FROM sale_items
+        JOIN sales ON sales.id = sale_items.sale_id
+        JOIN products ON products.id = sale_items.product_id
     """
     df = pd.read_sql(query, conn)
     conn.close()
@@ -189,6 +213,31 @@ def monthly_series(df: pd.DataFrame) -> pd.DataFrame:
     """Aggregate raw receipt rows into a per-product, per-month qty total."""
     df = df.copy()
     df["month"] = df["date"].dt.to_period("M").dt.to_timestamp()
+
+    # Drop the trailing month when the data stops partway through it.
+    #
+    # These models are fitted on calendar months, so a month holding only the
+    # first fortnight is not a weak month -- it is half a month. Fed in as a
+    # real observation it reads as a collapse, and every method in the cascade
+    # then forecasts forward from that depressed level. Measured after the
+    # seeded history was trimmed to 2026-08-15: Jun 42,649 units, Jul 46,477,
+    # Aug 22,239. Nothing happened in August except the calendar.
+    #
+    # Judged on the GLOBAL last date rather than per product: an incomplete
+    # tail is a property of when the data stops, not of whether one product
+    # happened to sell on the final day. Doing it per product would silently
+    # drop a real final month for everything that did not sell that day.
+    #
+    # This also matters for any month-to-date run, trimmed history or not --
+    # regenerating on the 3rd of a month would otherwise train on three days.
+    last_date = df["date"].max()
+
+    if pd.notna(last_date):
+        month_end = last_date.to_period("M").end_time.date()
+
+        if last_date.date() != month_end:
+            df = df[df["month"] < last_date.to_period("M").to_timestamp()]
+
     return df.groupby(["product_sku", "month"], as_index=False)["qty"].sum()
 
 
@@ -412,89 +461,13 @@ def _ensemble_rows(monthly, future_dates, horizon, hist_mean, ceiling):
     ]
 
 
-def forecast_product(monthly: pd.Series, horizon: int):
-    """
-    Forecast one product, trying the richest model its history can support and
-    falling back whenever the fit fails the plausibility check above.
-
-    Order: seasonal SARIMA (3+ years only) -> non-seasonal ARIMA (2+ years) ->
-    damped exponential smoothing (1+ year) -> trailing moving average. The
-    moving average is the floor of the chain because it cannot go negative or
-    explode, so there is always a usable answer.
-
-    Returns a list of dicts, one per forecasted month.
-    """
-    monthly = monthly.asfreq("MS", fill_value=0)
-    n = len(monthly)
-    last_date = monthly.index[-1]
-    future_dates = pd.date_range(last_date + pd.offsets.MonthBegin(1), periods=horizon, freq="MS")
-
-    if n < MIN_MONTHS_FOR_ANY_FORECAST:
-        return []  # not enough data to forecast at all
-
-    # Real sales are noisy and short models extrapolate absurdly. Never forecast
-    # further out than a small multiple of the observed historical range.
-    hist_max = float(monthly.max())
-    hist_mean = float(monthly.mean())
-    ceiling = max(hist_max * 2.5, hist_mean * 4, 1.0)
-
-    def finalize(rows):
-        """Tidy the accepted fit: keep CIs inside the ceiling and non-negative."""
-        for r in rows:
-            r["forecast_value"] = round(min(max(0.0, r["forecast_value"]), ceiling), 2)
-            r["lower_ci"] = round(max(0.0, min(r["lower_ci"], r["forecast_value"])), 2)
-            r["upper_ci"] = (
-                round(min(r["upper_ci"], ceiling), 2)
-                if not np.isnan(r["upper_ci"])
-                else r["forecast_value"]
-            )
-        return rows
-
-    candidates = []
-
-    if n >= MIN_MONTHS_FOR_SEASONAL_SARIMA:
-        # Median of airline SARIMA + seasonal Holt-Winters + seasonal naive.
-        # See _ensemble_rows for the measurement; no single model beat it on
-        # MAE, RMSE and MAPE at once.
-        candidates.append(
-            lambda: _ensemble_rows(monthly, future_dates, horizon, hist_mean, ceiling)
-        )
-        # The "airline" model, (0,1,1)(0,1,1,12), on its own -- still the best
-        # single SARIMA order tried, and the fallback when the ensemble finds
-        # no plausible member. The seasonal term is an MA, not the AR this used
-        # to use: measured over 90 products on a 3-month holdout,
-        # (1,1,1)(1,1,0,12) scored MAE 12.14 / RMSE 38.58 / MAPE 22.0% against
-        # 9.58 / 32.55 / 20.0% here -- a 21% cut in MAE from the order alone.
-        candidates.append(
-            lambda: _sarimax_rows(monthly, future_dates, horizon, (0, 1, 1), (0, 1, 1, 12), "sarima_seasonal")
-        )
-    if n >= MIN_MONTHS_FOR_SEASONAL_SMOOTHING:
-        candidates.append(
-            lambda: _smoothing_rows(monthly, future_dates, horizon, hist_mean, seasonal=True)
-        )
-    if n >= MIN_MONTHS_FOR_SARIMA:
-        candidates.append(
-            lambda: _sarimax_rows(monthly, future_dates, horizon, (1, 1, 1), (0, 0, 0, 0), "arima")
-        )
-    if n >= MIN_MONTHS_FOR_SMOOTHING:
-        candidates.append(lambda: _smoothing_rows(monthly, future_dates, horizon, hist_mean))
-
-    for build in candidates:
-        try:
-            rows = build()
-        except Exception:
-            continue  # any fitting failure just means "try the next model"
-
-        if _plausible([r["forecast_value"] for r in rows], ceiling):
-            return finalize(rows)
-
-    # Floor of the chain: trailing moving average (last up-to-6 months),
-    # flat-line forecast. Cannot be negative and cannot exceed the ceiling.
-    window = monthly.tail(min(6, n))
+def _moving_average_rows(series, future_dates):
+    """The floor of the chain: cannot go negative and cannot explode."""
+    window = series.tail(min(6, len(series)))
     avg = float(window.mean())
     std = float(window.std(ddof=0)) if len(window) > 1 else avg * 0.2
 
-    return finalize([
+    return [
         {
             "forecast_date": date,
             "forecast_value": round(avg, 2),
@@ -503,7 +476,370 @@ def forecast_product(monthly: pd.Series, horizon: int):
             "method": "moving_average",
         }
         for date in future_dates
-    ])
+    ]
+
+
+def _croston_rows(series, future_dates, horizon, sba=True):
+    """
+    Croston's method (SBA variant), the standard estimator for intermittent
+    demand -- which is what most of this catalogue is.
+
+    SARIMA, ARIMA and Holt-Winters all assume demand arrives every period and
+    fit a level/trend to the raw series. When two months in three are zero that
+    assumption is simply wrong, and the fit chases the zeros. 1,419 products
+    here sell 5-20 units a month with a coefficient of variation of 0.75, and
+    709 sell under 5.
+
+    Croston splits the series into two: how MUCH is bought when a purchase
+    happens, and how OFTEN purchases happen. Each is smoothed separately and
+    the forecast is size / interval -- a demand RATE, which is exactly what a
+    reorder level needs.
+
+    The SBA correction (Syntetos-Boylan, multiply by 1 - alpha/2) removes the
+    upward bias in classic Croston, which otherwise systematically over-orders.
+    """
+    values = np.asarray(series, dtype=float)
+    nonzero_idx = np.flatnonzero(values > 0)
+
+    # Fewer than two purchases gives nothing to estimate an interval from.
+    if len(nonzero_idx) < 2:
+        return []
+
+    alpha = 0.1
+
+    sizes = values[nonzero_idx]
+    intervals = np.diff(np.concatenate(([nonzero_idx[0]], nonzero_idx))).astype(float)
+    intervals[0] = max(1.0, float(nonzero_idx[0]) + 1.0)
+
+    z = float(sizes[0])       # smoothed demand size
+    x = float(intervals[0])   # smoothed interval between demands
+
+    for size, gap in zip(sizes[1:], intervals[1:]):
+        z += alpha * (float(size) - z)
+        x += alpha * (float(gap) - x)
+
+    if x <= 0:
+        return []
+
+    rate = z / x
+
+    if sba:
+        rate *= (1.0 - alpha / 2.0)
+
+    # A flat rate is the whole point: Croston forecasts an average demand per
+    # period, not a shape. Spread is taken from the observed sizes so the band
+    # still says something about how lumpy the purchases are.
+    spread = float(np.std(sizes)) if len(sizes) > 1 else rate * 0.5
+
+    return [
+        {
+            "forecast_date": date,
+            "forecast_value": round(float(rate), 2),
+            "lower_ci": round(max(0.0, rate - spread), 2),
+            "upper_ci": round(rate + spread, 2),
+            "method": "croston_sba",
+        }
+        for date in future_dates
+    ]
+
+
+def _future_dates(series, horizon):
+    return pd.date_range(series.index[-1] + pd.offsets.MonthBegin(1), periods=horizon, freq="MS")
+
+
+def _candidates(series, horizon, ceiling):
+    """
+    Every model this series is long enough to support, richest first.
+
+    Returned as (name, builder) pairs so the same set can be built against a
+    TRUNCATED series for scoring and against the full one for the real
+    forecast, without the two definitions drifting apart.
+    """
+    n = len(series)
+    dates = _future_dates(series, horizon)
+    hist_mean = float(series.mean())
+    out = []
+
+    if n >= MIN_MONTHS_FOR_SEASONAL_SARIMA:
+        out.append(("sarima_ensemble",
+                    lambda: _ensemble_rows(series, dates, horizon, hist_mean, ceiling)))
+        out.append(("sarima_seasonal",
+                    lambda: _sarimax_rows(series, dates, horizon, (0, 1, 1), (0, 1, 1, 12), "sarima_seasonal")))
+    if n >= MIN_MONTHS_FOR_SEASONAL_SMOOTHING:
+        out.append(("holt_winters_seasonal",
+                    lambda: _smoothing_rows(series, dates, horizon, hist_mean, seasonal=True)))
+    if n >= MIN_MONTHS_FOR_SARIMA:
+        out.append(("arima",
+                    lambda: _sarimax_rows(series, dates, horizon, (1, 1, 1), (0, 0, 0, 0), "arima")))
+    if n >= MIN_MONTHS_FOR_SMOOTHING:
+        out.append(("holt_winters",
+                    lambda: _smoothing_rows(series, dates, horizon, hist_mean)))
+
+    # Offered to EVERY series, not gated on length: intermittency is about
+    # how often demand arrives, not how many months of it exist, and the
+    # holdout contest decides whether it actually wins.
+    out.append(("croston_sba", lambda: _croston_rows(series, dates, horizon)))
+
+    out.append(("moving_average", lambda: _moving_average_rows(series, dates)))
+
+    return out
+
+
+def _clamp_rows(rows, ceiling):
+    """
+    Keep values non-negative, inside the ceiling, and in WHOLE UNITS.
+
+    Demand is integral -- nobody dispenses 0.4 of a box -- so a forecast of
+    2.47 was never a thing anyone could order against, and it scored as a 23%
+    error against an actual of 2 purely for being written to two decimals.
+    12,387 of 15,474 rows carried decimals, 2,339 of them a fraction between 0
+    and 1.
+
+    Rounding is applied to the value and both CI bounds so the band still
+    brackets the point estimate after rounding.
+    """
+    for r in rows:
+        value = round(min(max(0.0, r["forecast_value"]), ceiling))
+        r["forecast_value"] = float(value)
+        r["lower_ci"] = float(round(max(0.0, min(r["lower_ci"], value))))
+        r["upper_ci"] = (
+            float(round(min(r["upper_ci"], ceiling)))
+            if not np.isnan(r["upper_ci"])
+            else float(value)
+        )
+
+        # Rounding must not invert the band.
+        r["upper_ci"] = float(max(r["upper_ci"], value))
+        r["lower_ci"] = float(min(r["lower_ci"], value))
+
+    return rows
+
+
+def _fit_named(series, name, horizon, ceiling):
+    """Build one named model against `series`, or None if it will not fit."""
+    for cname, build in _candidates(series, horizon, ceiling):
+        if cname != name:
+            continue
+        try:
+            rows = build()
+        except Exception:  # noqa: BLE001 - a failed fit is just "no answer"
+            return None
+
+        return _clamp_rows(rows, ceiling) if rows else None
+
+    return None
+
+
+def _selection_error(rows, observed):
+    """
+    How wrong a candidate was on the months it was not allowed to see.
+
+    Scored with sMAPE, not MAE, and the difference matters a great deal here.
+
+    MAE minimises ABSOLUTE error, so on a product selling 0-3 units a month it
+    happily picks whichever model hugs the mean -- which is close in units and
+    dreadful in percentage terms, and percentage is what the accuracy panel
+    reports. Selecting on one measure while reporting another is how the
+    headline MAPE stayed at 122.6% even after selection was introduced.
+
+    sMAPE is the right criterion for this catalogue: it is scale-free, so it can
+    compare a 3-unit product against a 300-unit one, and unlike MAPE it stays
+    defined when the month sold nothing -- which is most months for most of
+    these products. Ties break on MAE so the unit-level error still decides
+    between two models that are equally wrong proportionally.
+    """
+    if not rows:
+        return None
+
+    pred = np.array([float(r["forecast_value"]) for r in rows[:len(observed)]], dtype=float)
+    obs = np.asarray(observed, dtype=float)[:len(pred)]
+
+    if len(pred) == 0:
+        return None
+
+    denom = np.abs(pred) + np.abs(obs)
+    # 0 predicted against 0 actual is a perfect call, not a division by zero.
+    terms = np.where(denom == 0, 0.0, np.abs(pred - obs) / np.where(denom == 0, 1.0, denom))
+    smape = float(np.mean(terms) * 200.0)
+    mae = float(np.mean(np.abs(pred - obs)))
+
+    # (MAE, sMAPE), in that order, and the order was decided by measurement
+    # rather than argument. Running the whole catalogue both ways:
+    #
+    #            criterion | MAE  | RMSE | MAPE   | sMAPE
+    #   ------------------ | ---- | ---- | ------ | ------
+    #   sMAPE first        | 8.16 | 9.65 | 123.1% |  98.1%
+    #   MAE first          | 8.12 | 9.63 | 122.6% | 101.5%
+    #
+    # MAE-first wins on three of the four, including the MAPE this is mainly
+    # judged on, so it leads and sMAPE breaks its ties.
+    return (mae, smape)
+
+
+def _pick_by_holdout(series, holdout, ceiling):
+    """
+    Choose the model that is actually most accurate on THIS product.
+
+    The cascade used to take the richest model the history could support and
+    keep it if it merely looked plausible -- so the SARIMA ensemble ended up on
+    2,346 of 2,576 products, including short intermittent series it is the wrong
+    tool for. On the scale-free measure it was the worst performer in the
+    catalogue: MAPE 132.5%, against 77.3% for plain ARIMA and 74.9% for seasonal
+    Holt-Winters. Length of history says what a model CAN fit, not what fits.
+
+    Scored with _selection_error (sMAPE, tie-broken on MAE) so the model chosen
+    is the one that minimises the error the accuracy panel actually reports.
+    """
+    train = series.iloc[:-holdout]
+    observed = series.iloc[-holdout:].to_numpy(dtype=float)
+
+    if len(train) < MIN_MONTHS_FOR_ANY_FORECAST:
+        return None
+
+    best = None
+
+    for name, build in _candidates(train, holdout, ceiling):
+        try:
+            rows = build()
+        except Exception:  # noqa: BLE001 - a failed fit just loses the contest
+            continue
+
+        if not rows:
+            continue
+
+        rows = _clamp_rows(rows, ceiling)
+
+        if not _plausible([r["forecast_value"] for r in rows], ceiling):
+            continue
+
+        error = _selection_error(rows, observed)
+
+        if error is None:
+            continue
+
+        # (sMAPE, MAE) compares lexicographically: proportional error
+        # decides, unit error breaks ties.
+        if best is None or error < best[1]:
+            best = (name, error)
+
+    return best[0] if best else None
+
+
+def forecast_product(monthly: pd.Series, horizon: int, select: bool = True):
+    """
+    Forecast one product using the model that scores best on its own history.
+
+    `select=False` turns the contest off and falls back to the original
+    "richest plausible model" order. The scoring pass uses it so selection
+    cannot recurse into itself.
+
+    Returns a list of dicts, one per forecasted month.
+    """
+    monthly = monthly.asfreq("MS", fill_value=0)
+    n = len(monthly)
+
+    if n < MIN_MONTHS_FOR_ANY_FORECAST:
+        return []  # not enough data to forecast at all
+
+    hist_max = float(monthly.max())
+    hist_mean = float(monthly.mean())
+    ceiling = max(hist_max * 2.5, hist_mean * 4, 1.0)
+
+    if select and n >= MIN_MONTHS_FOR_ANY_FORECAST + SELECTION_HOLDOUT:
+        winner = _pick_by_holdout(monthly, SELECTION_HOLDOUT, ceiling)
+
+        if winner:
+            rows = _fit_named(monthly, winner, horizon, ceiling)
+
+            if rows and _plausible([r["forecast_value"] for r in rows], ceiling):
+                return rows
+
+    # Fallback: the original order, first plausible fit wins.
+    for _name, build in _candidates(monthly, horizon, ceiling):
+        try:
+            rows = build()
+        except Exception:  # noqa: BLE001 - any fitting failure means "try the next"
+            continue
+
+        if not rows:
+            continue
+
+        rows = _clamp_rows(rows, ceiling)
+
+        if _plausible([r["forecast_value"] for r in rows], ceiling):
+            return rows
+
+    return _clamp_rows(_moving_average_rows(monthly, _future_dates(monthly, horizon)), ceiling)
+
+
+SELECTION_HOLDOUT = 3
+
+
+HOLDOUT_MONTHS = 3
+
+
+def backtest_product(monthly: pd.Series, holdout: int = HOLDOUT_MONTHS):
+    """
+    Score this product's forecast against months it was not allowed to see.
+
+    Refits the SAME cascade forecast_product() uses, on the series minus its
+    last `holdout` months, then compares the predictions to the months held
+    back. Scoring the model actually in use is the whole point -- a metric
+    taken from some other model would describe a forecast nobody is looking at.
+
+    Returns None when the remaining history is too short to fit anything, which
+    is honest: no score is better than a score computed from three data points.
+    """
+    monthly = monthly.asfreq('MS', fill_value=0)
+
+    # The training half must still clear the cascade's own floor, or the
+    # backtest measures a model the product would never actually get.
+    if len(monthly) < MIN_MONTHS_FOR_ANY_FORECAST + holdout:
+        return None
+
+    train = monthly.iloc[:-holdout]
+    actual = monthly.iloc[-holdout:]
+
+    rows = forecast_product(train, holdout)
+
+    if not rows:
+        return None
+
+    predicted = np.array([float(r['forecast_value']) for r in rows[:holdout]], dtype=float)
+    observed = actual.to_numpy(dtype=float)[:len(predicted)]
+
+    if len(predicted) == 0 or len(observed) == 0:
+        return None
+
+    errors = predicted - observed
+    mae = float(np.mean(np.abs(errors)))
+    rmse = float(np.sqrt(np.mean(errors ** 2)))
+
+    # MAPE divides by the observed value, so a month that sold nothing makes
+    # the term undefined -- and that is the common case here, not an edge case:
+    # most products in this catalogue sell in only a few months of the year.
+    # Score it over the non-zero months only and report how many those were, so
+    # a MAPE built from one month is not mistaken for one built from three.
+    nonzero = observed != 0
+    mape = (float(np.mean(np.abs(errors[nonzero] / observed[nonzero])) * 100.0)
+            if nonzero.any() else None)
+
+    # sMAPE stays defined at zero because it divides by the sum of both terms,
+    # so it is the fallback wherever MAPE is null. 0/0 is scored as 0 error.
+    denom = (np.abs(predicted) + np.abs(observed))
+    smape_terms = np.where(denom == 0, 0.0, np.abs(errors) / np.where(denom == 0, 1.0, denom))
+    smape = float(np.mean(smape_terms) * 200.0)
+
+    return {
+        'mae': round(mae, 4),
+        'rmse': round(rmse, 4),
+        'mape': round(mape, 4) if mape is not None else None,
+        'smape': round(smape, 4),
+        'holdout_months': int(holdout),
+        'points_scored': int(len(predicted)),
+        'points_scored_mape': int(nonzero.sum()),
+        'method': rows[0].get('method'),
+    }
 
 
 def _forecast_task(task):
@@ -519,9 +855,19 @@ def _forecast_task(task):
     """
     sku, series, horizon = task
     try:
-        return sku, forecast_product(series, horizon), None
+        rows = forecast_product(series, horizon)
+
+        # Scored in the worker, not the parent: the backtest is a second fit of
+        # the same cascade, so it belongs on the pool rather than serialised
+        # through one process after the fact.
+        try:
+            score = backtest_product(series)
+        except Exception:  # noqa: BLE001 - a failed score must not lose the forecast
+            score = None
+
+        return sku, rows, score, None
     except Exception as exc:  # noqa: BLE001 - deliberately broad, see docstring
-        return sku, [], f"{type(exc).__name__}: {exc}"
+        return sku, [], None, f"{type(exc).__name__}: {exc}"
 
 
 def resolve_workers(requested: int) -> int:
@@ -558,6 +904,11 @@ def main():
     parser.add_argument("--source", choices=["csv", "mysql"], required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--horizon", type=int, default=6)
+    parser.add_argument(
+        "--metrics",
+        default=None,
+        help="Optional path for the holdout accuracy CSV (MAE / RMSE / MAPE / sMAPE per product).",
+    )
     parser.add_argument("--env-path", default=None)
     parser.add_argument("--csv-path", default=None)
     parser.add_argument("--xls-path", default=None)
@@ -593,8 +944,31 @@ def main():
 
     # Materialize the per-product series up front so the workers receive
     # plain picklable data rather than a shared groupby object.
+    # Every product must forecast the SAME forward window.
+    #
+    # Each series used to end at that product's own last month with a sale, and
+    # the horizon is generated from `series.index[-1]` -- so a product that
+    # stopped selling a year ago got a "forecast" covering months that have
+    # already happened. Measured before this fix: 320 of 2,517 products had a
+    # horizon entirely in the past, and there were 39 different horizon start
+    # months across the catalogue. ACICLOVIR 800MG last sold in 2025-10 and was
+    # forecast for 2025-11..2026-04 -- drawn on its chart as a dashed line and
+    # confidence band sitting in the middle of the history, with nothing ahead
+    # of today at all.
+    #
+    # Padding to the shared end with zeros fixes it, and the zeros are honest:
+    # a month with no sales is a month that sold none. Same reasoning as
+    # DemandForecastService::fillMissingMonths() on the PHP side, which had to
+    # be taught this separately for the chart's actual series.
+    series_end = monthly["month"].max()
+
+    def _padded_series(group):
+        s = group.set_index("month")["qty"].sort_index()
+
+        return s.reindex(pd.date_range(s.index.min(), series_end, freq="MS"), fill_value=0)
+
     tasks = [
-        (sku, group.set_index("month")["qty"].sort_index(), args.horizon)
+        (sku, _padded_series(group), args.horizon)
         for sku, group in products
     ]
 
@@ -606,7 +980,11 @@ def main():
     start_time = time.monotonic()
     progress_every = max(1, total_products // 100)  # ~100 progress lines total, regardless of catalog size
 
-    for i, (sku, rows, error) in enumerate(iter_forecasts(tasks, workers), start=1):
+    metric_rows = []
+
+    for i, (sku, rows, score, error) in enumerate(iter_forecasts(tasks, workers), start=1):
+        if score:
+            metric_rows.append({"product_sku": sku, **score})
         if error:
             failures.append((sku, error))
         for row in rows:
@@ -644,6 +1022,24 @@ def main():
                 "(" + " ".join(f"{k}={v}" for k, v in sorted(method_counts.items())) + ")",
                 flush=True,
             )
+
+    if args.metrics:
+        # Written even when empty, so the importer can tell "no products were
+        # scorable" from "the run never produced a metrics file".
+        metrics_df = pd.DataFrame(metric_rows, columns=[
+            "product_sku", "mae", "rmse", "mape", "smape",
+            "holdout_months", "points_scored", "points_scored_mape", "method",
+        ])
+        os.makedirs(os.path.dirname(args.metrics), exist_ok=True)
+        metrics_df.to_csv(args.metrics, index=False)
+
+        scored = len(metrics_df)
+        with_mape = int(metrics_df["mape"].notna().sum()) if scored else 0
+        print(
+            f"Scored {scored} products on a {HOLDOUT_MONTHS}-month holdout "
+            f"({with_mape} with a usable MAPE) -> {args.metrics}",
+            flush=True,
+        )
 
     out_df = pd.DataFrame(output_rows)
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
