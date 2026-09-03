@@ -203,9 +203,20 @@
             </p>
             <form method="POST" id="quick-restock-form" style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
                 @csrf
+                {{-- Assigned by ProductBatch::nextBatchNumber() from the
+                     product and the received date, the same rule the Add New
+                     Batch form follows. Readonly and deliberately not previewed
+                     here: this card is revealed by a barcode scan, so the
+                     product -- and therefore the letters and the sequence
+                     already issued for that day -- is not known until the scan
+                     lands, and a number shown before the server has counted
+                     would be a guess. Kept in the form rather than removed so
+                     the field still explains itself. --}}
                 <div>
                     <label style="font-size:.8rem;">Batch Number</label><br>
-                    <input type="text" name="batch_number" id="qr-batch-number" required style="padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+                    <input type="text" name="batch_number" id="qr-batch-number" readonly aria-readonly="true" tabindex="-1"
+                           placeholder="Assigned automatically"
+                           style="padding:8px; border:1px solid #d1d5db; border-radius:6px; background:#f8fafc; cursor:default;">
                 </div>
                 <div>
                     <label style="font-size:.8rem;">Quantity</label><br>

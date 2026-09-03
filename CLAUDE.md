@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (89 passed, 270 assertions) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (136 passed, 408 assertions — measured 2026-09-03) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -61,7 +61,14 @@ rule below: `/` redirects to login, `/register` is the admin Add User form (a gu
 staff get 403, and an admin who creates a user **stays signed in as themselves**), and staff may
 change their name but not their email. **Never change the app to satisfy a test; fix the test.**
 
-Beyond Breeze there are now ten suites covering the things REMEDI.md says must never regress:
+Beyond Breeze there are now thirteen suites covering the things REMEDI.md says must never regress:
+
+- `Feature\DestructiveGuardsTest` — the refusals standing between an ordinary click and lost data,
+  each one a thing that happened here or was one request away: a cashier with sales deleted, an admin
+  deleting or demoting themselves out of the only role that can undo it (both `users.destroy` and the
+  live-but-hidden `profile.destroy`), a `RULE_DRIVING_NAMES` category renamed, a category holding
+  products deleted, a batch or product a sale refers to deleted, and a SKU rename that must re-point
+  every table keyed on it.
 
 - `Feature\Pos\CheckoutTest` — FEFO order, expired/returned/expires-today stock never being sold,
   exact payment on a price that floats badly (`1.05 * 3`), a centavo-short payment refused, a cart
@@ -70,6 +77,9 @@ Beyond Breeze there are now ten suites covering the things REMEDI.md says must n
   still accepted, so the bound cannot be off by one).
 - `Feature\Auth\DeactivationTest` — a deactivated cashier losing an open session on both a page
   request and the AJAX till (401, not a redirect).
+- `Feature\Pos\BackfillAttributionTest` — no backdated sale credited to an account created after it,
+  eligibility narrowed to the sale's own timestamp rather than its day, and `--fix-attribution`
+  re-pointing an impossible row while leaving a legitimate one and the row's `created_at` alone.
 
 **Writing more session tests: Laravel's guard memoises the resolved user, and the test application
 is not rebuilt between requests inside one test method.** Flip `is_active` in the database, issue
@@ -184,6 +194,29 @@ day up to the target rather than doubling it**, and `--from` / `--to` / `--per-d
 adjustable. It deducts real stock (2,555 units on the first run, which pushed low stock 632 → 673) and
 deliberately writes NO audit entries — the trail records what people did, and nobody did this.
 
+**A backdated sale may only be credited to an account that already existed.** Cashiers were drawn at
+random from every active user, resolved ONCE before the day loop, so accounts created 2026-09-02 were
+credited with sales going back to 2026-08-16 — **611 of 874 rows**. It shows up on the Sales history
+list, `/sales/{id}` and every reprinted receipt, which all print `$sale->user->name`: the cashier
+column named someone hired a fortnight after the transaction. Attribution is now narrowed per SALE
+against `users.created_at` (not per day — an account created at 20:52 was not taking money at 09:00),
+and the command fails up front if no account predates the window rather than dropping those days one
+basket at a time.
+
+```bash
+php artisan pos:backfill --fix-attribution --dry-run
+```
+Repairs rows already written that way. Its predicate — `sales.created_at < users.created_at` — can
+only match generated rows, since a real checkout is attributed to whoever is signed in and nobody can
+sign into an account that does not exist, so it needs no way to tell demo data from real. Only
+`user_id` moves (`update()`, never `save()`, or the backdated `created_at` is dragged to now); totals,
+stock and transaction numbers were always right. **Repairing this install moved 476 sales to Admin and
+135 to Staff** and left every other account with only what it could have rung up — because the honest
+answer is that before those staff accounts existed, only the admin could have been at the till. Do
+NOT "fix" it from the other end by backdating `users.created_at`: the audit trail records those
+accounts being created on 2026-09-02, and the two would then contradict each other. Covered by
+`Feature\Pos\BackfillAttributionTest`, which asserts both halves and fails against the old command.
+
 ```bash
 php artisan products:reorder-levels --apply
 ```
@@ -257,6 +290,8 @@ a surface that needs the same answer, call it rather than re-deriving it.
 | What counts as medicine; which categories cannot be renamed | `Category::MEDICINE`, `Category::RULE_DRIVING_NAMES` |
 | The unit list both product forms render | `Product::UNITS` / `Product::unitOptions()` |
 | Every state-changing write's record | `AuditTrail::log()` |
+| The actions the audit filter may offer | `AuditTrail::ACTIONS` / `canonicalAction()` |
+| A new batch number: product letters + received date | `ProductBatch::nextBatchNumber()` |
 | Upper bounds for money and counts | `Controller::MAX_MONEY` / `MAX_COUNT` |
 | Chart gradients; the navigation skeleton | `partials/_chart-gradient`, `partials/_page-skeleton` |
 
@@ -265,6 +300,30 @@ a surface that needs the same answer, call it rather than re-deriving it.
 `app/Http/Kernel.php` and the scheduler in `app/Console/Kernel.php::schedule()` (`forecast:generate`
 nightly at 02:00 — `sales-forecast:generate` is manual). Register new middleware and scheduled
 commands there — do not migrate piecemeal to the Laravel 11+ fluent style.
+
+### Deploying: one image carrying both runtimes
+`Dockerfile` + `docker/entrypoint.sh` + `railway.json`, documented at length in
+`docs/DEPLOY-RAILWAY.md`. The image is FrankenPHP (`dunglas/frankenphp:1-php8.3`) serving `public/`
+directly — **`php artisan serve` is not an option in a container for the same reason it is a poor
+local benchmark**: single-threaded, with `/dashboard` occupying it for 5–12s. It also installs
+**python3 and a `/opt/forecast-venv` virtualenv on PATH**, because a PHP-only image deploys cleanly
+and then fails the 02:00 `forecast:generate` every night, silently, while the forecast pages keep
+serving whatever they last imported.
+
+Three things the entrypoint encodes, all of them rules from this file:
+
+- **`config:cache` + `view:cache` only, never `php artisan optimize`** — that runs `route:cache`,
+  which drops GET from `/` and locks everyone out at the login redirect.
+- **`migrate --force` only; seeding is a separate manual step.** The seeders read a ~15 MB CSV and
+  insert ~122k history rows, and a second run collides on `(product_sku, sale_date)`.
+- It waits for the database (12 × 5s) before migrating, since Railway starts app and MySQL together.
+
+Migration `2026_09_02_000001_create_sessions_and_cache_tables` exists for this deploy and no-ops
+locally. **A container filesystem is rebuilt on every deploy and is not shared between instances**,
+so `CACHE_DRIVER=file` there means every deploy signs everyone out and two instances disagree about
+`AlertService`'s payload and the `sales_cache_version` / `pos_cache_version` stamps — this app leans
+on the cache for CORRECTNESS, not just speed. Locally both drivers stay `file`, which is right for
+one XAMPP process on one disk.
 
 ### Roles and routing
 Everything is in `routes/web.php` behind `['auth', 'active']`. Two roles on `users` (`admin`,
@@ -493,6 +552,35 @@ recovered later). Expiry validates `after:today` **and** `after:received_date` �
 poisons the shelf-life suggestion `edit()` derives for the next batch. REMEDI.md "Inventory model"
 has the detail.
 
+**The batch number is the product's letters plus the RECEIVED DATE, and
+`ProductBatch::nextBatchNumber()` is the one definition.** `AAA-YYYYMMDD-NN` — three letters off the
+product name (`batchNameCode()`), the day it arrived, and a counter within that product on that day:
+`HERACLENE 1MG TAB X100` received 2026-09-03 becomes `HER-20260903-01`. **The code takes LETTERS
+only**, not the first three characters, because names here open with digits and punctuation often
+enough to matter (`3M TAPE` → `MTA`, `G. CROSS ETHYL 70%` → `GCR`); it pads with `X` below three
+letters, though no product in the current catalogue needs it. The `-NN` is not decoration — without it
+a second delivery of the same product the same day is the identical string, and the two rows cannot be
+told apart. The date is the received date, not today, because a delivery entered late still belongs to
+the day it arrived, and a number stamped with the day someone got round to typing it would contradict
+the `received_date` beside it.
+
+**The number is ASSIGNED, not entered.** Both forms render the field `readonly`, and `addBatch`
+**discards whatever is posted** and re-derives — a gated control is not a gated endpoint, the same
+lesson `markBatchReturned` and `pos.receipt` carry. Deriving server-side is also what closes the race
+the readonly field opens: two people adding a batch for the same product on the same day are both
+SHOWN `-01`, and the second must still be told `-02`. **The form's auto-fill is a PREVIEW of the rule,
+not a second copy** — it reads the same prefix and padding plus `ProductBatch::takenSequences()`, and
+with JavaScript off the box simply stays empty and the server still gets it right. `readonly` rather
+than `disabled`: a disabled field posts nothing and leaves the tab order, hiding the form's one
+derived value from a keyboard user.
+
+`takenSequences()` skips anything not in the generated format, so the 2,641 seeded `OPENING-*` rows
+and the importer's `HIST-*` / DR numbers can never be parsed as a sequence — and note the importer and
+seeders write `ProductBatch` directly rather than through `addBatch`, so they are unaffected by any of
+this. The counter is scoped per product on purpose — `batch_number` has no unique constraint and
+nothing joins on it, and the letters already separate two different products received the same day, so
+both start at `01`. Covered by `Feature\Inventory\ProductFormTest`.
+
 ### Two sales tables — pick the right one
 - `sales` / `sale_items` — live POS checkouts only.
 - `sales_history` — the imported/synthetic record (**121,949 rows, 2022-09-01 .. 2026-08-15**,
@@ -582,6 +670,18 @@ in SQL — re-sorting the result is not enough, because `LIMIT` would still pick
 a high-price/low-volume product would never reach the list. **These aggregates are cached**, so clear
 the cache after changing a sort or the old ordering survives its TTL.
 
+**A value label drawn INSIDE its bar must take its colour from that bar.** `valueLabelPlugin` (one
+copy per dashboard body, and they must stay in step) writes each bar's number just past its end, and
+falls back to writing it inside the bar when there is no room. That fallback was hardcoded to white —
+correct on the saturated gradient bars, invisible on the pale slate (`#e2e8f0`) the "Reorder level"
+dataset uses. On *Lowest Stock vs. Reorder Level* the longest bar is the one most worth reading, and
+its number was drawn in white on near-white: rendered, present in the canvas, and impossible to see.
+`barIsLight()` now picks slate or white by relative luminance, treating anything that is not a plain
+colour string (a `CanvasGradient` from `_chart-gradient`) as dark, which every gradient here is. The
+fallback also fires far less often now: it measures against the CANVAS edge (`chart.width`) rather
+than `chartArea.right`, because `layout.padding.right` reserves canvas beyond the plot edge precisely
+so these labels have somewhere to go, and measuring against the plot threw that room away.
+
 **Every chart is gradient-filled by one plugin, not 32 edited definitions.**
 `partials/_chart-gradient.blade.php` registers a Chart.js plugin that rewrites each dataset's colours
 on `afterLayout` — the first point at which `chartArea` exists, which a canvas gradient needs for its
@@ -616,6 +716,19 @@ grand total is `$posTotal` — the true figure for all of them — because a tot
 only the printed hundred is the same class of bug as a KPI that disagrees with its own list. August:
 **0.83 MB → 0.39 MB**, footer verified equal to `posTotal`. The screen never renders this table at
 all; it shows the day/month breakdown instead, so this is purely about paper.
+
+**Print must print what you asked for.** The month picker submits on change; the two date inputs do
+not, and wait for Generate — right, since setting a start date should not fire a report before the end
+date is chosen. The cost is that the form and the report can describe different periods: edit the
+dates, click Print instead of Generate, and the header, the KPIs and the whole daily breakdown carry
+the PREVIOUS range while the date boxes above them show the new one. Nothing is wrong with the report;
+it is an accurate report of a period you are no longer looking at, which is worse than an obviously
+broken one, because the printout looks finished. The Print button now snapshots `month` /
+`start_date` / `end_date` at load and, if they have moved, regenerates first and prints on arrival
+(`?print=1`, stripped from the URL by `replaceState` so a refresh does not reprint). Unchanged
+controls still print immediately. Verified separately that screen and print agree in every generated
+state — same period heading, same KPIs, same daily rows — so this gap is the only way the two can
+disagree.
 
 **The Sales Report PRINTS the merged breakdown, not just the POS transactions.** The print copy's
 only table used to be `$sales` -- live POS checkouts -- and those exist for the handful of days this
@@ -731,12 +844,22 @@ most of the catalogue — 2,400 of 2,638 products flagged, and a **3.25 MB** pri
 and `SLOW_MOVING_LIST_CAP` (100) bounds what is rendered while `$slowMovingCount` still reports the
 true total, which both views print as "the slowest 100 of N". The page is **0.45 MB**.
 
-**The inventory report filters on category, low stock AND expired.** `expired` was missing for years
-while the page still carried an "Expired Stock" KPI, so it reported a non-zero count with no way to
-see which products. Filtered in PHP like `low_stock`, because expiry state is a computed accessor
-over the loaded batches rather than a column. All three KPIs are taken AFTER filtering, so they
-describe the rows on screen — keep it that way, and add any new filter to the audit-log "(filtered)"
-marker and the Clear-filters condition as well.
+**The inventory report filters on category plus ONE status.** `expired` was missing for years while
+the page still carried an "Expired Stock" KPI, so it reported a non-zero count with no way to see
+which products. Filtered in PHP like `low_stock`, because expiry state is a computed accessor over
+the loaded batches rather than a column. All three KPIs are taken AFTER filtering, so they describe
+the rows on screen — keep it that way, and add any new filter to the audit-log "(filtered)" marker
+and the Clear-filters condition as well.
+
+**Status is a single `<select name="status">`, not two checkboxes — and that is a correctness fix, not
+a cosmetic one.** The two were independent, so both could be ticked, and that asks for the
+INTERSECTION of two sets this report deliberately keeps disjoint: a product below its reorder level
+holding nothing but expired units is excluded from low stock on purpose (`Product::is_running_out`),
+because clearing it is the job rather than reordering it. Ticking both therefore printed an empty
+table under two non-zero KPIs. `ReportController::inventory` resolves `status` to `$lowStockOnly` /
+`$expiredOnly`, and **still honours the old `low_stock=1` / `expired=1` parameters** so bookmarks keep
+working, with `status` winning where both appear and `low_stock` winning a legacy URL that asks for
+both. Covered by `Feature\Reports\InventoryReportTest`.
 
 **`Product::$expired_batches` exists because the report referenced it before anything defined it.**
 `reports/inventory.blade.php` had `@if($p->expiredBatches && ...)` in both the screen table and the
@@ -997,8 +1120,12 @@ Both shell out via Symfony `Process` (30-minute timeout), write a CSV to `storag
 upsert on `(product_sku, forecast_date)`, then **delete rows the run did not refresh**
 (`generated_at < now`) — without that, a moved forecast window leaves stale rows that shadow the
 fresh ones. Forecasts key on `product_sku`, so every join to `products` goes through `products.sku`.
-The Python scripts parse `.env` directly (`--env-path`) rather than reading Laravel config, so DB
-changes made only in Laravel config break them silently. Model selection is by history length plus a
+The Python scripts read DB credentials themselves rather than through Laravel config, so DB changes
+made only in Laravel config break them silently. `db_credentials()` (in both scripts) takes the
+`--env-path` FILE first and falls back per key to the process ENVIRONMENT — the file wins where it
+exists, so a local XAMPP run is unchanged, while a container has no `.env` at all and would otherwise
+have no credentials. `--env-path` is therefore no longer required for `--source=mysql`; a run missing
+`DB_HOST`/`DB_DATABASE` in both places exits saying which. Model selection is by history length plus a
 plausibility check: ≥36 months → median ensemble of airline SARIMA / seasonal Holt-Winters /
 seasonal naive, falling back to plain SARIMA; ≥24 → ARIMA(1,1,1); ≥12 → damped exponential
 smoothing; ≥3 → moving average; below that, no forecast rows.
@@ -1231,17 +1358,18 @@ Blade + Alpine, and **no view references `@vite`**. `layouts/app.blade.php` carr
 toolchain is inherited Breeze scaffolding and is currently inert — a Tailwind class you add will not
 apply. Put styles in the existing inline block.
 
-**The products list shows the SKU only — the barcode number was removed from the table.** The
-`barcode` column still exists and search still matches on it (`products`, `inventory`, POS and the
-suggest endpoints all query it); it is simply not printed. Both barcode SCANNER cards are hidden too
-— see the inventory note above.
+`layouts/app.blade.php` is the shared shell and owns more than styling: the navigation-skeleton
+handler (`.is-loading` / `.is-navigating`, title swap, bfcache restore, and click guards for
+modified/middle clicks, `target=_blank`, `#`, cross-origin), the notification bell and its poll loop,
+the confirm dialog, `#logoutModal`, the date-placeholder script, and the password reveal toggle.
+**REMEDI.md "Frontend" and the sections after it explain why each of these exists** — every rule
+below is stated there with the measurement and the reproduction behind it.
 
 **Search terms go through `Controller::likeTerm()`, never straight into a `LIKE` pattern.** `%` and
-`_` are LIKE's own wildcards, so an unescaped term is executed rather than searched for: a bare `%`
-matched the entire 264-page catalogue, and `"70%150ML"` returned 2 products when none contain it.
-That is not theoretical here — 9 products carry `%` in their name (`G. CROSS ETHYL 70% W/ MOIST`)
-and 3 carry `_` (`LEWIS_PEARL COOL FANTASY`). All eight search sites (products, inventory, POS,
-sales, users, audit, and the four `/suggest/*` endpoints) use the helper.
+`_` are LIKE's own wildcards, so an unescaped term is executed rather than searched for — a bare `%`
+matched the entire catalogue. Not theoretical: 9 products carry `%` in their name and 3 carry `_`.
+All nine search sites use the helper (`DemandForecastService` keeps a private copy, since the
+controller's is `protected` — keep the two in step).
 
 **AJAX partial pattern:** list controllers (POS, inventory, products, sales, forecast) check
 `$request->wantsJson() || $request->ajax()` and return
@@ -1249,12 +1377,18 @@ sales, users, audit, and the four `/suggest/*` endpoints) use the helper.
 `_rows.blade.php` / `_grid.blade.php` partial — it is shared by the full page render and the AJAX
 refresh, not duplicated inside `index.blade.php`.
 
+Because these partials return only the table, **any KPI card outside it must not depend on the user's
+filters** — the AJAX path never refreshes it. Where a list is both role-scoped and filterable, clone
+the query *between* the two: `SaleController::index` takes `$scopedToday` after the role scope and
+before search/date filters. Cloning after the filters made cards labelled "Total sales today" read
+₱0.00 whenever the list was narrowed to a past range.
+
 **The dashboard is the one page whose whole body is AJAX.** `/dashboard` is the slowest route in the
-app — ~5s warm, 10–12s cold, because it totals sales and stock across the catalogue — so
-`DashboardController::index` answers a plain GET with `dashboard/index.blade.php`, a shell that runs
-**no queries at all**, and the page fetches its own body. The `$wantsBody` test therefore sits above
-every query in the method: move a query above it and the shell stops being instant, which is the only
-thing it is for. Three shapes, one Blade partial behind all of them so they cannot drift:
+app — ~5s warm, 10–12s cold — so `DashboardController::index` answers a plain GET with
+`dashboard/index.blade.php`, a shell that runs **no queries at all**, and the page fetches its own
+body. The `$wantsBody` test therefore sits above every query in the method: move a query above it and
+the shell stops being instant, which is the only thing it is for. Three shapes, one Blade partial
+behind all of them so they cannot drift:
 
 | Request | Answer |
 |---|---|
@@ -1271,310 +1405,91 @@ if the CDN `<script src>` were still in flight. Neither dashboard uses `DOMConte
 event is long past by injection time, so a listener added there would never fire. Keep the `<script>`
 blocks at the bottom of the body partials.
 
-**The sidebar logo is inlined too, for the same reason.** It was `logo.png` — **279 KB drawn at
-34x34** — and every navigation here is a full page load, so it was re-requested on every click and
-visibly popped in after the sidebar had painted (worst over a tunnel or while `artisan serve` was
-busy). It is now a 68px derivative inlined as a data URI: `logo-nav.webp`, 2.7 KB, ~3.6 KB base64,
-from `php artisan logo:mark --width=68 --out=logo-nav.webp`. **Regenerate it whenever `logo.png`
-changes**, the same rule `logo-mark.webp` carries; if it is missing the layout falls back to the
-linked PNG rather than rendering nothing.
+**A loading screen must not depend on a request to the server it is waiting for.** `artisan serve` is
+single-threaded, so both the loader's logo and the sidebar's are inlined as data URIs
+(`logo-mark.webp` and `logo-nav.webp`, both from `php artisan logo:mark`) — **regenerate both
+whenever `logo.png` changes**, nothing else reads them and a stale one shows the old artwork
+silently. The same reasoning is why `.page-hero` is drawn in CSS rather than being an image. The
+branded loader card is for arrivals only (`is-first-load`, from the `remedi.just_signed_in` flash); a
+revisit gets the skeleton alone, so **`.dash-loader` must not carry `display` in its own rule block**
+or it defeats that gate. REMEDI.md "Theme: one palette" has the loader in full.
 
-**The loader's logo is inlined as a data URI, and must stay that way.** `php artisan serve` is
-single-threaded — one request at a time — so while the dashboard body is being built (5–12s) the dev
-server cannot serve anything else, static files included. Measured: `logo.png` took **2.83s** and
-landed at the exact moment the dashboard request finished, i.e. as the loader was being destroyed, so
-the ring spun empty for the entire wait. It looked fine on `localhost` only because the browser had
-the file cached from the sidebar; on `127.0.0.1` — a different origin with its own empty cache, the
-same two-hosts trap as the cached route URLs — there was nothing to fall back on. **A loading screen
-must not depend on a request to the server it is waiting for.** The sidebar's linked copy is still
-blocked during that window and that is fine: it is chrome, not the thing being waited on.
+**`partials/_page-skeleton.blade.php` is the one definition of the navigation skeleton**, included
+by the layout (`.content-body.is-navigating`) and by `dashboard/_loading.blade.php` as the backdrop.
+It paints only after `SKELETON_DELAY_MS` (180ms), so a fast page paints none at all, and it has two
+silhouettes chosen from the destination link (`data-shape="list"` for the table pages, the dashboard
+shape otherwise) — one generic shape was what made every tab look like it glitched on click. Keep it
+mirroring the dashboard's real proportions. **The login page has no skeleton, deliberately**; its
+submit button disables itself and relabels instead, after the browser has serialised the form.
 
-**The branded card is for arrivals only; a revisit gets the skeleton alone.** Signing in flashes
-`remedi.just_signed_in` (`AuthenticatedSessionController::store`), the shell reads it into
-`$justSignedIn` and puts `is-first-load` on `#dashboardRoot`, and the CSS shows the scrim + card for
-that class only — flash data lasts exactly one request, which is exactly how long "you just arrived"
-is true. Someone already working in the app who clicks Dashboard does not need to be told what the
-app is. **`.dash-loader` must therefore not carry `display` in its own rule block** — it sits later
-in the sheet than the two gate rules and silently defeats them (this happened; the card showed on
-every visit). A failure still raises the card on either path, via `is-failed`, so the dead end is
-never lost.
-
-**The loader is a floating card over a dimmed page, with the dashboard's skeleton behind it.** The
-scrim (`rgba(15,23,42,.45)`) and the panel shadow are lifted from `.remedi-modal` in
-`layouts/app.blade.php` so it reads as the same kind of object as the logout and confirm dialogs; it
-sits at `z-index: 190` so a real dialog (200) still wins. It is **not** a real dialog — no
-`role="dialog"`, no `aria-modal`, no focus trap: nothing in it needs answering, and trapping focus
-would strand a keyboard user for ten seconds, which is also why the failure panel's buttons stay
-reachable by Tab.
-
-**Every page raises a "Loading <destination>…" pill in the header while a sidebar navigation is in
-flight.** `.topbar-loading` — a label with a pulsing brand dot, beside the page title — used to be
-defined inside `dashboard/index.blade.php` and shown only there, because only the dashboard had a
-wait worth marking. It now lives in the layout's inline `<style>` and `showNavigating()` builds one
-on every navigation, so the wait looks the same wherever you are and is legible without looking at
-the content area at all.
-
-**Two pills, two owners, and they must not remove each other's.** The dashboard still builds its own
-(`pill.remove()` when its AJAX body lands) for a different wait; the navigation one carries
-`id="navLoadingPill"` and `clearNavigating()` removes only that. Give any new pill its own id rather
-than clearing by class. The text comes from `navLabel(link)` — the sidebar item's own text — so an
-in-content button ("Edit", "Generate"), whose label is not a page name, gets a bare "Loading…".
+**Every page raises a "Loading <destination>…" pill in the header while a navigation is in flight**,
+built by `showNavigating()` from the sidebar item's own text. **Two pills, two owners:** the dashboard
+builds its own for a different wait, the navigation one carries `id="navLoadingPill"`, and
+`clearNavigating()` removes only that — give any new pill its own id rather than clearing by class.
+A control that navigates without being an `<a>` must call `window.REMEDI.showNavigating` itself.
 
 **The two sidebar scripts run inline right after `</aside>`, NOT with the rest at the end of the
-body — the placement is the feature.** Both change the sidebar's geometry: one sets the category
-submenu's height, the other restores `.sidebar nav`'s scroll offset from `sessionStorage`. At the
-end of the body they only executed once the entire content markup had been parsed, which on a long
-table is easily late enough for the browser to have painted the menu already — so on every refresh
-the menu appeared at the top and then snapped to its remembered position. Measured in the rendered
-document: the init moved from offset 159,237 to 109,185, which is after `</aside>` (104,876) and
-before the content markup (117,900) and the first table row (137,208). Both blocks are self-contained
-— DOM plus web storage, no `REMEDI` helpers — which is what makes running them that early safe. Keep
-them there, and put anything else that sizes or scrolls the sidebar there too.
+body — the placement is the feature.** Both change the sidebar's geometry (submenu height, remembered
+scroll offset), and at the end of the body they ran late enough for the browser to have painted the
+menu already, so it visibly snapped into position on every load. Both are self-contained (DOM plus
+web storage, no `REMEDI` helpers), which is what makes running them that early safe. Put anything
+else that sizes or scrolls the sidebar there too.
 
-**The skeleton waits `SKELETON_DELAY_MS` (180ms) before painting anything, and that is what stops
-tab clicks looking like a glitch.** Every page except `/dashboard` answers in a fraction of a second
-locally, so the old immediate swap replaced the content with a placeholder and put it back inside
-that window: a flash of grey blocks, the page visibly collapsing and springing back. Now a fast page
-paints no skeleton at all — you click and the next page is simply there — while a slow one is
-unchanged, which is the case the skeleton exists for. `clearNavigating()` cancels the pending timer,
-so a navigation that is abandoned (a click that only ended a text selection, a cancelled download, a
-bfcache restore) never paints either. Measured with the page scrolled to 600px: nothing paints at
-0ms or 120ms, the skeleton appears at 270ms, and the scroll offset never moves at any point.
+**Every empty date field carries a real `mm/dd/yyyy` placeholder, and it takes a script to do it.**
+`<input type="date">` ignores `placeholder` and draws its own hint from the BROWSER's locale, which
+no markup here can override. The layout holds an empty date input as a text input and flips it to
+`type="date"` on `focusin`, calling `showPicker()` on the same gesture; it flips back on `focusout`
+if still empty. **A field holding a VALUE is never touched**, which is why Add New Batch no longer
+prefills either date — an expiry accepted by accident because it was already in the box is the one
+mistake on that form that reaches the shelf. A MutationObserver catches fields arriving over AJAX.
 
-**The skeleton has TWO silhouettes, chosen from the destination link.** One generic shape was the
-cause of every tab "glitching" on click: the skeleton was dashboard-shaped, so opening Sales replaced
-a table with six KPI tiles and two charts, held that for the length of the navigation, then landed as
-a header over rows — two unrelated layouts in a row, on every tab except the dashboard.
-`data-shape="list"` (a page head, a toolbar, filter pills and nine table rows) covers Inventory, POS,
-Products, Sales, Users, the audit trail and notifications; no attribute means the dashboard shape,
-which is also what `/reports/*` and `dashboard/_loading`'s backdrop want. POS is really a product
-grid rather than a table, so it gets the closest of the two rather than an exact match.
+**Design vocabulary, all defined once in the layout and all detailed in REMEDI.md:** `.form-card` /
+`.form-grid` / `.form-field` / `.form-chip` / `.form-actions` / `.btn-lg` are shared by the four form
+pages (`.field-row` is the separate one-wide-strip shape; don't merge them). Form chips are NEUTRAL —
+the `chip-*` tints are gone, because **colour is kept only where it means something**: the reports,
+the inventory status badges, and the alert legend. Buttons are solid mid-tones, and **a `.btn-*`
+variant must be declared AFTER `.btn`** or it silently loses its border. `.section-head` is a filled
+band and only belongs at the TOP of a card, since it cancels the card's padding with negative
+margins. `.btn-lg` is for page-level actions only. Back buttons sit beside the page title in
+`.page-head`, never on a row of their own. Row actions carry an icon from the same vocabulary the
+confirm dialogs use. **Don't hide the substance of a page behind a disclosure** — long tables scroll
+inside `.table-scroll`.
 
-**`partials/_page-skeleton.blade.php` is the one definition of that skeleton**, included twice: by
-`layouts/app.blade.php` for in-app navigation (`.content-body.is-navigating`, where a whole document
-is being swapped) and by `dashboard/_loading.blade.php` as the backdrop behind the scrim. It is
-`display: none` by default and each caller opts it in — the layout through `.is-navigating`, the
-dashboard through `#dashboardRoot > .page-skeleton`. Keep it mirroring the dashboard's real
-proportions (six KPI tiles, tab pills, two side-by-side charts); a skeleton that no longer matches is
-worse than none, because the page visibly jumps when the real content lands.
+**Add Category is a dialog**, and two things make it work rather than merely open: it validates into
+its own error bag (`validateWithBag('addCategory', ...)`, because the rename forms below use `name`
+too), and it reopens itself when that bag is non-empty. **`Category::ICONS`** maps a category to its
+glyph, falling back to `ti-category` for the user-created names it cannot know.
 
-**The login page has no skeleton, deliberately.** `layouts/guest.blade.php` used to paint a
-full-screen mock of the dashboard over itself on submit; that was right when the browser sat on the
-login page for the whole 5–12s render, and wrong once the shell started answering in ~0.3s — it put a
-grey impression of a page in front of the real loading screen that replaced it half a second later.
-The login form keeps only the part that was load-bearing: the submit button disables itself and
-relabels, so the click registers and the credentials cannot be posted twice while the redirect is in
-flight. Disable **after** the browser has serialised the form; doing it inside the submit handler can
-drop the submitter from the POST body.
+**`Product::UNITS` is the one list of units**, and both product forms render `Product::unitOptions()`
+rather than a text box — unit was free text, which is how the catalogue acquired a product whose unit
+is the string `"20"`. The update path passes `unitOptions($product->unit)` so that legacy row stays
+editable.
 
-Because these partials return only the table, **any KPI card outside it must not depend on the user's
-filters** — the AJAX path never refreshes it. Where a list is both role-scoped and filterable, clone
-the query *between* the two: `SaleController::index` takes `$scopedToday` after the role scope and
-before search/date filters. Cloning after the filters made cards labelled "Total sales today" read
-₱0.00 whenever the list was narrowed to a past range.
-
-`layouts/app.blade.php` is the shared shell and owns more than styling: the navigation-skeleton
-handler (`.is-loading` / `.is-navigating`, title swap, bfcache restore, and click guards for
-modified/middle clicks, `target=_blank`, `#`, cross-origin), the notification bell and its poll loop,
-the confirm dialog below, and `#logoutModal`. REMEDI.md "Frontend" explains why each guard exists.
+**Add User's email field is plain**, with the example in the placeholder; nothing is appended to what
+was typed. `RegisteredUserController::store` trims and lower-cases before validating, because the
+`lowercase` rule REJECTS a capitalised address rather than folding it — and folding before the
+`unique` check is also what stops case slipping a duplicate past it.
 
 **Money is formatted to 2 decimals; only counts are formatted bare.** `number_format($x)` with no
-precision rounds to whole units, which is right for units, products and batches and wrong for pesos.
-The Sales Forecast revenue KPI carried the bare form and reported a figure up to 50 centavos away
-from the number it was summing; its chart tooltip did the same with `Math.round`. Both now keep the
-centavos, while the units KPI and the units chart stay whole on purpose — demand is integral. If you
-add a peso figure anywhere, pass the `, 2`.
+precision rounds to whole units — right for units, products and batches, wrong for pesos. If you add
+a peso figure anywhere, pass the `, 2`.
 
 **Every view that extends `layouts.app` must set `@section('title')`.** The layout falls back to
 `@yield('title', 'Dashboard')`, so a view without one silently renders "Dashboard" in the topbar
-heading AND the browser tab while you are looking at something else. The audit trail was the only
-page in the app missing it, and read "Dashboard" for its whole life. There is no error and nothing
-looks broken — which is why it survived. If you add a page, add the section.
+heading and the browser tab while you are looking at something else.
 
-**`Product::UNITS` is the one list of units, and the forms render
-`Product::unitOptions()` rather than a text box.** Unit was free text, which is how the catalogue
-acquired a product whose unit is the string `"20"` — and how the Add Product form came to default to
-lowercase `pcs` while all 2,637 other rows say `PCS`. Every product added through that form would
-have started a second spelling of the same unit, splitting anything that groups by it. Both forms are
-now `<select>`s and both controller paths validate with `Rule::in`. **The update path passes
-`unitOptions($product->unit)`**, which folds in a value that is not on the list — without it, the one
-legacy `"20"` row would be rejected on any edit, for a field nobody touched.
-
-**Buttons are SOLID mid-tones — gradients were tried and removed.** A gradient made every button
-look like a call to action, and the base `--brand` (#10b981) alone reads too light against white for
-a control pressed all day. The variants sit one step down (`#059669` primary, `#3b82f6` info,
-`#dc2626` danger) — saturated enough to be obviously clickable, dark enough to hold white text at
-small sizes, without going near-black. `:hover` goes one step deeper, still solid. Outlined variants
-(`.btn-secondary`, `.btn-danger-outline`, `.btn-back`) stay flat white — they are the quiet half of
-a pair.
-
-**A `.btn-*` colour variant must be declared AFTER `.btn`.** `.btn` sets
-`border: 1px solid transparent`, and the variants are the same specificity — so a variant declared
-earlier in the sheet silently loses its border. `.btn-danger-outline` was written above `.btn` and
-rendered with no outline at all; it now sits with `.btn-secondary` and the rest. Put new variants
-there.
-
-**`.page-hero` is the tinted band behind a page title** — a rounded panel with a soft mint wash, a
-rolling shape and a capsule motif. Purely decorative and deliberately so: nothing moves and nothing
-hides behind it, it exists because the all-white version of these pages read as a stack of grey
-boxes. **Drawn entirely in CSS** (layered radial gradients plus two pseudo-elements), not an image:
-`artisan serve` is single-threaded, so a decorative request queues in front of the page it decorates
-— the same reasoning that makes the dashboard loader inline its logo. Both motifs drop out under
-620px/820px, where there is no room for them. It is opt-in per page: wrap `.page-head` in it.
-
-**A `.section-head` is a filled band across the top of its card, not an icon and a line of text.**
-The card headers on Edit Product (Product Details, Add New Batch, Existing Batches) carried a 46px
-chip beside the title; the chip is gone and the title itself does the work — small caps on a
-`--brand-soft` fill that runs edge to edge, with the card's own top corners and a `--line` divider
-under it. `.section-head .form-chip` is removed with it.
-
-**It gets there with negative margins that cancel `.form-card`'s padding** (`-26px -28px`, and
-`-20px -18px` under 760px where the card's padding narrows), which is why a `.section-head` only
-belongs at the TOP of a card — anywhere else the pull would drag it over the content above. The
-radius is `17px`, not the card's `18px`: measured from inside the card's 1px border, or the fill
-leaves a hairline of white in each corner. The per-FIELD chips stay: they are what lets you find
-"Selling Price" without reading every label, which a card header cannot do.
-
-**Edit Product uses the same `.form-grid` / `.form-field` / `.form-field-head` vocabulary as Add
-Product**: the chip sits beside the LABEL, and the input is on its own line underneath at full width.
-It used to use `.field-aside`, which put the chip in its own column beside the whole field
-(`display: flex; align-items: center`) — so the icon read as an ornament on the INPUT rather than a
-mark on the label, and the two product pages were two different forms. `.field-aside` /
-`.field-aside-body` / `.aside-grid-2` / `.aside-grid-3` are gone from the layout; nothing else
-rendered them. Product Details is the standard two-column grid, Add New Batch adds
-`.form-grid.cols-3` (three across, two under 1100px, one under 760px). The button says **Update
-Product**, not "Save Product": this page edits an existing row.
-
-**The older `.field-row` (labels above, no chips) is still there** and still used where a form is a
-single wide strip. Do not merge the two — they solve different shapes.
-
-**Edit Product previously used `.field-row`.** All three
-of its cards (Product Details, Add New Batch, Existing Batches) open with a tinted chip and a green
-title, then lay their fields across one auto-fit row with plain labels above. The per-field chips are
-deliberately absent: the card header already carries one, and six chips in a single row is a wall of
-icons rather than a scannable form. Every field name, value and the whole batch table are unchanged —
-that page is the only place stock, expiry and the return actions live, and none of those are columns
-on `products`.
-
-**Add Category is a dialog, not a field in the page.** The card holds the trigger; the form lives
-in a `.remedi-modal` beside it, the same two-step as the profile page's Change Password, with the
-same guards (Escape, backdrop, focus trap, `REMEDI.lockScroll`). It carries no `js-confirm` — the
-dialog IS the deliberate step, and a confirm modal opening over a form modal is two dialogs deep for
-one category name. Two things make it work rather than merely open: **the post validates into its own
-error bag** (`validateWithBag('addCategory', ...)`), because the rename forms in the table below
-validate a field called `name` too and the default bag cannot tell them apart; and the dialog
-**reopens itself when that bag is non-empty**, or a rejected name would reload the page with the
-dialog shut and the reason out of sight. `<noscript>` drops it out of the overlay so the form still
-posts with JavaScript off.
-
-**Manage Categories keeps its rename, even though the design has no Save column.** The category name
-is still an `<input>`, drawn as plain text until focused, and its Save button is revealed only once
-the value actually changes — a Save on every row invites clicks that rewrite a name to itself, which
-is a write, an audit entry and a cache clear for nothing. `CategoryController::update` still refuses
-to rename a `RULE_DRIVING_NAMES` category, so the real guard is server-side either way.
-
-**`Category::ICONS` maps a category to its glyph**, keyed by name because the name is already what
-carries meaning here (see `MEDICINE`). Anything unlisted falls back to `ti-category` rather than
-rendering an empty box — categories are user-creatable, so an unknown name is normal, not a bug.
-
-**The four form pages share one vocabulary, defined once in `layouts/app.blade.php`:**
-`.form-card`, `.form-grid`, `.form-field`, `.form-chip`, `.form-actions` and `.btn-lg`. Add Product,
-Edit Product, Add User and Edit User all use it, so they read as the same kind of page. Each field is
-introduced by an icon chip -- not decoration: these are two columns of similar-looking inputs, and
-the icon is what lets you find "Selling Price" without reading every label.
-
-**Those chips are NEUTRAL, and the `chip-*` tints are gone.** They used to come in six colours
-(green name, purple SKU, blue category, teal batch, amber money, red alerts), which made a form of
-six ordinary fields look like six different kinds of thing -- the colour was decoration carrying no
-rule, and it competed with the colour that does carry rules. A chip is now slate on `#f1f5f9`,
-sitting in the same tone as the label beside it, the way the sidebar's icons belong to their labels.
-**Colour is kept only where it means something**: the reports, the inventory status badges, and the
-alert legend shared by the bell, the toasts and the notifications page. If you find yourself wanting
-a coloured chip on a form, that is a question about what rule it would be expressing. Edit User
-reuses `.user-avatar` from the topbar rather than a second circle style -- same object, same
-initials.
-
-**Every empty date field carries a real `mm/dd/yyyy` placeholder, and it takes a script to do it.**
-`<input type="date">` ignores `placeholder`, and the grey text it shows when empty is drawn by the
-BROWSER from its own locale — `lang` does not override it either (verified: four inputs with no lang,
-`en-US`, `en-GB`, `en-CA` all rendered `mm/dd/yyyy` in Chrome, which follows its own UI language). A
-register on a `dd/mm/yyyy` locale would show that, and no markup here could say otherwise. So the
-layout carries one delegated script: an EMPTY date input is held as a text input with a real
-placeholder and flips to `type="date"` on `focusin` — `showPicker()` is called on the same gesture,
-so one click lands in a real date field with the calendar already open. It flips back on `focusout`
-if still empty. The swap only ever happens while the field is empty, so no value can be lost, and the
-element keeps its name, classes, inline styles and `min`/`max` throughout; what posts is still the
-`Y-m-d` a date input submits. **A field holding a VALUE is never touched** — a value is not a
-placeholder — so **Add New Batch no longer prefills either date**: received used to default to today
-and expiry to the product's usual shelf life, and both showed a date where the format was wanted.
-`ProductController::edit()` still computes `$suggestedExpiryDate`, so restoring either is a one-line
-change in the view; the reason not to is that an expiry accepted by accident because it was already
-in the box is the one mistake on that form which reaches the shelf. A MutationObserver catches date
-fields that arrive with an AJAX partial.
-
-**Add User's email field is plain, and the example lives in the placeholder** (`e.g. jane@remedi.com`).
-Nothing is appended to what was typed: a version that completed a bare name into a house domain, with
-a fixed `@remedi.com` tag glued to the field, was built and then removed — a field that silently
-completes what you typed has to explain itself, and the explanation was the first thing to go.
-`User::EMAIL_DOMAIN` and the `.input-suffix` input-group styles went with it; don't reintroduce
-either without a reason.
-
-**What survives from that round is the one line that fixed a real dead end**:
-`RegisteredUserController::store` trims and lower-cases the address before validating. The
-`lowercase` rule REJECTS a capitalised address rather than folding it, so `Emman@remedi.com` was
-refused — and since this is a `js-confirm` form, the refusal surfaced as "That action could not be
-completed." with no mention of the capital letter. Folding also happens before the `unique` check, so
-case cannot slip a duplicate past it. Covered by `Feature\Auth\RegistrationEmailTest`.
-
-**Two lessons from that build worth keeping.** `@{{ }}` is Blade's ESCAPE syntax — it prints the
-braces literally and eats the `@`, which is exactly what `@{{ User::EMAIL_DOMAIN }}` did; build the
-whole string in one expression (`{{ '@'.$x }}`). And the test that should have caught it asserted the
-domain appeared ANYWHERE in the page, which passed on the bell's audit rows: **scope an assertion to
-the element, or the bell will pass it for you.**
-
-**Password fields carry a reveal toggle** (`.pw-wrap` + `.pw-toggle`), handled by one delegated
-listener in the layout rather than per-page script, so it also survives a form re-rendered over AJAX.
-An admin filling in someone else's password has no browser-saved value to fall back on, and a
-mismatch you cannot see is the whole reason confirm fields exist.
-
-**`.btn-lg` is for PAGE-level actions only** — "Add Product", "Add User", "Manage Categories" — so the
-button matches the "Save Product" it leads to. Buttons inside table rows deliberately stay compact:
-at that size they break the table's rhythm and push the columns out.
-
-**Row actions carry an icon, not a bare word or a literal "+".** The users list already paired
-`ti-pencil` with Edit; the products list, the inventory list and the categories page did not, and
-`+ Add Product` used a text plus rather than `ti-plus`. All of them now match: `ti-plus` /
-`ti-user-plus` to add, `ti-pencil` to edit or manage, `ti-device-floppy` to save, `ti-trash` to
-delete — the same vocabulary the confirm dialogs already use in their `data-confirm-icon`.
-
-**Back buttons sit beside the page title, not on their own row.** Use the shared `.page-head`
-pattern — `.btn-back` then `.page-head-text` (`<h3>` + `<p>`), with `.page-head-actions` for anything
-on the right. All nine pages with a back control use it. `.page-back` is the superseded one-per-row
-wrapper, kept only so nothing breaks; don't reach for it on a new page.
-
-**Don't hide the substance of a page behind a disclosure.** `products/edit` used to keep its batch
-table inside a collapsed `<details>` — which hid the only place stock, expiry and the return actions
-actually live, since none of those are columns on `products`. Long tables scroll inside
-`.table-scroll`; that is the answer to page height, not a collapse.
+**The products list shows the SKU only** — the `barcode` column still exists and every search still
+matches on it, it is simply not printed, and both barcode SCANNER cards are hidden (see the inventory
+note above).
 
 **Each Inventory filter is ordered by the thing it is about**, in PHP, because every sort key is a
-computed accessor rather than a column: `low_stock` by `sellable_stock` ascending (tie-broken on
-`total_stock`, which is the column the table actually shows), `expiring` by the earliest still-
+computed accessor: `low_stock` by `sellable_stock` ascending, `expiring` by the earliest still-
 sellable batch, `expired` by the longest-expired batch. Sort on `sellable_stock`, never
 `total_stock` — a product with 300 expired units is not better stocked than one with 2 good ones.
 
-**The audit trail uses the shared pager, centred from 768px up.** It drew its own — chevron squares
-and a blue `#185FA5` current page, shared with nothing — so the one list that is mostly page numbers
-looked like a different application. It now renders `$logs->links()` (which resolves to
-`vendor/pagination/custom` via `AppServiceProvider`) inside `.audit-pager`, whose media query centres
-the row: that page is a single full-width table, so a left-aligned pager sits under the row-number
-column with the screen empty beside it. The other lists stay left-aligned — their pagers sit under
-narrower content. The page's AJAX handler delegates on any `<a href>` inside the wrapper, so
-pagination still happens in place with the filters intact.
-
-**Row numbers use `$paginator->firstItem() + $loop->index`**, so page 2 starts at 11 rather than
-restarting at 1. Present on inventory, products and the sales list. Adding a column means bumping
-the empty-state `colspan` in the same partial, or the "nothing found" row stops spanning the table.
+**The audit trail uses the shared pager**, centred from 768px up (`.audit-pager`), rather than the
+private one it used to draw. **Row numbers use `$paginator->firstItem() + $loop->index`** so page 2
+starts at 11; adding a column means bumping the empty-state `colspan` in the same partial.
 
 `InventoryController` pushes category and text search down to SQL but filters status (low stock /
 expiring / expired / returned — all computed accessors, not columns) in PHP, then paginates manually
@@ -1609,6 +1524,18 @@ way.
 (falling back to "System"). Call it from controllers for any state-changing operation — sales,
 user/product/category mutations, logins. Each write also feeds the bell's System/Updates tabs, which
 is why it forgets `topbar_activity`.
+
+**`AuditTrail::ACTIONS` is the one list of actions, and the filter dropdown renders from it.** The
+dropdown carried a hand-typed `['Login','Logout','Viewed','Create','Update','Delete']` while every
+row is written in the PAST tense, and `applyFilters()` matches the column exactly — so three of the
+six options could never match anything: `?action=Create` returned **0 of 109** rows, `Update` 0 of 35,
+`Delete` 0 of 12. Nothing errored, the page just rendered its normal empty state, which reads as *"the
+app does not record this"* — and that is how creating, updating, deactivating and deleting user
+accounts all appeared to go unlogged when all four were in the table the whole time. Login/Logout/
+Viewed matched by luck, being already the tense `log()` is called with.
+`AuditTrail::canonicalAction()` maps the superseded singulars so an old link still finds its rows
+rather than asserting that nothing ever happened — the worst thing an audit trail can say. Covered by
+`Feature\AuditTrailFilterTest`, which asserts both the four account events and the vocabulary.
 
 **Call it after the mutation succeeds, not before.** `ProductController::destroy`/`destroyBatch`
 logged first, so a delete the database then refused still wrote "Deleted product: X" while the
@@ -1646,7 +1573,11 @@ restores a bug, not a schema.
 `DatabaseSeeder` creates the two users inline, then hands off to CSV importers that read by path and
 **skip silently** (printing `File not found: ...`) if a file is missing, leaving that table empty
 while the seed still "succeeds". `database/data/inventory_seeder.csv` feeds categories, products and
-opening batches; `database/data/Sales_Records_4Year.csv` (~49 MB, generated demo data) feeds
-`sales_history`; `Transaction_Records_Seed.csv` in the repo root feeds inventory receipts.
+opening batches; `database/data/Sales_Records_4Year.csv` (~15 MB, 147k lines) feeds `sales_history`
+and is itself generated — **`database/data/generate_sales_history.py` is the generator**, last run
+2026-09-02 to re-aim the record at a small non-urban pharmacy (~55 sales and PHP 9,000 a day) rather
+than the urban chain branch it described before. Read its docstring before regenerating: the 12-month
+seasonal cycle per product is deliberate, and without it seasonal SARIMA has nothing to fit.
+`Transaction_Records_Seed.csv` in the repo root feeds inventory receipts.
 `transaction_history_seed.csv` is absent from this checkout, so the purchase-history pass always
 skips — that is the current state, not a bug to chase.

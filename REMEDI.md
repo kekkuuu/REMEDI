@@ -3352,6 +3352,251 @@ and the AJAX refresh — edit the partial, not a copy inside `index.blade.php`.
 expired / return states are computed accessors, not columns), then paginates manually with
 `LengthAwarePaginator`. Category and text search *are* pushed down to SQL.
 
+### The skeleton waits 180ms, and has two silhouettes
+
+Moved here from CLAUDE.md, which had grown a second copy of the whole frontend.
+
+**`SKELETON_DELAY_MS` (180ms) is what stops tab clicks looking like a glitch.** Every page except
+`/dashboard` answers in a fraction of a second locally, so the old immediate swap replaced the
+content with a placeholder and put it back inside that window: a flash of grey blocks, the page
+visibly collapsing and springing back. A fast page now paints no skeleton at all — you click and the
+next page is simply there — while a slow one is unchanged, which is the case the skeleton exists for.
+`clearNavigating()` cancels the pending timer, so a navigation that is abandoned (a click that only
+ended a text selection, a cancelled download, a bfcache restore) never paints either. Measured with
+the page scrolled to 600px: nothing paints at 0ms or 120ms, the skeleton appears at 270ms, and the
+scroll offset never moves at any point.
+
+**Two silhouettes, chosen from the destination link.** One generic shape was the cause of every tab
+"glitching" on click: the skeleton was dashboard-shaped, so opening Sales replaced a table with six
+KPI tiles and two charts, held that for the length of the navigation, then landed as a header over
+rows — two unrelated layouts in a row, on every tab except the dashboard. `data-shape="list"` (a page
+head, a toolbar, filter pills and nine table rows) covers Inventory, POS, Products, Sales, Users, the
+audit trail and notifications; no attribute means the dashboard shape, which is also what
+`/reports/*` and `dashboard/_loading`'s backdrop want. POS is really a product grid rather than a
+table, so it gets the closest of the two rather than an exact match.
+
+**A control that navigates without being an `<a>` must raise the loading state itself.** The skeleton
+and header pill come from a `document` click handler that only matches `<a>`, so the Inventory nav
+toggle — a `<button>` — navigated with no loading state at all while its submenu was mid-animation,
+which reads as a glitch. `window.REMEDI.showNavigating` is exposed for exactly this, and is looked up
+at click time rather than bind time because the nav-group script runs before the navigation script
+defines it.
+
+### The sidebar logo is inlined, like the loader's
+
+Same reasoning as `logo-mark.webp` above, a different file. The sidebar's was `logo.png` — **279 KB
+drawn at 34x34** — and every navigation here is a full page load, so it was re-requested on every
+click and visibly popped in after the sidebar had painted (worst over a tunnel, or while
+`artisan serve` was busy with something else). It is now a 68px derivative inlined as a data URI:
+`logo-nav.webp`, 2.7 KB, ~3.6 KB base64, from
+`php artisan logo:mark --width=68 --out=logo-nav.webp`.
+
+**Regenerate it whenever `logo.png` changes**, the same rule the loader's derivative carries. If it
+is missing the layout falls back to the linked PNG rather than rendering nothing.
+
+Note this reverses, for this one file, the "don't inline the sidebar copy" note in the loader section
+above — that argument was about paying 10KB on every page to fix a grey square on one page. 3.6 KB to
+stop the logo popping in on *every* navigation is a different trade.
+
+### `.page-hero`, and why it is drawn in CSS
+
+`.page-hero` is the tinted band behind a page title — a rounded panel with a soft mint wash, a
+rolling shape and a capsule motif. Purely decorative and deliberately so: nothing moves and nothing
+hides behind it. It exists because the all-white version of these pages read as a stack of grey
+boxes.
+
+**Drawn entirely in CSS** (layered radial gradients plus two pseudo-elements), not an image:
+`artisan serve` is single-threaded, so a decorative request queues in front of the page it decorates
+— the same reasoning that makes the dashboard loader inline its logo. Both motifs drop out under
+620px/820px, where there is no room for them. It is opt-in per page: wrap `.page-head` in it.
+
+### `.section-head` is a filled band, not an icon and a line of text
+
+The card headers on Edit Product (Product Details, Add New Batch, Existing Batches) carried a 46px
+chip beside the title. The chip is gone and the title itself does the work — small caps on a
+`--brand-soft` fill that runs edge to edge, with the card's own top corners and a `--line` divider
+under it. `.section-head .form-chip` is removed with it.
+
+**It gets there with negative margins that cancel `.form-card`'s padding** (`-26px -28px`, and
+`-20px -18px` under 760px where the card's padding narrows), which is why a `.section-head` only
+belongs at the TOP of a card — anywhere else the pull would drag it over the content above. The
+radius is `17px`, not the card's `18px`: measured from inside the card's 1px border, or the fill
+leaves a hairline of white in each corner.
+
+The per-FIELD chips stay. They are what lets you find "Selling Price" without reading every label,
+which a card header cannot do.
+
+### One form vocabulary across the four form pages
+
+`.form-card`, `.form-grid`, `.form-field`, `.form-chip`, `.form-actions` and `.btn-lg`, defined once
+in `layouts/app.blade.php`. Add Product, Edit Product, Add User and Edit User all use it, so they
+read as the same kind of page. Each field is introduced by an icon chip — not decoration: these are
+two columns of similar-looking inputs, and the icon is what lets you find one without reading every
+label.
+
+**Edit Product uses that vocabulary now; it used to use `.field-aside`**, which put the chip in its
+own column beside the whole field (`display: flex; align-items: center`) — so the icon read as an
+ornament on the INPUT rather than a mark on the label, and the two product pages were two different
+forms. `.field-aside` / `.field-aside-body` / `.aside-grid-2` / `.aside-grid-3` are gone from the
+layout; nothing else rendered them. Product Details is the standard two-column grid, Add New Batch
+adds `.form-grid.cols-3` (three across, two under 1100px, one under 760px). The button says **Update
+Product**, not "Save Product": this page edits an existing row.
+
+**The older `.field-row` (labels above, no chips) is still there** and still used where a form is a
+single wide strip. Do not merge the two — they solve different shapes.
+
+**`.btn-lg` is for PAGE-level actions only** — "Add Product", "Add User", "Manage Categories" — so the
+button matches the "Save Product" it leads to. Buttons inside table rows deliberately stay compact:
+at that size they break the table's rhythm and push the columns out.
+
+**Password fields carry a reveal toggle** (`.pw-wrap` + `.pw-toggle`), handled by one delegated
+listener in the layout rather than per-page script, so it also survives a form re-rendered over AJAX.
+An admin filling in someone else's password has no browser-saved value to fall back on, and a
+mismatch you cannot see is the whole reason confirm fields exist.
+
+### The form chips are neutral, and the `chip-*` tints are gone
+
+They used to come in six colours (green name, purple SKU, blue category, teal batch, amber money, red
+alerts), which made a form of six ordinary fields look like six different kinds of thing — the colour
+was decoration carrying no rule, and it competed with the colour that does carry rules. A chip is now
+slate on `#f1f5f9`, sitting in the same tone as the label beside it, the way the sidebar's icons
+belong to their labels.
+
+**Colour is kept only where it means something**: the reports, the inventory status badges, and the
+alert legend shared by the bell, the toasts and the notifications page. If you find yourself wanting a
+coloured chip on a form, that is a question about what rule it would be expressing.
+
+Edit User reuses `.user-avatar` from the topbar rather than a second circle style — same object, same
+initials.
+
+### Buttons are solid mid-tones, and a variant must be declared after `.btn`
+
+**Gradients were tried and removed.** A gradient made every button look like a call to action, and
+the base `--brand` (#10b981) alone reads too light against white for a control pressed all day. The
+variants sit one step down (`#059669` primary, `#3b82f6` info, `#dc2626` danger) — saturated enough
+to be obviously clickable, dark enough to hold white text at small sizes, without going near-black.
+`:hover` goes one step deeper, still solid. Outlined variants (`.btn-secondary`,
+`.btn-danger-outline`, `.btn-back`) stay flat white — they are the quiet half of a pair.
+
+**A `.btn-*` colour variant must be declared AFTER `.btn`.** `.btn` sets
+`border: 1px solid transparent`, and the variants are the same specificity — so a variant declared
+earlier in the sheet silently loses its border. `.btn-danger-outline` was written above `.btn` and
+rendered with no outline at all; it now sits with `.btn-secondary` and the rest. Put new variants
+there.
+
+**Row actions carry an icon, not a bare word or a literal "+".** The users list already paired
+`ti-pencil` with Edit; the products list, the inventory list and the categories page did not, and
+`+ Add Product` used a text plus rather than `ti-plus`. All of them now match: `ti-plus` /
+`ti-user-plus` to add, `ti-pencil` to edit or manage, `ti-device-floppy` to save, `ti-trash` to
+delete — the same vocabulary the confirm dialogs already use in their `data-confirm-icon`.
+
+### Add Category is a dialog, not a field in the page
+
+The card holds the trigger; the form lives in a `.remedi-modal` beside it, the same two-step as the
+profile page's Change Password, with the same guards (Escape, backdrop, focus trap,
+`REMEDI.lockScroll`). It carries no `js-confirm` — the dialog IS the deliberate step, and a confirm
+modal opening over a form modal is two dialogs deep for one category name.
+
+Two things make it work rather than merely open:
+
+- **The post validates into its own error bag** (`validateWithBag('addCategory', ...)`), because the
+  rename forms in the table below validate a field called `name` too and the default bag cannot tell
+  them apart.
+- **The dialog reopens itself when that bag is non-empty**, or a rejected name would reload the page
+  with the dialog shut and the reason out of sight.
+
+`<noscript>` drops it out of the overlay so the form still posts with JavaScript off.
+
+**Manage Categories keeps its rename, even though the design has no Save column.** The category name
+is still an `<input>`, drawn as plain text until focused, and its Save button is revealed only once
+the value actually changes — a Save on every row invites clicks that rewrite a name to itself, which
+is a write, an audit entry and a cache clear for nothing. `CategoryController::update` still refuses
+to rename a `RULE_DRIVING_NAMES` category, so the real guard is server-side either way.
+
+**`Category::ICONS` maps a category to its glyph**, keyed by name because the name is already what
+carries meaning here (see "What counts as medicine"). Anything unlisted falls back to `ti-category`
+rather than rendering an empty box — categories are user-creatable, so an unknown name is normal, not
+a bug.
+
+### `Product::UNITS` closed the unit field
+
+Unit was free text. That is how the catalogue acquired a product whose unit is the string `"20"`, and
+how the Add Product form came to default to lowercase `pcs` while all 2,637 other rows say `PCS` —
+every product added through that form would have started a second spelling of the same unit,
+splitting anything that groups by it.
+
+Both forms are now `<select>`s rendering `Product::unitOptions()`, and both controller paths validate
+with `Rule::in`. **The update path passes `unitOptions($product->unit)`**, which folds in a value that
+is not on the list — without it, the one legacy `"20"` row would be rejected on any edit, for a field
+nobody touched.
+
+### Add User's email field, and what was removed from it
+
+The field is plain, and the example lives in the placeholder (`e.g. jane@remedi.com`). Nothing is
+appended to what was typed: a version that completed a bare name into a house domain, with a fixed
+`@remedi.com` tag glued to the field, was built and then removed — a field that silently completes
+what you typed has to explain itself, and the explanation was the first thing to go.
+`User::EMAIL_DOMAIN` and the `.input-suffix` input-group styles went with it; don't reintroduce
+either without a reason.
+
+**What survives from that round is the one line that fixed a real dead end**:
+`RegisteredUserController::store` trims and lower-cases the address before validating. The
+`lowercase` rule REJECTS a capitalised address rather than folding it, so `Emman@remedi.com` was
+refused — and since this is a `js-confirm` form, the refusal surfaced as "That action could not be
+completed." with no mention of the capital letter. Folding also happens before the `unique` check, so
+case cannot slip a duplicate past it. Covered by `Feature\Auth\RegistrationEmailTest`.
+
+**Two lessons from that build worth keeping.** `@{{ }}` is Blade's ESCAPE syntax — it prints the
+braces literally and eats the `@`, which is exactly what `@{{ User::EMAIL_DOMAIN }}` did; build the
+whole string in one expression (`{{ '@'.$x }}`). And the test that should have caught it asserted the
+domain appeared ANYWHERE in the page, which passed on the bell's audit rows: **scope an assertion to
+the element, or the bell will pass it for you.**
+
+### Money keeps its centavos; only counts are formatted bare
+
+`number_format($x)` with no precision rounds to whole units, which is right for units, products and
+batches and wrong for pesos. The Sales Forecast revenue KPI carried the bare form and reported a
+figure up to 50 centavos away from the number it was summing; its chart tooltip did the same with
+`Math.round`. Both now keep the centavos, while the units KPI and the units chart stay whole on
+purpose — demand is integral. If you add a peso figure anywhere, pass the `, 2`.
+
+### Every view that extends `layouts.app` must set `@section('title')`
+
+The layout falls back to `@yield('title', 'Dashboard')`, so a view without one silently renders
+"Dashboard" in the topbar heading AND the browser tab while you are looking at something else. The
+audit trail was the only page in the app missing it, and read "Dashboard" for its whole life. There is
+no error and nothing looks broken — which is why it survived.
+
+### The audit trail's pager, and row numbers
+
+**The audit trail uses the shared pager, centred from 768px up.** It drew its own — chevron squares
+and a blue `#185FA5` current page, shared with nothing — so the one list that is mostly page numbers
+looked like a different application. It now renders `$logs->links()` (which resolves to
+`vendor/pagination/custom` via `AppServiceProvider`) inside `.audit-pager`, whose media query centres
+the row: that page is a single full-width table, so a left-aligned pager sits under the row-number
+column with the screen empty beside it. The other lists stay left-aligned — their pagers sit under
+narrower content. The page's AJAX handler delegates on any `<a href>` inside the wrapper, so
+pagination still happens in place with the filters intact.
+
+**Row numbers use `$paginator->firstItem() + $loop->index`**, so page 2 starts at 11 rather than
+restarting at 1. Present on inventory, products and the sales list. Adding a column means bumping the
+empty-state `colspan` in the same partial, or the "nothing found" row stops spanning the table.
+
+### Each Inventory filter is ordered by the thing it is about
+
+In PHP, because every sort key is a computed accessor rather than a column: `low_stock` by
+`sellable_stock` ascending (tie-broken on `total_stock`, which is the column the table actually
+shows), `expiring` by the earliest still-sellable batch, `expired` by the longest-expired batch.
+
+Sort on `sellable_stock`, never `total_stock` — a product with 300 expired units is not better
+stocked than one with 2 good ones.
+
+### Don't hide the substance of a page behind a disclosure
+
+`products/edit` used to keep its batch table inside a collapsed `<details>` — which hid the only place
+stock, expiry and the return actions actually live, since none of those are columns on `products`.
+Long tables scroll inside `.table-scroll`; that is the answer to page height, not a collapse.
+
 ## Cruft — removed
 
 The scratch copies, dead experiments and stray files this section used to list have been **deleted**
@@ -3377,8 +3622,11 @@ no reference at all were removed:
 - `Transaction_Records_Seed.csv` at the root — `InventoryReceiptSeeder` reads it via `base_path()`.
   Deleting it silently empties `inventory_receipts`.
 
-**This repo is not under version control**, so a deletion here is final. Check for references before
-removing anything — and note that a bare-substring grep is not enough: `3.1.0` "matches"
+**This repo IS under version control now** (git, `main`, first commit 2026-08 — the paragraph here
+used to say it was not, and that was written before `git init`). A committed file can be recovered;
+an uncommitted or ignored one still cannot, and `.gitignore` covers `/vendor`, `/node_modules`,
+`/storage/*.key` and `.env`. Check for references before removing anything — and note that a
+bare-substring grep is not enough: `3.1.0` "matches"
 `package.json` (it is Tailwind's version), `GenerateSalesForecast.py` "matches" the PHP command class
 of the same name, and `database/seed` matches the word "seed" almost everywhere.
 

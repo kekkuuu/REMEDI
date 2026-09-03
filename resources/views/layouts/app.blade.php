@@ -3014,9 +3014,6 @@
                 <a href="{{ route('products.index') }}" class="{{ request()->routeIs('products.*') ? 'active' : '' }}">
                     <i class="ti ti-pill" aria-hidden="true"></i> Products
                 </a>
-                <a href="{{ route('users.index') }}" class="{{ request()->routeIs('users.*') ? 'active' : '' }}">
-                    <i class="ti ti-users" aria-hidden="true"></i> User management
-                </a>
                 <a href="{{ route('reports.index') }}" class="{{ request()->routeIs('reports.*') ? 'active' : '' }}">
                     <i class="ti ti-chart-bar" aria-hidden="true"></i> Reports
                 </a>
@@ -3025,6 +3022,12 @@
                 </a>
                 <a href="{{ route('sales-forecast.index') }}" class="{{ request()->routeIs('sales-forecast.*') ? 'active' : '' }}">
                     <i class="ti ti-chart-line" aria-hidden="true"></i> Sales Forecasting
+                </a>
+                {{-- Between Sales Forecasting and the audit trail: the two
+                     administrative tabs sit together at the foot of the Admin
+                     group, after the four that are about stock and trade. --}}
+                <a href="{{ route('users.index') }}" class="{{ request()->routeIs('users.*') ? 'active' : '' }}">
+                    <i class="ti ti-users" aria-hidden="true"></i> User management
                 </a>
                 <a href="{{ route('audit.index') }}" class="{{ request()->routeIs('audit.*') ? 'active' : '' }}">
                     <i class="ti ti-list-check" aria-hidden="true"></i> Audit trail

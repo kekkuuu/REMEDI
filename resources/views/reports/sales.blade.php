@@ -62,7 +62,7 @@
     {{-- Filters. The month picker is the primary control (the data spans
          2024-2026); the date inputs remain for arbitrary ranges. Choosing a
          month overrides the dates server-side. --}}
-    <form method="GET" action="{{ route('reports.sales') }}" class="report-filters">
+    <form method="GET" action="{{ route('reports.sales') }}" class="report-filters" id="salesFilters">
         <div class="report-field">
             <label>Month</label>
             {{-- Choosing a month clears the date inputs before submitting. The
@@ -121,7 +121,11 @@
             @if($month || request('start_date') || request('end_date'))
                 <a href="{{ route('reports.sales') }}" class="btn btn-secondary btn-sm">Clear</a>
             @endif
-            <button type="button" onclick="window.print()" class="btn btn-secondary btn-sm">
+            {{-- No inline window.print(): see the script at the foot of this
+                 view. Printing has to regenerate first when the date controls
+                 have moved since the report was built, or the paper carries the
+                 OLD range under the NEW dates showing in the boxes. --}}
+            <button type="button" id="printReport" class="btn btn-secondary btn-sm">
                 <i class="ti ti-printer" aria-hidden="true"></i> Print
             </button>
         </div>
@@ -515,6 +519,70 @@
         },
     });
     @endif
+</script>
+
+<script>
+/* Print what you asked for, not what is still on the page.
+ *
+ * The month picker submits on change, but the two date inputs do not -- they
+ * wait for Generate, which is right, since setting a start date should not fire
+ * off a report before the end date has been chosen. The cost is that the form
+ * and the report can describe different periods: edit the dates, click Print
+ * instead of Generate, and the header, the KPIs and the daily breakdown all
+ * still carry the PREVIOUS range while the date boxes above them show the new
+ * one. Nothing is wrong with the report -- it is an accurate report of a period
+ * you are no longer looking at, which is worse than an obviously broken one,
+ * because the printout looks finished.
+ *
+ * So Print regenerates first when the controls have moved, and prints when the
+ * new report lands. When nothing has changed it prints immediately, as before.
+ */
+(function () {
+    var form = document.getElementById('salesFilters');
+    var button = document.getElementById('printReport');
+    if (!form || !button) return;
+
+    function snapshot() {
+        return ['month', 'start_date', 'end_date'].map(function (name) {
+            return form.elements[name] ? form.elements[name].value : '';
+        }).join('|');
+    }
+
+    // What the report on screen was actually generated from.
+    var generated = snapshot();
+
+    button.addEventListener('click', function () {
+        if (snapshot() === generated) {
+            window.print();
+
+            return;
+        }
+
+        // Round-trip, then print on arrival. A hidden field rather than a URL
+        // built by hand, so the form still owns which parameters are sent.
+        var flag = document.createElement('input');
+        flag.type = 'hidden';
+        flag.name = 'print';
+        flag.value = '1';
+        form.appendChild(flag);
+        button.disabled = true;
+        form.submit();
+    });
+
+    @if(request()->boolean('print'))
+        // Arrived from the branch above. Print once the page has settled, then
+        // drop the flag from the URL so a refresh does not reprint.
+        window.addEventListener('load', function () {
+            if (window.history.replaceState) {
+                var url = new URL(window.location.href);
+                url.searchParams.delete('print');
+                window.history.replaceState({}, '', url.toString());
+            }
+
+            window.print();
+        });
+    @endif
+})();
 </script>
 
 @endsection

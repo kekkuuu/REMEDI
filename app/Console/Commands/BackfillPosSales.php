@@ -40,6 +40,17 @@ use Illuminate\Support\Facades\DB;
  * It deliberately writes NO audit entries. The trail is a record of what people
  * did, and nobody did this; 900 "Processed sale" rows would bury the entries
  * that describe actual use.
+ *
+ * A SALE CANNOT BE ATTRIBUTED TO AN ACCOUNT THAT DID NOT EXIST YET. The first
+ * version picked a cashier at random from every active user, resolved once
+ * before the day loop, so an account created on 2026-09-02 was credited with
+ * sales going back to 2026-08-16 -- 611 of 874 rows on this install. It is
+ * visible on the sales list, on /sales/{id} and on every reprinted receipt,
+ * which all print `$sale->user->name`, and it is the kind of wrong that a
+ * reader spots immediately: the cashier column names someone who was hired
+ * yesterday above a transaction from a fortnight ago. Attribution is now made
+ * per sale against `users.created_at`, and `--fix-attribution` repairs rows
+ * already written that way.
  */
 class BackfillPosSales extends Command
 {
@@ -48,6 +59,7 @@ class BackfillPosSales extends Command
                             {--to= : Last day to fill (default: YESTERDAY, since today belongs to the till)}
                             {--per-day=54 : Target transactions per day, before the weekday/payday shape}
                             {--seed=20260902 : RNG seed, so a re-run is reproducible}
+                            {--fix-attribution : Re-point sales credited to an account created after them, and write nothing else}
                             {--dry-run : Report what would be written and change nothing}';
 
     protected $description = 'Backfill POS sales for the days between the imported record and today';
@@ -57,6 +69,10 @@ class BackfillPosSales extends Command
 
     public function handle(): int
     {
+        if ($this->option('fix-attribution')) {
+            return $this->fixAttribution((bool) $this->option('dry-run'));
+        }
+
         $from = $this->option('from')
             ? Carbon::parse($this->option('from'))
             : Carbon::parse(SalesHistory::max('sale_date'))->addDay();
@@ -80,10 +96,26 @@ class BackfillPosSales extends Command
         $dry = (bool) $this->option('dry-run');
         mt_srand((int) $this->option('seed'));
 
-        $cashiers = User::where('is_active', true)->pluck('id')->all();
+        // The roster is id => WHEN THE ACCOUNT WAS CREATED, not a flat list of
+        // ids, because eligibility is a property of the moment a sale happened.
+        // ringUp() narrows it per sale; see cashiersAsOf().
+        $roster = $this->roster();
 
-        if (! $cashiers) {
+        if (! $roster) {
             $this->error('No active users to attribute sales to.');
+
+            return self::FAILURE;
+        }
+
+        // Fail here rather than silently dropping the first stretch of the
+        // window one abandoned basket at a time.
+        $earliest = min($roster);
+
+        if ($earliest->gt($from->copy()->endOfDay())) {
+            $this->error(sprintf(
+                'The earliest account was created %s, after the whole window opens (%s). Nobody could have rung these up.',
+                $earliest->toDateTimeString(), $from->toDateString()
+            ));
 
             return self::FAILURE;
         }
@@ -135,7 +167,7 @@ class BackfillPosSales extends Command
             }
 
             for ($i = 0; $i < $wanted; $i++) {
-                $result = $this->ringUp($day, $cashiers, $weights, $products);
+                $result = $this->ringUp($day, $roster, $weights, $products);
 
                 if ($result === null) {
                     $short++;
@@ -172,12 +204,23 @@ class BackfillPosSales extends Command
      * One basket: pick lines, walk FEFO, write the sale.
      *
      * Returns null when nothing could be sold -- a day late in the window can
-     * run the shelf down, and an empty sale is not a sale.
+     * run the shelf down, and an empty sale is not a sale -- or when no account
+     * existed yet to ring it up.
+     *
+     * @param  array<int, Carbon>  $roster  user id => when the account was created
      */
-    private function ringUp(Carbon $day, array $cashiers, array $weights, $products): ?array
+    private function ringUp(Carbon $day, array $roster, array $weights, $products): ?array
     {
         // Trading hours, weighted toward late afternoon the way a counter is.
         $at = $day->copy()->setTime(8, 0)->addMinutes(mt_rand(0, 12 * 60))->addSeconds(mt_rand(0, 59));
+
+        // Who was on the payroll AT THAT MOMENT. Narrowed per sale rather than
+        // per day: an account created at 20:52 was not taking money at 09:00.
+        $cashiers = $this->cashiersAsOf($roster, $at);
+
+        if (! $cashiers) {
+            return null;
+        }
 
         $lineCount = $this->pick([1 => 45, 2 => 33, 3 => 16, 4 => 6]);
         $wanted = [];
@@ -265,6 +308,123 @@ class BackfillPosSales extends Command
 
             return ['lines' => count($lines), 'total' => $total];
         });
+    }
+
+    /**
+     * Every account that could be standing at the till, with the moment it
+     * was created.
+     *
+     * `is_active` is the CURRENT state and says nothing about the past, but it
+     * is the right filter anyway: a deactivated account is one this install has
+     * retired, and crediting fresh demo sales to it would make the sales list
+     * argue with the reason it was deactivated.
+     *
+     * @return array<int, Carbon>
+     */
+    private function roster(): array
+    {
+        return User::where('is_active', true)
+            ->orderBy('created_at')
+            ->pluck('created_at', 'id')
+            ->map(fn ($createdAt) => Carbon::parse($createdAt))
+            ->all();
+    }
+
+    /**
+     * The subset of the roster that existed at a given moment.
+     *
+     * @param  array<int, Carbon>  $roster
+     * @return array<int, int> user ids, re-indexed so array_rand() is uniform
+     */
+    private function cashiersAsOf(array $roster, Carbon $at): array
+    {
+        return array_values(array_keys(
+            array_filter($roster, fn (Carbon $createdAt) => $createdAt->lte($at))
+        ));
+    }
+
+    /**
+     * Re-point sales credited to an account that did not exist yet.
+     *
+     * The predicate is `sales.created_at < users.created_at`, which can only
+     * ever match rows this command wrote: a real checkout is attributed to
+     * whoever is signed in, and they cannot be signed into an account that has
+     * not been created. So this touches no genuine transaction, and there is
+     * nothing to distinguish by hand.
+     *
+     * Only `user_id` moves. Totals, line items, stock and transaction numbers
+     * are all correct already -- it is the name on the row that is impossible.
+     * No audit entries, for the same reason the backfill writes none, and no
+     * cache invalidation: every aggregate this app caches is keyed on product,
+     * date or money, none of which changes here.
+     */
+    private function fixAttribution(bool $dry): int
+    {
+        $roster = $this->roster();
+
+        if (! $roster) {
+            $this->error('No active users to attribute sales to.');
+
+            return self::FAILURE;
+        }
+
+        mt_srand((int) $this->option('seed'));
+
+        $impossible = Sale::query()
+            ->join('users', 'users.id', '=', 'sales.user_id')
+            ->whereColumn('sales.created_at', '<', 'users.created_at')
+            ->orderBy('sales.created_at')
+            ->get(['sales.id', 'sales.created_at', 'sales.user_id', 'users.name AS cashier']);
+
+        if ($impossible->isEmpty()) {
+            $this->info('Nothing to fix: every sale is credited to an account that already existed.');
+
+            return self::SUCCESS;
+        }
+
+        $this->info(sprintf('%s sales are credited to an account created after them.', number_format($impossible->count())));
+
+        $moved = [];
+        $stranded = 0;
+
+        foreach ($impossible as $sale) {
+            $at = Carbon::parse($sale->created_at);
+            $cashiers = $this->cashiersAsOf($roster, $at);
+
+            if (! $cashiers) {
+                $stranded++;
+
+                continue;
+            }
+
+            $to = $cashiers[array_rand($cashiers)];
+            $moved[$to] = ($moved[$to] ?? 0) + 1;
+
+            if (! $dry) {
+                // Not save() and not touch(): created_at is the sale's own
+                // backdated timestamp and must not be dragged to now.
+                Sale::whereKey($sale->id)->update(['user_id' => $to]);
+            }
+        }
+
+        $names = User::whereIn('id', array_keys($moved))->pluck('name', 'id');
+
+        foreach ($moved as $id => $count) {
+            $this->line(sprintf('  %s#%d %-18s <- %d sales', $dry ? 'would move ' : '', $id, $names[$id] ?? '?', $count));
+        }
+
+        if ($stranded) {
+            $this->warn(sprintf(
+                '%d sales predate EVERY account and were left alone. Nobody could have rung them up; delete them or move the backfill window.',
+                $stranded
+            ));
+        }
+
+        $this->info($dry
+            ? 'Dry run: nothing was written.'
+            : sprintf('Re-pointed %s sales.', number_format(array_sum($moved))));
+
+        return self::SUCCESS;
     }
 
     /**

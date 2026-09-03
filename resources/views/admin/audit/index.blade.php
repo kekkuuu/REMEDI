@@ -59,8 +59,14 @@
 
     <select name="action" class="report-select js-audit-filter">
       <option value="">All actions</option>
-      @foreach(['Login','Logout','Viewed','Create','Update','Delete'] as $act)
-        <option value="{{ $act }}" {{ request('action') == $act ? 'selected' : '' }}>{{ $act }}</option>
+      {{-- Rendered from AuditTrail::ACTIONS, never a list typed here. The
+           hand-typed one said Create/Update/Delete while every row is written
+           Created/Updated/Deleted, and the filter matches the column exactly —
+           so those three options selected nothing, on a page whose whole job is
+           to show that something happened. Compared through canonicalAction()
+           so an old ?action=Create link keeps its option selected. --}}
+      @foreach(\App\Models\AuditTrail::ACTIONS as $act)
+        <option value="{{ $act }}" {{ \App\Models\AuditTrail::canonicalAction(request('action')) === $act ? 'selected' : '' }}>{{ $act }}</option>
       @endforeach
     </select>
 

@@ -245,4 +245,208 @@ class ProductFormTest extends TestCase
 
         $this->assertSame(10, $batch->fresh()->quantity, 'the stored quantity must be untouched');
     }
+
+    /*
+     * The batch number follows the RECEIVED DATE.
+     *
+     * It used to be a required free-text field, and the catalogue shows what
+     * that produced: 2,641 seeded `OPENING-<barcode>` rows and exactly one
+     * hand-typed number, `12323`. The form now fills it in from the date, and
+     * `ProductController::addBatch` derives the same value server-side when the
+     * field arrives empty -- so the rule holds with JavaScript off, which is
+     * the only reason the browser copy is allowed to exist.
+     */
+
+    private function batchPayload(array $overrides = []): array
+    {
+        return array_merge([
+            'quantity' => 10,
+            'received_date' => now()->subDay()->toDateString(),
+            'expiry_date' => now()->addYear()->toDateString(),
+        ], $overrides);
+    }
+
+    /**
+     * The letters come off the product name, and only the LETTERS.
+     *
+     * "The first three characters" would produce codes like `3M ` and `G. ` on
+     * this catalogue, where names open with digits and punctuation often
+     * enough to matter -- 9 products carry `%` in the name and 3 carry `_`.
+     */
+    public function test_the_letters_are_taken_from_the_product_name(): void
+    {
+        $category = Category::firstOrCreate(['name' => 'General Merchandise']);
+        $admin = User::factory()->admin()->create();
+
+        $cases = [
+            'HERACLENE 1MG TAB X100' => 'HER',
+            '3M TAPE' => 'MTA',              // digits skipped, not counted
+            'G. CROSS ETHYL 70%' => 'GCR',   // punctuation and spaces skipped
+            'K2' => 'KXX',                   // too few letters, padded
+        ];
+
+        foreach ($cases as $name => $expected) {
+            $product = Product::create([
+                'name' => $name,
+                'sku' => 'SKU-'.uniqid(),
+                'category_id' => $category->id,
+                'unit' => 'PCS',
+                'selling_price' => '10.00',
+                'reorder_level' => 1,
+            ]);
+
+            $this->actingAs($admin)
+                ->post("/products/{$product->id}/batches", $this->batchPayload(['received_date' => '2026-09-01']))
+                ->assertRedirect();
+
+            $this->assertSame(
+                $expected.'-20260901-01',
+                $product->batches()->sole()->batch_number,
+                "'{$name}' should code as {$expected}"
+            );
+        }
+    }
+
+    public function test_the_form_shows_the_code_it_will_use(): void
+    {
+        $category = Category::firstOrCreate(['name' => 'General Merchandise']);
+        $product = Product::create([
+            'name' => 'HERACLENE 1MG TAB X100',
+            'sku' => 'SKU-'.uniqid(),
+            'category_id' => $category->id,
+            'unit' => 'PCS',
+            'selling_price' => '10.00',
+            'reorder_level' => 1,
+        ]);
+
+        $html = $this->actingAs(User::factory()->admin()->create())
+            ->get("/products/{$product->id}/edit")->content();
+
+        $this->assertStringContainsString('data-batch-code="HER"', $html);
+    }
+
+    public function test_a_blank_batch_number_is_derived_from_the_received_date(): void
+    {
+        $product = $this->product();
+
+        $this->actingAs(User::factory()->admin()->create())
+            ->post("/products/{$product->id}/batches", $this->batchPayload([
+                'received_date' => '2026-09-01',
+            ]))
+            ->assertRedirect();
+
+        $this->assertSame('BOU-20260901-01', $product->batches()->sole()->batch_number);
+    }
+
+    public function test_the_number_follows_the_received_date_not_today(): void
+    {
+        $product = $this->product();
+
+        // A delivery entered late still belongs to the day it arrived.
+        $this->actingAs(User::factory()->admin()->create())
+            ->post("/products/{$product->id}/batches", $this->batchPayload([
+                'received_date' => now()->subDays(9)->toDateString(),
+            ]))
+            ->assertRedirect();
+
+        $this->assertSame(
+            'BOU-'.now()->subDays(9)->format('Ymd').'-01',
+            $product->batches()->sole()->batch_number
+        );
+    }
+
+    public function test_a_second_delivery_on_the_same_day_takes_the_next_sequence(): void
+    {
+        $product = $this->product();
+        $admin = User::factory()->admin()->create();
+
+        foreach ([1, 2, 3] as $ignored) {
+            $this->actingAs($admin)
+                ->post("/products/{$product->id}/batches", $this->batchPayload(['received_date' => '2026-09-01']))
+                ->assertRedirect();
+        }
+
+        $this->assertSame(
+            ['BOU-20260901-01', 'BOU-20260901-02', 'BOU-20260901-03'],
+            $product->batches()->orderBy('id')->pluck('batch_number')->all()
+        );
+    }
+
+    public function test_the_sequence_is_per_product(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $one = $this->product();
+        $two = $this->product();
+
+        foreach ([$one, $two] as $product) {
+            $this->actingAs($admin)
+                ->post("/products/{$product->id}/batches", $this->batchPayload(['received_date' => '2026-09-01']))
+                ->assertRedirect();
+        }
+
+        // batch_number carries no unique constraint and nothing joins on it, so
+        // two products receiving stock the same day both start at 01 -- which
+        // reads better on each product's own batch table than a shared counter.
+        $this->assertSame('BOU-20260901-01', $one->batches()->sole()->batch_number);
+        $this->assertSame('BOU-20260901-01', $two->batches()->sole()->batch_number);
+    }
+
+    /**
+     * The number is ASSIGNED, not entered — so a posted one is discarded.
+     *
+     * Both forms render the field readonly, but a readonly input still posts
+     * its value and a request can carry anything at all. This is the same
+     * lesson `markBatchReturned` and `pos.receipt` carry: a gated control is
+     * not a gated endpoint. It also closes the race the readonly field would
+     * otherwise open — two people adding a batch for the same product on the
+     * same day are both SHOWN `-01`, and the second must still be told `-02`.
+     */
+    public function test_a_posted_batch_number_is_ignored(): void
+    {
+        $product = $this->product();
+
+        $this->actingAs(User::factory()->admin()->create())
+            ->post("/products/{$product->id}/batches", $this->batchPayload([
+                'batch_number' => 'WHATEVER-I-LIKE',
+                'received_date' => '2026-09-01',
+            ]))
+            ->assertRedirect();
+
+        $this->assertSame('BOU-20260901-01', $product->batches()->sole()->batch_number);
+    }
+
+    public function test_two_submissions_claiming_the_same_number_still_differ(): void
+    {
+        $product = $this->product();
+        $admin = User::factory()->admin()->create();
+
+        // Both browsers previewed -01, which is what they would post.
+        foreach ([1, 2] as $ignored) {
+            $this->actingAs($admin)
+                ->post("/products/{$product->id}/batches", $this->batchPayload([
+                    'batch_number' => 'BOU-20260901-01',
+                    'received_date' => '2026-09-01',
+                ]))
+                ->assertRedirect();
+        }
+
+        $this->assertSame(
+            ['BOU-20260901-01', 'BOU-20260901-02'],
+            $product->batches()->orderBy('id')->pluck('batch_number')->all()
+        );
+    }
+
+    public function test_the_field_cannot_be_typed_into(): void
+    {
+        $product = $this->product();
+
+        $html = $this->actingAs(User::factory()->admin()->create())
+            ->get("/products/{$product->id}/edit")->content();
+
+        $this->assertMatchesRegularExpression(
+            '/<input[^>]*id="batch_number"[^>]*\breadonly\b/',
+            $html,
+            'the batch number field must be readonly — the number is assigned, not entered'
+        );
+    }
 }

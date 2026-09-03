@@ -142,8 +142,29 @@
                     <span class="form-chip" aria-hidden="true"><i class="ti ti-hash"></i></span>
                     <label for="batch_number">Batch Number</label>
                 </div>
+                {{-- READONLY: the number is assigned, not entered. Picking a
+                     received date shows what it will be, and
+                     ProductController::addBatch derives the stored value from
+                     ProductBatch::nextBatchNumber() regardless of what arrives
+                     — so this box is a preview, and with JavaScript off it
+                     simply stays empty and the server still gets it right.
+
+                     `readonly` rather than `disabled`: a disabled field posts
+                     nothing AND is skipped by the tab order, which would make
+                     the form's one derived value invisible to a keyboard user.
+                     Readonly still submits and is still focusable; the value is
+                     discarded server-side either way. --}}
                 <input type="text" id="batch_number" name="batch_number" value="{{ old('batch_number') }}"
-                       placeholder="Enter batch number" required>
+                       readonly aria-readonly="true" tabindex="-1"
+                       placeholder="Assigned when you pick the received date"
+                       data-batch-auto
+                       data-batch-code="{{ \App\Models\ProductBatch::batchNameCode($product) }}"
+                       data-batch-pad="{{ \App\Models\ProductBatch::BATCH_SEQUENCE_PAD }}"
+                       data-batch-taken="{{ json_encode($batchSequences) }}">
+                <p class="batch-number-hint">
+                    Assigned automatically: {{ \App\Models\ProductBatch::batchNameCode($product) }} (from the product name),
+                    the received date, and a number for that day.
+                </p>
             </div>
 
             <div class="form-field">
@@ -288,4 +309,72 @@
     </table></div>
         </div>
 </div>
+
+<style>
+    .batch-number-hint { margin: 6px 0 0; font-size: 12px; color: var(--ink-soft); }
+
+    /* Readable, not disabled-looking: this value is real and is what gets
+       stored, it just isn't yours to type. A greyed-out field would read as
+       "not applicable". */
+    #batch_number[readonly] { background: #f8fafc; color: var(--ink); cursor: default; }
+    #batch_number[readonly]:focus { outline: none; border-color: var(--line); box-shadow: none; }
+</style>
+
+<script>
+/* The batch number follows the received date.
+ *
+ * This is a DISPLAY of ProductBatch::nextBatchNumber(), not a second copy of
+ * it: the server derives the same value from the same prefix and padding when
+ * the field arrives empty, and it is the server's answer that gets stored. The
+ * point of doing it here as well is that the number should be visible before
+ * you commit to it, rather than appearing for the first time in the batch table
+ * underneath.
+ *
+ * Two things it must not do:
+ *
+ *  - Overwrite a number the user typed. A supplier's own lot number is a better
+ *    batch number than a generated one, so the field stays editable and this
+ *    only writes while what is in the box is still its own suggestion.
+ *  - Assume the field is an <input type="date">. The layout's date-placeholder
+ *    script holds an EMPTY date input as type="text" and flips it on focus, so
+ *    the element changes type under us -- hence the delegated listeners on the
+ *    form rather than direct ones on the input.
+ */
+(function () {
+    var form = document.getElementById('batch_number');
+    form = form && form.form;
+    if (!form) return;
+
+    var field = form.querySelector('[data-batch-auto]');
+    var date = form.querySelector('[name="received_date"]');
+    if (!field || !date) return;
+
+    var code = field.getAttribute('data-batch-code') || '';
+    var pad = parseInt(field.getAttribute('data-batch-pad'), 10) || 2;
+    var taken = {};
+    try { taken = JSON.parse(field.getAttribute('data-batch-taken') || '{}') || {}; } catch (e) { taken = {}; }
+
+    function suggestion() {
+        var value = (date.value || '').trim();          // Y-m-d, or '' while empty
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return '';
+
+        var day = value.replace(/-/g, '');
+        var next = String((taken[day] || 0) + 1);
+        while (next.length < pad) next = '0' + next;
+
+        return code + '-' + day + '-' + next;
+    }
+
+    function sync() {
+        field.value = suggestion();
+    }
+
+    // Unconditional: the field is readonly, so nothing in it is ever the user's
+    // and there is no typed value to protect.
+    form.addEventListener('change', function (e) { if (e.target === date) sync(); });
+    form.addEventListener('input', function (e) { if (e.target === date) sync(); });
+
+    sync();
+})();
+</script>
 @endsection

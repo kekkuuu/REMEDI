@@ -148,16 +148,23 @@
                 @endforeach
             </select>
         </div>
-        <label style="display:flex;align-items:center;gap:6px;height:34px;font-size:13px;color:#374151;cursor:pointer;">
-            <input type="checkbox" name="low_stock" value="1" {{ $lowStockOnly ? 'checked' : '' }} style="width:16px;height:16px;">
-            Low stock only
-        </label>
-        {{-- Expired stock still on the shelf. Narrows to the same set the
-             Expired Stock KPI counts, so the figure and the rows agree. --}}
-        <label style="display:flex;align-items:center;gap:6px;height:34px;font-size:13px;color:#374151;cursor:pointer;">
-            <input type="checkbox" name="expired" value="1" {{ $expiredOnly ? 'checked' : '' }} style="width:16px;height:16px;">
-            Expired only
-        </label>
+        {{-- ONE choice, not two checkboxes.
+             The two used to be independent, so "Low stock" and "Expired" could
+             both be ticked -- and that combination asks for the intersection,
+             which is the one set this report deliberately keeps apart: a
+             product below its reorder level with nothing but expired units is
+             excluded from Low Stock ON PURPOSE (see ReportController::inventory
+             and Product::is_running_out), because clearing it is the job rather
+             than reordering it. Ticking both therefore returned rows the two
+             KPIs above disagreed about. A single select cannot express it. --}}
+        <div style="display:flex;flex-direction:column;gap:4px;">
+            <label for="report-status">Status</label>
+            <select name="status" id="report-status" class="report-select">
+                <option value="">All stock</option>
+                <option value="low_stock" {{ $lowStockOnly ? 'selected' : '' }}>Low stock only</option>
+                <option value="expired" {{ $expiredOnly ? 'selected' : '' }}>Expired only</option>
+            </select>
+        </div>
         <div style="display:flex;gap:8px;">
             <button type="submit" class="btn btn-primary btn-sm">
                 <i class="ti ti-filter" style="font-size:14px;"></i> Apply
