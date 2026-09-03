@@ -46,6 +46,23 @@ class AlertService
     public const PER_KIND = 3;
 
     /**
+     * The kind carried by an account CHANGE (added / updated / deleted /
+     * activated / deactivated), as opposed to a sign-in.
+     *
+     * Its own kind because the toast stack watches kinds, and account changes
+     * are the one audit-derived thing worth interrupting an admin about: they
+     * are rare, deliberate, and someone else did them. Sign-ins keep the
+     * generic 'activity' kind -- a card every time anybody logs in would make
+     * the stack useless by lunchtime.
+     *
+     * ADMIN ONLY by construction: these rows only ever come from activity(),
+     * which never enters the shared payload() cache. See the note on that
+     * method -- putting role-dependent rows in a key every user shares is how a
+     * staff account ends up seeing whatever an admin cached first.
+     */
+    public const ACCOUNT_KIND = 'user_account';
+
+    /**
      * How many per kind the full notifications page lists.
      *
      * Not "all": low stock alone runs to 645 products, and a page that dumps
@@ -386,6 +403,27 @@ class AlertService
     {
         return Cache::remember('topbar_activity', now()->addSeconds(self::TTL_SECONDS), function () use ($limit) {
             $rows = AuditTrail::query()
+                // READS ARE NOT NEWS. `Viewed` is written every time someone
+                // opens a report -- including the same report twice while
+                // adjusting a filter -- and on this install it is 877 of 1,426
+                // audit rows, 62% of the trail. This method takes the newest
+                // few with no notion of importance, so those rows crowded out
+                // everything that actually CHANGED something: measured before
+                // this line, all six slots in the bell read "New report
+                // generated", and a batch addition and a live sale sitting in
+                // the same window never appeared at all.
+                //
+                // The mapping below always handled batches correctly (Created
+                // -> "Record added"); they were never being selected. Nothing
+                // was broken downstream, which is why it looked like the
+                // notification system was ignoring them.
+                //
+                // Filtered in SQL, not after the fetch, so the window really is
+                // the newest N CHANGES rather than the survivors of a window
+                // mostly full of page views. The audit trail still records every
+                // view in full -- that is its job; this is a notification panel,
+                // and generating a report is something the reader just did.
+                ->where('action', '!=', 'Viewed')
                 ->latest('id')
                 ->limit($limit * 3)
                 ->get(['id', 'action', 'details', 'username', 'created_at']);
@@ -394,16 +432,38 @@ class AlertService
                 // System = who got in and whose account changed. Updates =
                 // what happened to the data. Anything else is noise for a
                 // notification panel and is dropped below.
+                // "whose account changed" includes DEACTIVATION, which is the
+                // main thing that ever happens to an account here.
+                // UserController writes those as "Account deactivated: Emman",
+                // which does not contain the string 'user account' the next
+                // line looks for -- so activating and deactivating people were
+                // classified as generic "Record updated" and filed under
+                // Updates, away from the sign-ins and account changes they
+                // belong beside. Same shape as the audit filter offering
+                // "Create" while every row says "Created": a string that never
+                // matched the data it was written for.
                 $isAccount = in_array($row->action, ['Login', 'Logout'], true)
-                    || str_contains($row->details, 'user account');
+                    || str_contains($row->details, 'user account')
+                    || str_starts_with($row->details, 'Account ');
 
                 $isReport = str_contains($row->details, 'Report');
+
+                // A sign-in is not a change to an account. Both belong in
+                // System, but only the second is something to interrupt anyone
+                // about, so they are separated here rather than in the view:
+                // ACCOUNT_KIND is what the toasts watch for.
+                $isSession = in_array($row->action, ['Login', 'Logout'], true);
 
                 [$group, $icon, $cls, $title] = match (true) {
                     $isAccount && $row->action === 'Login' => ['system', 'ti-login', 'is-system', 'Signed in'],
                     $isAccount && $row->action === 'Logout' => ['system', 'ti-logout', 'is-system', 'Signed out'],
-                    $isAccount && $row->action === 'Created' => ['system', 'ti-user-plus', 'is-system', 'New user registered'],
-                    $isAccount => ['system', 'ti-user-cog', 'is-system', 'Account updated'],
+                    $isAccount && $row->action === 'Created' => ['system', 'ti-user-plus', 'is-system', 'New user added'],
+                    // Deleting an account read as "Account updated", which is
+                    // the one account change you would most want named plainly.
+                    $isAccount && $row->action === 'Deleted' => ['system', 'ti-user-minus', 'is-system', 'User account deleted'],
+                    $isAccount && str_starts_with($row->details, 'Account deactivated') => ['system', 'ti-user-off', 'is-system', 'Account deactivated'],
+                    $isAccount && str_starts_with($row->details, 'Account activated') => ['system', 'ti-user-check', 'is-system', 'Account activated'],
+                    $isAccount => ['system', 'ti-user-cog', 'is-system', 'User account updated'],
                     $isReport => ['updates', 'ti-file-text', 'is-update', 'New report generated'],
                     $row->action === 'Deleted' => ['updates', 'ti-trash', 'is-update', 'Record deleted'],
                     $row->action === 'Created' => ['updates', 'ti-plus', 'is-update', 'Record added'],
@@ -413,7 +473,12 @@ class AlertService
                 return [
                     'id' => 'audit:'.$row->id,
                     'group' => $group,
-                    'kind' => 'activity',
+                    // Account CHANGES carry their own kind so the toast stack
+                    // can watch for them; sign-ins stay generic activity, since
+                    // popping a card every time someone logs in would make the
+                    // stack useless by lunchtime. Nothing filters the bell on
+                    // `kind` -- its tabs read `group` -- so this is free there.
+                    'kind' => $isAccount && ! $isSession ? self::ACCOUNT_KIND : 'activity',
                     'cls' => $cls,
                     'icon' => $icon,
                     'title' => $title,
@@ -438,8 +503,24 @@ class AlertService
                     // timestamp is when it happened rather than when a
                     // condition started.
                     'when' => self::whenLabel($row->created_at?->toIso8601String()),
-                    // Relative: activity() is cached under `topbar_activity`.
-                    'href' => route('audit.index', [], false),
+                    // Account changes point at USER MANAGEMENT, everything else
+                    // at the audit trail. The trail is the record of what
+                    // happened; /users is where you do something about it, and
+                    // a notification that someone was deactivated is only
+                    // useful if it lands you where you can act.
+                    //
+                    // Relative on both: activity() is cached under
+                    // `topbar_activity`, and an absolute URL bakes in whichever
+                    // host warmed the cache -- warm from 127.0.0.1, read from
+                    // localhost, and the session cookie is not sent.
+                    'href' => $isAccount && ! $isSession
+                        ? route('users.index', [], false)
+                        : route('audit.index', [], false),
+
+                    // The label for the action pill both the bell row and the
+                    // toast card render. Null everywhere else: a pill that said
+                    // "View" on every row would be furniture, not an action.
+                    'action' => $isAccount && ! $isSession ? 'Manage users' : null,
                 ];
             })->filter(fn ($i) => $i['title'] !== 'Profile Test')
                 ->take($limit)

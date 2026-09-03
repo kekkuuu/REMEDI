@@ -1279,6 +1279,29 @@
         .topbar-bell-row.is-expired i { color: #b91c1c; }
         .topbar-bell-row.is-return   { border-left-color: #3b82f6; }
         .topbar-bell-row.is-return i { color: #1d4ed8; }
+        /* The action pill. A span, not a button -- see the note in the row
+           markup: it lives inside the row's own anchor, which may not contain
+           interactive content. Styled as a control because it names where the
+           row goes, which for an account change is User Management rather than
+           the audit trail. */
+        .bell-action {
+            align-self: flex-start;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 5px;
+            padding: 3px 9px;
+            border: 1px solid #ddd6fe;
+            border-radius: 999px;
+            background: #f5f3ff;
+            color: #6d28d9;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .bell-action i { font-size: 12px; }
+        .topbar-bell-row:hover .bell-action { background: #ede9fe; border-color: #c4b5fd; }
+
         .topbar-bell-row.is-missed   { border-left-color: #9f1239; }
         .topbar-bell-row.is-missed i { color: #9f1239; }
 
@@ -1448,6 +1471,25 @@
         .remedi-toast.is-expired .remedi-toast__icon  { background: #fee2e2; color: #b91c1c; }
         .remedi-toast.is-return   { border-left-color: #3b82f6; }
         .remedi-toast.is-return .remedi-toast__icon   { background: #e0f2fe; color: #1d4ed8; }
+        /* Account changes. Deliberately OFF the amber-to-red severity ramp the
+           stock kinds use: nothing is wrong with the shelf, someone changed who
+           can get in. Violet says "different sort of thing" without claiming a
+           rung on a ladder it does not belong on -- the same argument that keeps
+           out-of-stock graphite rather than a deeper red. */
+        .remedi-toast__action {
+            align-self: flex-start;
+            margin-top: 6px;
+            padding: 3px 9px;
+            border: 1px solid #ddd6fe;
+            border-radius: 999px;
+            background: #f5f3ff;
+            color: #6d28d9;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .remedi-toast.is-system   { border-left-color: #7c3aed; }
+        .remedi-toast.is-system .remedi-toast__icon   { background: #ede9fe; color: #6d28d9; }
 
         @keyframes toastIn {
             from { opacity: 0; transform: translateX(24px) scale(.97); }
@@ -2644,7 +2686,7 @@
         .remedi-table td.col-actions form {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
+            gap: 14px;
             margin: 0;
         }
 
@@ -2654,11 +2696,42 @@
         .remedi-table .actions-cell {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
+            gap: 14px;
             white-space: nowrap;
         }
 
         .remedi-table .actions-cell form { margin: 0; display: inline-flex; }
+
+        /* Row actions are SOFT: tinted fill, coloured border, coloured text --
+           not the solid mid-tones the rest of the app uses.
+           
+           That standing rule (see REMEDI.md, "Buttons are solid mid-tones") is
+           about the button you press to COMMIT something, where a solid fill is
+           what says "this is the action". A table row is the other case: it
+           carries two or three of them on every line, and at ten rows a page
+           that is thirty saturated fills stacked into a column, which competes
+           with the status badges beside it -- the thing the row is actually
+           there to tell you.
+
+           The colour still MEANS the same thing (blue = go somewhere, amber =
+           reversible restriction, green = confirm, red = destructive); it moves
+           into the border and the label instead of the fill, so the legend
+           survives and the noise does not. Applies to every table that uses
+           .actions-cell -- users, products and inventory -- so the four read as
+           one pattern rather than one redesigned page beside three old ones. */
+        .remedi-table .actions-cell .btn-info    { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+        .remedi-table .actions-cell .btn-warning { background: #fffbeb; border-color: #fde68a; color: #b45309; }
+        .remedi-table .actions-cell .btn-success { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+        .remedi-table .actions-cell .btn-danger  { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+
+        .remedi-table .actions-cell .btn-info:hover    { background: #dbeafe; border-color: #93c5fd; color: #1e40af; }
+        .remedi-table .actions-cell .btn-warning:hover { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+        .remedi-table .actions-cell .btn-success:hover { background: #d1fae5; border-color: #6ee7b7; color: #065f46; }
+        .remedi-table .actions-cell .btn-danger:hover  { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+
+        /* The lift-and-glow the solid buttons carry is wrong on these: a hover
+           shadow under a pale control reads as the control coming loose. */
+        .remedi-table .actions-cell .btn:hover { transform: none; box-shadow: none; }
 
         .remedi-table th.col-actions,
         .remedi-table td.col-actions {
@@ -3299,15 +3372,33 @@
         // All four stock kinds. fail_to_return is deliberately left to the bell:
         // a missed return window is a standing regret, not something to
         // interrupt anyone about.
-        $toastKinds = ['low_stock', 'expiring', 'expired', 'need_to_return'];
+        //
+        // Plus account CHANGES -- a user added, updated, deleted, activated or
+        // deactivated. Those are rare, deliberate, and usually done by someone
+        // else, which is exactly the shape of thing a pop-up is for; a shelf
+        // running low is a standing condition the bell can hold. Sign-ins are
+        // excluded at the source (AlertService::ACCOUNT_KIND) -- a card every
+        // time anybody logs in would make the stack useless by lunchtime.
+        $toastKinds = ['low_stock', 'expiring', 'expired', 'need_to_return', \App\Services\AlertService::ACCOUNT_KIND];
 
+        // $topbarActivity is ALREADY admin-only -- the view composer resolves it
+        // to [] for staff, and AlertController does the same for the polled
+        // feed. So this adds nothing to a staff bell and needs no second gate;
+        // note the rows are merged HERE, in a per-request render, never into
+        // payload()'s cache, which every signed-in user shares.
         $toastSeed = [
             'kinds' => $toastKinds,
 
-            // Already ordered newest-first across kinds by AlertService, so the
-            // queue plays most-recent-first without re-sorting here.
+            // AlertService orders each source newest-first, but MERGING two of
+            // them appends rather than interleaves -- so account rows landed at
+            // the END of the list however recent they were, and the greeting,
+            // which takes the first MAX_VISIBLE, could never reach them. Sorted
+            // on `sort_at`, the onset stamp every row on both sides carries, so
+            // "most recent first" means it across both sources.
             'items' => collect($topbarAlertItems ?? [])
+                ->merge($topbarActivity ?? [])
                 ->whereIn('kind', $toastKinds)
+                ->sortByDesc('sort_at')
                 ->values()
                 ->all(),
         ];
@@ -3425,6 +3516,18 @@
                                                 @if(!empty($item['at'])) data-at="{{ $item['at'] }}" @endif
                                                 @if(empty($item['at']) && !empty($item['sort_at'])) data-since="{{ $item['sort_at'] }}" @endif
                                             >{{ $item['when'] }}</em>
+                                        @endif
+                                        {{-- Styled as a button, and deliberately a SPAN.
+                                             The row is already an <a>, and interactive
+                                             content cannot nest inside one -- a <button>
+                                             or second <a> here is invalid HTML and
+                                             browsers recover from it by splitting the
+                                             anchor, which breaks the row. The whole row
+                                             carries the same href, so the pill is
+                                             clickable in the only sense that matters; it
+                                             is there to name the destination. --}}
+                                        @if(!empty($item['action']))
+                                            <span class="bell-action">{{ $item['action'] }} <i class="ti ti-arrow-right" aria-hidden="true"></i></span>
                                         @endif
                                     </span>
                                     <span class="unread-dot" aria-hidden="true"></span>
@@ -4697,6 +4800,22 @@
                         text.appendChild(time);
                     }
 
+                    // The action pill, matching the Blade render exactly. A
+                    // span for the same reason it is one there: this sits
+                    // inside the row's anchor, which may not contain a button
+                    // or a second link. If these two drift, the pill vanishes
+                    // on the first poll -- the same failure data-when had.
+                    if (it.action) {
+                        const action = document.createElement('span');
+                        action.className = 'bell-action';
+                        action.textContent = it.action + ' ';
+                        const arrow = document.createElement('i');
+                        arrow.className = 'ti ti-arrow-right';
+                        arrow.setAttribute('aria-hidden', 'true');
+                        action.appendChild(arrow);
+                        text.appendChild(action);
+                    }
+
                     const dot = document.createElement('span');
                     dot.className = 'unread-dot';
                     dot.setAttribute('aria-hidden', 'true');
@@ -5288,6 +5407,16 @@
                 text.appendChild(when);
             }
 
+            // Same pill the bell row carries, and a span for the same reason:
+            // the card body is an <a>, which may not contain a button or a
+            // second link. The card's own href is the action's destination.
+            if (row.action) {
+                var action = document.createElement('span');
+                action.className = 'remedi-toast__action';
+                action.textContent = row.action;
+                text.appendChild(action);
+            }
+
             link.appendChild(icon);
             link.appendChild(text);
 
@@ -5442,7 +5571,12 @@
            badge still counts it -- this stack is deliberately the recent-news
            surface, not the complete one. */
         window.addEventListener('remedi:alerts', function (e) {
-            var items = ((e.detail || {}).items) || [];
+            var detail = e.detail || {};
+            // `activity` is its own key on the polled payload, not part of
+            // `items` -- so watching only `items` meant an account change could
+            // be seeded into the greeting but could never pop LIVE. Empty for
+            // staff, who never receive audit rows at all.
+            var items = (detail.items || []).concat(detail.activity || []);
 
             var fresh = items.filter(function (i) {
                 return WATCHED[i.kind] && !seen[i.id];
