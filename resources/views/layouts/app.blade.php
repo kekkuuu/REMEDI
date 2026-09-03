@@ -2644,7 +2644,7 @@
         .remedi-table td.col-actions form {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
+            gap: 14px;
             margin: 0;
         }
 
@@ -2654,11 +2654,42 @@
         .remedi-table .actions-cell {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
+            gap: 14px;
             white-space: nowrap;
         }
 
         .remedi-table .actions-cell form { margin: 0; display: inline-flex; }
+
+        /* Row actions are SOFT: tinted fill, coloured border, coloured text --
+           not the solid mid-tones the rest of the app uses.
+           
+           That standing rule (see REMEDI.md, "Buttons are solid mid-tones") is
+           about the button you press to COMMIT something, where a solid fill is
+           what says "this is the action". A table row is the other case: it
+           carries two or three of them on every line, and at ten rows a page
+           that is thirty saturated fills stacked into a column, which competes
+           with the status badges beside it -- the thing the row is actually
+           there to tell you.
+
+           The colour still MEANS the same thing (blue = go somewhere, amber =
+           reversible restriction, green = confirm, red = destructive); it moves
+           into the border and the label instead of the fill, so the legend
+           survives and the noise does not. Applies to every table that uses
+           .actions-cell -- users, products and inventory -- so the four read as
+           one pattern rather than one redesigned page beside three old ones. */
+        .remedi-table .actions-cell .btn-info    { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+        .remedi-table .actions-cell .btn-warning { background: #fffbeb; border-color: #fde68a; color: #b45309; }
+        .remedi-table .actions-cell .btn-success { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+        .remedi-table .actions-cell .btn-danger  { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+
+        .remedi-table .actions-cell .btn-info:hover    { background: #dbeafe; border-color: #93c5fd; color: #1e40af; }
+        .remedi-table .actions-cell .btn-warning:hover { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+        .remedi-table .actions-cell .btn-success:hover { background: #d1fae5; border-color: #6ee7b7; color: #065f46; }
+        .remedi-table .actions-cell .btn-danger:hover  { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+
+        /* The lift-and-glow the solid buttons carry is wrong on these: a hover
+           shadow under a pale control reads as the control coming loose. */
+        .remedi-table .actions-cell .btn:hover { transform: none; box-shadow: none; }
 
         .remedi-table th.col-actions,
         .remedi-table td.col-actions {

@@ -6,24 +6,90 @@ use App\Models\AuditTrail;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
-use Illuminate\Validation\Rules;
 
 class UserController extends Controller
 {
+    /**
+     * Columns the list may be sorted by, mapped to the actual column.
+     *
+     * A whitelist, not the request value: `orderBy()` interpolates its column
+     * name straight into the SQL, so taking `?sort=` on trust is an injection
+     * point. Anything not on this list falls back to `name`.
+     *
+     * `status` sorts on `is_active` and `joined` on `created_at`, because those
+     * are what the column headings say — the user is sorting by what they can
+     * see, not by the schema.
+     */
+    private const SORTABLE = [
+        'id' => 'id',
+        'name' => 'name',
+        'email' => 'email',
+        'role' => 'role',
+        'status' => 'is_active',
+        'joined' => 'created_at',
+    ];
+
     public function index(Request $request)
     {
+        $request->validate([
+            'search' => 'nullable|string|max:255',
+            'role' => 'nullable|in:admin,staff',
+            'status' => 'nullable|in:active,inactive',
+            'sort' => 'nullable|string|max:20',
+            'dir' => 'nullable|in:asc,desc',
+        ]);
+
+        // Counted BEFORE any filter, and deliberately so: these cards describe
+        // the account list as a whole ("Total Users"), not the slice currently
+        // on screen. Same rule SaleController::index follows for its "today"
+        // cards -- a KPI that silently reports the filter is the bug where
+        // "Total sales today" read PHP 0.00 whenever the list was narrowed.
+        $stats = [
+            'total' => User::count(),
+            'active' => User::where('is_active', true)->count(),
+            'inactive' => User::where('is_active', false)->count(),
+            'admins' => User::where('role', 'admin')->count(),
+        ];
+
         $query = User::query();
 
         if ($request->filled('search')) {
             // likeTerm() escapes the user's own % and _ — see Controller.
+            //
+            // GROUPED in a closure. It used to be
+            // `where(name)->orWhere(email)`, which was harmless while search
+            // was the only filter -- but the moment a second condition sits
+            // beside it, the OR escapes the group and an email match returns
+            // rows the role/status filter had excluded. Same trap as
+            // SuggestController::sales(), where the role scope leaked exactly
+            // this way.
             $like = $this->likeTerm($request->search);
-            $query->where('name', 'like', $like)
-                  ->orWhere('email', 'like', $like);
+            $query->where(function ($q) use ($like) {
+                $q->where('name', 'like', $like)
+                    ->orWhere('email', 'like', $like);
+            });
         }
 
-        $users = $query->orderBy('name')->paginate(10)->withQueryString();
+        if ($request->filled('role')) {
+            $query->where('role', $request->role);
+        }
 
-        return view('admin.users.index', compact('users'));
+        if ($request->filled('status')) {
+            $query->where('is_active', $request->status === 'active');
+        }
+
+        $sort = self::SORTABLE[$request->get('sort')] ?? 'name';
+        $dir = $request->get('dir') === 'desc' ? 'desc' : 'asc';
+
+        $users = $query->orderBy($sort, $dir)
+            // A stable tie-break, so two accounts with the same role (or the
+            // same status, where every row shares one of two values) do not
+            // swap places between pages of the same sorted list.
+            ->orderBy('id')
+            ->paginate(10)
+            ->withQueryString();
+
+        return view('admin.users.index', compact('users', 'stats'));
     }
 
     public function edit(User $user)
@@ -35,7 +101,7 @@ class UserController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email|max:255|unique:users,email,' . $user->id,
+            'email' => 'required|email|max:255|unique:users,email,'.$user->id,
             'role' => 'required|in:admin,staff',
             'password' => 'nullable|confirmed|min:8',
         ]);
@@ -49,7 +115,7 @@ class UserController extends Controller
         $user->email = $validated['email'];
         $user->role = $validated['role'];
 
-        if (!empty($validated['password'])) {
+        if (! empty($validated['password'])) {
             $user->password = Hash::make($validated['password']);
         }
 
@@ -66,7 +132,7 @@ class UserController extends Controller
             return $this->actionFailed($request, 'You cannot deactivate your own account.', 'user');
         }
 
-        $user->is_active = !$user->is_active;
+        $user->is_active = ! $user->is_active;
         $user->save();
 
         $status = $user->is_active ? 'activated' : 'deactivated';
