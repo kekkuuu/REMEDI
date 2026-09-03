@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (136 passed, 408 assertions — measured 2026-09-03) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (147 passed, 432 assertions — measured 2026-09-03) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -61,7 +61,7 @@ rule below: `/` redirects to login, `/register` is the admin Add User form (a gu
 staff get 403, and an admin who creates a user **stays signed in as themselves**), and staff may
 change their name but not their email. **Never change the app to satisfy a test; fix the test.**
 
-Beyond Breeze there are now thirteen suites covering the things REMEDI.md says must never regress:
+Beyond Breeze there are now fourteen suites covering the things REMEDI.md says must never regress:
 
 - `Feature\DestructiveGuardsTest` — the refusals standing between an ordinary click and lost data,
   each one a thing that happened here or was one request away: a cashier with sales deleted, an admin
@@ -77,6 +77,10 @@ Beyond Breeze there are now thirteen suites covering the things REMEDI.md says m
   still accepted, so the bound cannot be off by one).
 - `Feature\Auth\DeactivationTest` — a deactivated cashier losing an open session on both a page
   request and the AJAX till (401, not a redirect).
+- `Feature\Alerts\ActivityFeedTest` — the bell's System/Updates feed: a batch and a checkout each
+  surviving a run of report views, every account event named rather than lumped under one label, the
+  account kind reaching the toast seed while sign-ins do not, the action pill rendering, every href
+  relative, and a staff toast stack carrying no audit-derived rows at all.
 - `Feature\Pos\BackfillAttributionTest` — no backdated sale credited to an account created after it,
   eligibility narrowed to the sale's own timestamp rather than its day, and `--fix-attribution`
   re-pointing an impossible row while leaving a legitimate one and the row's `created_at` alone.
@@ -292,6 +296,8 @@ a surface that needs the same answer, call it rather than re-deriving it.
 | Every state-changing write's record | `AuditTrail::log()` |
 | The actions the audit filter may offer | `AuditTrail::ACTIONS` / `canonicalAction()` |
 | A new batch number: product letters + received date | `ProductBatch::nextBatchNumber()` |
+| Which audit rows are an account CHANGE, and pop as a toast | `AlertService::ACCOUNT_KIND` |
+| Columns the user list may be sorted by | `UserController::SORTABLE` |
 | Upper bounds for money and counts | `Controller::MAX_MONEY` / `MAX_COUNT` |
 | Chart gradients; the navigation skeleton | `partials/_chart-gradient`, `partials/_page-skeleton` |
 
@@ -1241,7 +1247,55 @@ reads as deliberate rather than as a disabled row. **The legend is defined in fi
 (border + icon, two rules), `.remedi-toast.is-out`, `.notif-row.is-out:hover::before` and
 `.dot.is-out`. The notifications TAB dot stays amber, because the tab is the whole `low_stock` kind.
 
-**Four kinds: `low_stock`, `expiring`, `expired`, `need_to_return`.** `fail_to_return` is left to the
+**READS ARE NOT NEWS — `activity()` excludes `Viewed`.** `Viewed` is written on every report open,
+including the same report twice while a filter is adjusted, and it reached **877 of 1,426 audit rows
+(62%)**. `activity()` takes the newest few with no notion of importance, so all six bell slots read
+"New report generated" and nothing that CHANGED anything was ever selected — a batch addition and a
+live sale sat in the same window unseen. Nothing downstream was broken, which is exactly why it
+looked like the notification system ignored batches. Filtered in SQL, so the window is the newest N
+CHANGES rather than the survivors of one full of page views. The audit trail still records every view;
+that is its job, and it is a different surface.
+
+**`AlertService::ACCOUNT_KIND` marks an account CHANGE, and it is what the toasts watch.** Added,
+updated, deleted, activated, deactivated — rare, deliberate, usually someone else's doing, which is
+the shape of thing a pop-up is for. **Sign-ins deliberately keep the generic `activity` kind**: a card
+every time anybody logs in makes the stack useless by lunchtime. Nothing filters the bell on `kind` —
+its tabs read `group` — so the split costs nothing there. Each event is also NAMED (New user added /
+User account updated / User account deleted / Account activated / Account deactivated); they were all
+"Account updated" before, including deletions.
+
+**`$isAccount` must match how the row was actually WRITTEN.** It looked for the string `'user
+account'`, and `UserController` writes status changes as `"Account deactivated: Emman"` — so the one
+thing that routinely happens to an account was filed under Updates as a generic "Record updated".
+Same shape as the audit filter offering `Create` while every row says `Created`: a string that never
+matched the data it was written for. If you add an audit message, check it against this predicate.
+
+**Merging two newest-first lists APPENDS; it does not interleave.** The toast seed merges
+`$topbarAlertItems` with `$topbarActivity`, and account rows landed at the END however recent they
+were — the greeting takes the first `MAX_VISIBLE`, so the card was in the seed and still never
+appeared. Sort the merged collection on `sort_at`, the onset stamp both sides carry. The bell's own
+feed already did this; the toast seed did not.
+
+**Live pops read `items` AND `activity`.** `activity` is its own key on the polled payload, not part
+of `items`, so watching only `items` meant an account change could be seeded into the greeting yet
+never pop live.
+
+**Account rows link at `/users`, not the audit trail, and carry an action pill.** The trail is the
+record of what happened; `/users` is where you act on it, and a notification that someone was
+deactivated is only useful if it lands you there. **The pill is a `<span>`, not a `<button>`** — it
+sits inside the row's own `<a>`, and interactive content may not nest inside an anchor; browsers
+recover by splitting the anchor, which breaks the row. The row already carries the href. It is
+rendered in **three places that must agree** — the Blade row (`.bell-action`), the bell's JS
+`render()`, and the toast card (`.remedi-toast__action`) — and the JS one is the easy miss: get it wrong and the pill is there on load and gone on the
+first poll, the same failure `data-when` had.
+
+**All of this is ADMIN-ONLY BY CONSTRUCTION, not by a second gate.** These rows come from
+`activity()`, which the view composer and `AlertController` already resolve to `[]` for staff, and the
+toast seed merges them in a per-request render — never into `payload()`'s cache, which every
+signed-in user shares. Keep it that way; a role-dependent row in that key serves a staff account
+whatever an admin cached first.
+
+**Four stock kinds: `low_stock`, `expiring`, `expired`, `need_to_return`.** `fail_to_return` is left to the
 bell — a missed return window is a standing regret, not something to interrupt anyone about.
 
 **The greeting is most-recent-first, except expired.** `AlertService` already sorts the payload
@@ -1486,6 +1540,39 @@ note above).
 computed accessor: `low_stock` by `sellable_stock` ascending, `expiring` by the earliest still-
 sellable batch, `expired` by the longest-expired batch. Sort on `sellable_stock`, never
 `total_stock` — a product with 300 expired units is not better stocked than one with 2 good ones.
+
+**User Management is search + Filter + four KPIs + a sortable table.** Three rules behind it, none
+cosmetic:
+
+- **The KPI cards are counted BEFORE any filter.** They describe the account list as a whole, so
+  narrowing the table must not quietly rewrite "Total Users" — the same rule `SaleController::index`
+  follows for its "today" cards, where cloning the query after the filters made them read ₱0.00 for
+  any past range.
+- **The search is GROUPED in a closure.** `where(name)->orWhere(email)` was harmless while search was
+  the only filter, but with role and status beside it the `OR` escapes the group and an email match
+  returns rows the filter excluded — the leak `SuggestController::sales()` had.
+- **`UserController::SORTABLE` is a whitelist, not the request value.** `orderBy()` interpolates its
+  column name straight into the SQL. It falls back to `name` and carries a stable tie-break on `id`,
+  so rows do not swap places between pages of one sorted list.
+
+**An action column only aligns if the widest label is pinned.** "Activate" is 14px narrower than
+"Deactivate", and that difference does not stay in its own column — it drags every button after it
+left on those rows, stepping the last column down the table. `.action-toggle` is sized to its widest
+label in `em`, not px, so a font-size change cannot silently break it again.
+
+**Row actions are SOFT — tinted fill, coloured border, coloured text — in every table that has them.**
+That is not a reversal of "buttons are solid mid-tones": that rule is about the button you press to
+COMMIT something, where the fill is what says "this is the action". A row is the other case, carrying
+two or three per line at ten lines a page, and thirty saturated fills is a block of colour competing
+with the status badges beside it. The colour still means the same thing, moved into the border and
+label. Defined once in `layouts/app.blade.php` under `.remedi-table .actions-cell`, so users,
+products and inventory read as one pattern.
+
+**`.actions-cell` is a SHARED primitive — overriding it from a page needs matching specificity.** The
+layout's selector is `.remedi-table .actions-cell`, two classes; a bare `.actions-cell { gap }` in a
+page is one, loses, and changes nothing at all. **Nothing errors when a rule loses on specificity —
+the page simply ignores you**, which is a long way to look for a gap that will not move. Four views
+share this primitive, so change the layout only when you mean all four.
 
 **The audit trail uses the shared pager**, centred from 768px up (`.audit-pager`), rather than the
 private one it used to draw. **Row numbers use `$paginator->firstItem() + $loop->index`** so page 2

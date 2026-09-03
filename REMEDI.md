@@ -3597,6 +3597,196 @@ stocked than one with 2 good ones.
 stock, expiry and the return actions actually live, since none of those are columns on `products`.
 Long tables scroll inside `.table-scroll`; that is the answer to page height, not a collapse.
 
+### The notification feed was 62% report views
+
+**Symptom:** "why in notification system the addition of batches were not displayed". Adding a batch
+never appeared in the bell's Updates tab. Neither did a sale.
+
+**It was not a classification bug.** `activity()` always mapped a batch correctly — `Created` →
+"Record added". Those rows were never SELECTED. Measured on this install, the newest 18 audit rows
+that `activity()` reads:
+
+```
+ 1-11. [Viewed ] Generated ... Report      ← eleven in a row
+   12. [Created] Processed sale TXN-20260903-00006 - ₱111.96
+   13. [Viewed ] Generated Inventory Report (filtered)
+   14. [Login  ] Staff logged in
+15-18. [Viewed ] Generated ... Report
+```
+
+and what the bell showed, after `take(6)`:
+
+```
+1. New report generated   2. New report generated   3. New report generated
+4. New report generated   5. New report generated   6. New report generated
+```
+
+`Viewed` is written on every report open, including the same report twice while a filter is
+adjusted — **877 of 1,426 rows, 62% of the trail**. The method takes the newest few with no notion of
+importance, so real changes could not reach it.
+
+The method's own comment already said *"anything else is noise for a notification panel and is dropped
+below"*. Nothing was dropped: the `default` arm caught everything, and the only filter was a literal
+`'Profile Test'`. The fix makes it do what it said, in SQL rather than after the fetch, so the window
+is the newest N CHANGES rather than the survivors of one mostly full of reads.
+
+After: batch additions, checkouts, account changes and sign-ins, in the order they happened.
+
+**The audit trail itself is untouched and still records every view.** That is its job. This is a
+notification panel, and generating a report is something the reader just did.
+
+**Worth watching:** this ratio only grows. Every report open adds a row forever, and 62% will drift
+upward. The trail will want a retention policy before it becomes slow — not urgent, but it is the
+one table here with an unbounded write rate driven by ordinary reading.
+
+### `$isAccount` looked for a string the app never writes
+
+The same method sorts audit rows into System ("who got in and whose account changed") and Updates
+("what happened to the data"). Its test was:
+
+```php
+str_contains($row->details, 'user account')
+```
+
+`UserController` writes three of the four account messages that way — "Added user account: X",
+"Updated user account: X", "Deleted user account: X" — but status changes as:
+
+```php
+"Account {$status}: {$user->name}"     // "Account deactivated: Emman"
+```
+
+which contains no such substring. So deactivating and activating people, the thing that most often
+happens to an account here, fell through to the generic "Record updated" and was filed under Updates,
+away from the sign-ins and account changes it belongs beside.
+
+Exactly the shape of the audit-filter bug in the same session: a dropdown offering `Create` while
+every row is written `Created`. **When a predicate keys on a message, check it against every writer of
+that message**, not against the two you happen to remember.
+
+### Account changes notify, and how the toast stack learned about them
+
+Adding, updating, deleting, activating and deactivating an account now reach the bell AND the
+bottom-right pop-up. Four things had to be true, and three of them were not:
+
+1. **Each event needed a NAME.** All of them read "Account updated", including deletions — the one
+   account change you would most want a notification to state plainly. Now: New user added / User
+   account updated / User account deleted / Account activated / Account deactivated.
+
+2. **The toast stack watches KINDS**, and every audit row shared the generic `activity` kind.
+   `AlertService::ACCOUNT_KIND` marks an account CHANGE. Sign-ins deliberately keep `activity`: a card
+   every time anybody logs in makes the stack useless by lunchtime. Nothing filters the bell on
+   `kind` — its tabs read `group` — so the split is free there.
+
+3. **Live pops read only `items`.** `activity` is its own key on the polled payload, so an account
+   change could be seeded into the greeting and still never pop live.
+
+4. **Merging two newest-first lists appends rather than interleaves.** This one was found by watching
+   the cards actually play. The seed merges `$topbarAlertItems` with `$topbarActivity`, and the
+   account row landed at the END of the list however recent it was. `pickGreeting()` takes the first
+   `MAX_VISIBLE`, so with three expired and two low-stock cards ahead of it the card was present in
+   the seed and never once appeared:
+
+   ```
+   before:  [expired] [expired] [expired] [is-out] [is-low]          ← account row absent
+   after:   [expired] [expired] [expired] [SYSTEM] [is-out]          ← sorted on sort_at
+   ```
+
+   Sort the merged collection on `sort_at`, the onset stamp every row on both sides carries. The
+   bell's own feed already did this; the seed did not.
+
+**The card is violet (#7c3aed), deliberately off the amber-to-red severity ramp** the stock kinds
+share. Nothing is wrong with the shelf; someone changed who can get in. Same argument that keeps
+out-of-stock graphite rather than a deeper red: a different KIND of thing, not another rung on a
+ladder it does not belong on.
+
+**ADMIN ONLY BY CONSTRUCTION.** These rows come from `activity()`, which the view composer and
+`AlertController` already resolve to `[]` for staff, and the toast seed merges them in a per-request
+render. They never enter `payload()`'s cache, which every signed-in user shares — putting a
+role-dependent row in that key is how a staff account ends up seeing whatever an admin cached first.
+`Feature\Alerts\ActivityFeedTest` asserts a staff toast stack carries none of them.
+
+### The action pill is a span, and that is not laziness
+
+Account notifications point at `/users` rather than the audit trail — the trail is the record of what
+happened, `/users` is where you do something about it — and carry a "Manage users" pill.
+
+**It is a `<span>` on both surfaces because it sits inside the row's own `<a>`.** Interactive content
+may not nest inside an anchor: a `<button>` or a second `<a>` there is invalid HTML, and browsers
+recover from it by SPLITTING the anchor, which breaks the row the pill was meant to decorate. The row
+and the card already carry the action's href, so the pill is clickable in the only sense that
+matters; it exists to name the destination.
+
+**Rendered in three places that must agree** — the Blade row, the bell's JS `render()`, and the toast
+card builder. The JS one is the easy miss: get it wrong and the pill is there on load and gone thirty
+seconds later on the first poll. That is precisely how `data-when` failed before it, and it is the
+reason those two renderers carry mirrored comments.
+
+**The href stays RELATIVE.** `activity()` is cached under `topbar_activity`, and an absolute URL bakes
+in whichever host warmed the cache — warm from `127.0.0.1`, read from `localhost`, and the session
+cookie is not sent. A test walks the whole feed asserting every `href` starts with `/`.
+
+### User Management, rebuilt
+
+Search pill with the glyph inside, a Filter panel, four KPI cards, avatars with the role beneath the
+name, sortable columns, and a "Showing 1 to 6 of 6 users" footer. Verified by rendering each state and
+counting rows rather than by eye:
+
+| Request | Rows | KPIs (total/active/inactive/admins) |
+|---|---|---|
+| *(none)* | 6 | 6/4/2/1 |
+| `?role=staff` | 5 | 6/4/2/1 |
+| `?status=inactive` | 2 (ids 20, 19) | 6/4/2/1 |
+| `?search=mirae` | 1 | 6/4/2/1 |
+| `?role=admin&status=inactive` | 0 | 6/4/2/1 |
+| `?sort=joined&dir=desc` | 20,19,15,14,6,1 | 6/4/2/1 |
+
+The KPIs holding steady under every filter is the point, not an accident — see the rule in CLAUDE.md.
+
+Two things the rebuild exposed in the old page:
+
+- **The search was an ungrouped `OR`.** Harmless while search was the only filter; the moment role and
+  status sat beside it, an email match would return rows the filter had excluded. The
+  `?role=admin&status=inactive` row above (0 results, the admin being active) is the case that would
+  have leaked.
+- **`?sort=` went straight into `orderBy()`**, which interpolates its column name into the SQL.
+  `UserController::SORTABLE` is a whitelist now, with a stable tie-break on `id`.
+
+### An action column aligns on its widest label
+
+Measured before the fix, action buttons across six rows:
+
+```
+Edit   always 73px, left edge 1086   ← already aligned
+Toggle "Deactivate" 112px / "Activate" 98px
+Delete left edge 1283 on Deactivate rows, 1269 on Activate rows   ← a 14px step
+```
+
+The toggle is the only action whose label changes with the row, and the difference does not stay in
+its own column — it drags everything after it. `.action-toggle` is sized to its widest label, in `em`
+so a font-size change cannot silently reintroduce the step. After: Delete at 1284 on every row, one
+distinct x-position per column.
+
+### Overriding a shared primitive needs matching specificity
+
+`.actions-cell` is defined in `layouts/app.blade.php` and used by four views (users, products ×2,
+inventory). Setting `gap: 10px` from inside the users page did **nothing** — the layout's selector is
+`.remedi-table .actions-cell`, two classes to one:
+
+```
+computedGap: 6px        ← the page's own rule, ignored
+rules targeting .actions-cell:
+  .remedi-table .actions-cell  gap 6px   (layout)
+  .actions-cell                gap 10px  (page)
+```
+
+**Nothing errors when a rule loses on specificity. The page simply ignores you**, which is a long way
+to look for a gap that will not move. Matched at `.remedi-table .actions-cell` and placed later in the
+document, it wins for that page and the other three keep the value they were drawn with.
+
+The row actions were softened at the same time — tinted fill, coloured border, coloured text — and
+that lives in the LAYOUT, so all four tables read as one pattern rather than one redesigned page
+beside three old ones. See CLAUDE.md for why that is not a reversal of "buttons are solid mid-tones".
+
 ## Cruft — removed
 
 The scratch copies, dead experiments and stray files this section used to list have been **deleted**
