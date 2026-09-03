@@ -44,7 +44,12 @@ class UserController extends Controller
         // on screen. Same rule SaleController::index follows for its "today"
         // cards -- a KPI that silently reports the filter is the bug where
         // "Total sales today" read PHP 0.00 whenever the list was narrowed.
-        $stats = [
+        //
+        // Skipped entirely on the AJAX path: the live-search response never
+        // renders them (the cards stay untouched in the DOM on purpose, so a
+        // keystroke can never make them lie), so computing four more COUNTs on
+        // every keystroke would only be paying for numbers nobody reads.
+        $stats = ($request->wantsJson() || $request->ajax()) ? [] : [
             'total' => User::count(),
             'active' => User::where('is_active', true)->count(),
             'inactive' => User::where('is_active', false)->count(),
@@ -88,6 +93,17 @@ class UserController extends Controller
             ->orderBy('id')
             ->paginate(10)
             ->withQueryString();
+
+        // Realtime search: same AJAX partial-swap pattern as Inventory, POS,
+        // Products and Forecasting. The table AND its footer ("Showing x to y
+        // of z") are both in _rows.blade.php, since they always change
+        // together -- there is nothing here for the KPI cards, which the
+        // partial never renders.
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json([
+                'html' => view('admin.users._rows', compact('users'))->render(),
+            ]);
+        }
 
         return view('admin.users.index', compact('users', 'stats'));
     }

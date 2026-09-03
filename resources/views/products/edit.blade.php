@@ -315,8 +315,11 @@
 
     /* Readable, not disabled-looking: this value is real and is what gets
        stored, it just isn't yours to type. A greyed-out field would read as
-       "not applicable". */
-    #batch_number[readonly] { background: #f8fafc; color: var(--ink); cursor: default; }
+       "not applicable". cursor is left unset here on purpose -- the layout's
+       `input[readonly] { cursor: not-allowed }` already covers it, and an ID
+       selector here would silently outrank that bare-element rule and win,
+       the same specificity trap `.actions-cell` hit earlier this session. */
+    #batch_number[readonly] { background: #f8fafc; color: var(--ink); }
     #batch_number[readonly]:focus { outline: none; border-color: var(--line); box-shadow: none; }
 </style>
 

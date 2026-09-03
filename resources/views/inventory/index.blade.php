@@ -214,9 +214,13 @@
                      the field still explains itself. --}}
                 <div>
                     <label style="font-size:.8rem;">Batch Number</label><br>
+                    {{-- The blocked cursor on hover is the cue, not an icon in
+                         the label -- see .form-field input[readonly] in the
+                         layout. cursor:default here would override it, so it
+                         is dropped in favour of that shared rule. --}}
                     <input type="text" name="batch_number" id="qr-batch-number" readonly aria-readonly="true" tabindex="-1"
                            placeholder="Assigned automatically"
-                           style="padding:8px; border:1px solid #d1d5db; border-radius:6px; background:#f8fafc; cursor:default;">
+                           style="padding:8px; border:1px solid #d1d5db; border-radius:6px; background:#f8fafc;">
                 </div>
                 <div>
                     <label style="font-size:.8rem;">Quantity</label><br>

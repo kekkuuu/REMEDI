@@ -1959,6 +1959,19 @@
             color: var(--ink-soft);
         }
 
+        /* The blocked cursor, not an icon: hovering a field the app genuinely
+           will not let you change -- the batch number (auto-assigned), your
+           own Role on Edit User (self-demotion is refused server-side) --
+           shows the browser's own "not-allowed" pointer, the same signal a
+           disabled button already gives for free. `input[readonly]` needs it
+           stated explicitly; unlike `:disabled`, a readonly field keeps the
+           ordinary text cursor by default even though typing does nothing. */
+        input[readonly],
+        select:disabled,
+        input:disabled {
+            cursor: not-allowed;
+        }
+
         .form-field-head label {
             font-size: 14.5px;
             font-weight: 600;
