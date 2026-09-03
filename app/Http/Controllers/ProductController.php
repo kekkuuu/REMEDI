@@ -119,7 +119,12 @@ class ProductController extends Controller
             }
         }
 
-        return view('products.edit', compact('product', 'categories', 'suggestedExpiryDate'));
+        // What the Add New Batch form needs to show the number the save will
+        // actually produce, without asking the server on every date keystroke.
+        // The stored value is still decided by ProductBatch::nextBatchNumber().
+        $batchSequences = ProductBatch::takenSequences($product);
+
+        return view('products.edit', compact('product', 'categories', 'suggestedExpiryDate', 'batchSequences'));
     }
 
     public function update(Request $request, Product $product)
@@ -298,7 +303,12 @@ class ProductController extends Controller
     public function addBatch(Request $request, Product $product)
     {
         $validated = $request->validate([
-            'batch_number' => 'required|string|max:100',
+            // Accepted so a stray field does not 422, and then DISCARDED --
+            // the number is derived below, never taken from the request. Both
+            // forms render it readonly, so there is nothing for a user to type;
+            // what the browser puts in the box is a preview of the rule, and
+            // the server is the only thing that decides.
+            'batch_number' => 'nullable|string|max:100',
             'quantity' => 'required|integer|min:1|max:'.self::MAX_COUNT,
             // after:received_date as well as after:today. Without it a batch
             // could be saved expiring BEFORE it was received, which is not just
@@ -318,6 +328,17 @@ class ProductController extends Controller
         ]);
 
         $validated['product_id'] = $product->id;
+
+        // ALWAYS derived, never read from the request. Deriving here rather
+        // than trusting the field the browser filled in is also what closes the
+        // race the readonly field would otherwise open: two people adding a
+        // batch for the same product on the same day are both shown `-01`, and
+        // whichever posts second must still be told it is `-02`.
+        //
+        // After validation, so `received_date` is known to be a real date that
+        // is not in the future -- generating from unvalidated input would stamp
+        // a number with a day the same request is about to reject.
+        $validated['batch_number'] = ProductBatch::nextBatchNumber($product, $validated['received_date']);
 
         // The quantity a batch arrived with, as opposed to what is left of it
         // after FEFO checkouts have eaten into `quantity`. The seeder, the

@@ -146,6 +146,68 @@ class InventoryReportTest extends TestCase
         $filtered->assertDontSee('Healthy Item');
     }
 
+    /*
+     * The status filter is ONE choice.
+     *
+     * It was two independent checkboxes, so both could be ticked -- and that
+     * asks for the intersection of two sets this report deliberately keeps
+     * disjoint: a product below its reorder level holding nothing but expired
+     * units is excluded from low stock ON PURPOSE, because clearing it is the
+     * job rather than reordering it. Ticking both therefore returned rows the
+     * two KPIs above the table disagreed about. `status` is now a select, and
+     * the old parameters are still honoured so bookmarks keep working.
+     */
+
+    public function test_the_status_filter_narrows_to_one_choice(): void
+    {
+        $this->product('Expired Item', 25, now()->subDays(30)->toDateString());
+        $this->product('Healthy Item', 40, now()->addDays(300)->toDateString());
+
+        $expired = $this->report(['status' => 'expired']);
+        $expired->assertSee('Expired Item');
+        $expired->assertDontSee('Healthy Item');
+    }
+
+    public function test_the_status_filter_is_rendered_as_a_single_select(): void
+    {
+        $html = $this->report(['status' => 'expired'])->getContent();
+
+        $this->assertStringContainsString('name="status"', $html);
+        $this->assertStringContainsString('<option value="expired" selected>', $html);
+
+        // The two checkboxes are gone; a checkbox is what let both be chosen.
+        $this->assertStringNotContainsString('type="checkbox" name="low_stock"', $html);
+        $this->assertStringNotContainsString('type="checkbox" name="expired"', $html);
+    }
+
+    public function test_the_old_checkbox_parameters_still_work(): void
+    {
+        $this->product('Expired Item', 25, now()->subDays(30)->toDateString());
+        $this->product('Healthy Item', 40, now()->addDays(300)->toDateString());
+
+        $legacy = $this->report(['expired' => 1]);
+        $legacy->assertSee('Expired Item');
+        $legacy->assertDontSee('Healthy Item');
+
+        // And the select shows which filter is actually in force, rather than
+        // reading "All stock" above a narrowed table.
+        $this->assertStringContainsString('<option value="expired" selected>', $legacy->getContent());
+    }
+
+    public function test_a_url_asking_for_both_resolves_to_one(): void
+    {
+        $this->product('Expired Item', 25, now()->subDays(30)->toDateString());
+        $this->product('Healthy Item', 40, now()->addDays(300)->toDateString());
+
+        // Hand-written, or a stale bookmark from when both could be ticked.
+        $both = $this->report(['low_stock' => 1, 'expired' => 1]);
+
+        // low_stock wins, and the page says so -- what it must NOT do is apply
+        // both and print an empty table under two non-zero KPIs.
+        $this->assertStringContainsString('<option value="low_stock" selected>', $both->getContent());
+        $this->assertStringNotContainsString('<option value="expired" selected>', $both->getContent());
+    }
+
     /** The KPI describes the filtered set, so it must agree with the rows. */
     public function test_the_kpi_and_the_rows_agree_under_the_filter(): void
     {

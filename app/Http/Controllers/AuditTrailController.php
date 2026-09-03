@@ -55,8 +55,11 @@ class AuditTrailController extends Controller
             });
         }
 
+        // Through canonicalAction(), so a link carrying the old singular
+        // spelling ("Create") still finds its rows rather than returning an
+        // empty table — see the note on AuditTrail::ACTIONS.
         if ($request->filled('action')) {
-            $query->where('action', $request->action);
+            $query->where('action', AuditTrail::canonicalAction($request->action));
         }
 
         if ($request->filled('role')) {

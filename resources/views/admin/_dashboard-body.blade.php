@@ -1255,6 +1255,22 @@
     // Draws each bar's numeric value directly on the bar (in addition to
     // the hover tooltip) so exact current-stock / demand numbers are
     // visible at a glance instead of requiring a hover.
+    /* Is this bar pale enough that white text on it would disappear?
+       Relative luminance of a #rgb / #rrggbb fill. Anything that is not a
+       plain colour string -- a CanvasGradient, which _chart-gradient builds
+       for every bar dataset -- is treated as dark, which every gradient in
+       these charts is. */
+    function barIsLight(fill) {
+        if (typeof fill !== 'string') return false;
+        const hex = fill.trim().replace('#', '');
+        if (!/^([0-9a-f]{3}|[0-9a-f]{6})$/i.test(hex)) return false;
+        const full = hex.length === 3 ? hex.split('').map((c) => c + c).join('') : hex;
+        const r = parseInt(full.slice(0, 2), 16);
+        const g = parseInt(full.slice(2, 4), 16);
+        const b = parseInt(full.slice(4, 6), 16);
+        return (0.2126 * r + 0.7152 * g + 0.0722 * b) > 150;
+    }
+
     const valueLabelPlugin = {
         id: 'valueLabelPlugin',
         afterDatasetsDraw(chart) {
@@ -1279,19 +1295,30 @@
 
                     if (horizontal) {
                         const width = ctx.measureText(text).width;
-
-                        // Preferred spot is just past the bar's end. The
-                        // longest bar reaches the right edge of the plot, so
-                        // that would draw the number outside the canvas and
-                        // clip it -- exactly the case that used to lose the
-                        // biggest (most interesting) figure. Measure first,
-                        // and tuck the label inside the bar when it won't fit.
-                        if (bar.x + 4 + width <= chartArea.right) {
+                        // Preferred spot is just past the bar's end.
+                        //
+                        // Measured against the CANVAS, not chartArea.right.
+                        // chartArea.right is the plot edge, but
+                        // layout.padding.right reserves canvas beyond it
+                        // precisely so these labels have somewhere to go --
+                        // measuring against the plot edge threw that room away
+                        // and sent the longest bar's number into the branch
+                        // below.
+                        if (bar.x + 4 + width <= chart.width - 2) {
                             ctx.fillStyle = '#334155';
                             ctx.textAlign = 'left';
                             ctx.fillText(text, bar.x + 4, bar.y);
                         } else {
-                            ctx.fillStyle = '#fff';
+                            // Inside the bar, and the colour has to come FROM
+                            // the bar. This was hardcoded white, which is
+                            // invisible on the pale slate (#e2e8f0) the
+                            // "Reorder level" dataset uses -- so the longest
+                            // bar on Lowest Stock vs. Reorder Level, the one
+                            // most worth reading, was drawn in white on
+                            // near-white and simply could not be seen.
+                            ctx.fillStyle = barIsLight(bar.options && bar.options.backgroundColor)
+                                ? '#334155'
+                                : '#fff';
                             ctx.textAlign = 'right';
                             ctx.fillText(text, bar.x - 5, bar.y);
                         }

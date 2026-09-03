@@ -224,8 +224,30 @@ class ReportController extends Controller
     public function inventory(Request $request)
     {
         $categoryId = $request->get('category_id');
-        $lowStockOnly = $request->boolean('low_stock');
-        $expiredOnly = $request->boolean('expired');
+
+        // ONE status filter, not two independent flags.
+        //
+        // These were two checkboxes, which meant both could be ticked -- and
+        // that asks for the intersection of two sets this report deliberately
+        // keeps disjoint. A product below its reorder level holding nothing but
+        // expired units is excluded from low stock on purpose (see the long
+        // note below, and Product::is_running_out): its problem is clearing,
+        // not reordering, and the Expired filter beside it already says so. So
+        // "low stock AND expired" asked for rows the two KPIs above the table
+        // disagreed about, and on this catalogue it returned an empty table
+        // while both KPIs read non-zero.
+        //
+        // `low_stock=1` / `expired=1` are still honoured so older bookmarks and
+        // any hand-written URL keep working; `status` wins where both appear.
+        $status = $request->get('status');
+
+        if (! in_array($status, ['low_stock', 'expired'], true)) {
+            $status = $request->boolean('low_stock') ? 'low_stock'
+                : ($request->boolean('expired') ? 'expired' : null);
+        }
+
+        $lowStockOnly = $status === 'low_stock';
+        $expiredOnly = $status === 'expired';
 
         $query = Product::with('category', 'batches')->orderBy('name');
 

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 class ProductBatch extends Model
@@ -110,6 +111,125 @@ class ProductBatch extends Model
             'filter' => 'expiring',
             'days' => self::EXPIRY_SOON_DAYS,
         ], false);
+    }
+
+    /** How many letters of the product name a batch number carries. */
+    public const BATCH_CODE_LETTERS = 3;
+
+    /** Width of the zero-padded counter in an auto-generated batch number. */
+    public const BATCH_SEQUENCE_PAD = 2;
+
+    /**
+     * The product's letters for a batch number: HERACLENE 1MG TAB -> HER.
+     *
+     * LETTERS ONLY, and that matters on this catalogue -- names here open with
+     * digits and punctuation often enough that "the first three characters"
+     * would produce codes like `3M ` and `G. `. Stripping to letters first
+     * gives `3M TAPE` -> MTA and `G. CROSS ETHYL 70%` -> GCR, which still point
+     * at the product a human is looking for.
+     *
+     * Padded with X when a name has fewer than three letters, so the code is
+     * always the same width and the number always parses the same way.
+     */
+    public static function batchNameCode(Product $product): string
+    {
+        $letters = preg_replace('/[^A-Za-z]/', '', (string) $product->name);
+        $code = strtoupper(substr($letters, 0, self::BATCH_CODE_LETTERS));
+
+        return str_pad($code, self::BATCH_CODE_LETTERS, 'X');
+    }
+
+    /**
+     * The stem every auto-generated batch number carries, for this product on
+     * this day: `HER-20260901-`.
+     *
+     * Kept apart from nextBatchNumber() so the form's JS and the server agree
+     * on the format by construction: the view echoes this prefix, the browser
+     * appends its own guess at the sequence for display, and the SERVER is
+     * still the one that decides — same split as `Sale::transactionPrefix()`
+     * beside `Sale::nextTransactionNo()`.
+     */
+    public static function batchNumberPrefix(Product $product, \DateTimeInterface|string $receivedDate): string
+    {
+        $date = $receivedDate instanceof \DateTimeInterface
+            ? Carbon::instance($receivedDate)
+            : Carbon::parse($receivedDate);
+
+        return self::batchNameCode($product).'-'.$date->format('Ymd').'-';
+    }
+
+    /**
+     * The next batch number for this product on this delivery date.
+     *
+     * `AAA-YYYYMMDD-NN` -- three letters of the product name, the day it was
+     * received, and a counter within THAT PRODUCT on THAT DAY.
+     *
+     * The date is the received date rather than today, because a delivery
+     * entered a day late still belongs to the day it arrived -- that is the
+     * whole point of the field being editable, and a number stamped with the
+     * day someone got round to typing it in would contradict the
+     * `received_date` beside it.
+     *
+     * The `-NN` is not decoration: without it a second delivery of the same
+     * product on the same day would produce the identical number, and the two
+     * rows in the batch table could not be told apart. It counts rather than
+     * incrementing a stored maximum, which would regress the moment a batch is
+     * deleted -- the bug `Sale::nextTransactionNo()` documents at length.
+     *
+     * Scoped per product, not globally: `batch_number` carries no unique
+     * constraint and nothing joins on it, and the letters already separate two
+     * different products received the same day.
+     */
+    public static function nextBatchNumber(Product $product, \DateTimeInterface|string $receivedDate): string
+    {
+        $prefix = static::batchNumberPrefix($product, $receivedDate);
+
+        $last = static::where('product_id', $product->id)
+            ->where('batch_number', 'like', $prefix.'%')
+            ->orderByDesc('batch_number')
+            ->value('batch_number');
+
+        $sequence = $last ? ((int) substr($last, strlen($prefix))) + 1 : 1;
+
+        return $prefix.str_pad((string) $sequence, self::BATCH_SEQUENCE_PAD, '0', STR_PAD_LEFT);
+    }
+
+    /**
+     * The highest sequence already issued for this product, per received day.
+     *
+     * `['20260903' => 2, ...]`, for the Add New Batch form: the browser has to
+     * show the number the save will actually produce, and it cannot ask the
+     * server on every keystroke of a date field. The server still recomputes
+     * on submit — this is the DISPLAY, nextBatchNumber() is the rule — but the
+     * two agree because both read the same prefix and the same padding.
+     *
+     * Days with no generated batch are simply absent, and the caller treats
+     * absent as zero, so the map only ever carries the handful of days this
+     * product has actually received stock on.
+     *
+     * @return array<string, int>
+     */
+    public static function takenSequences(Product $product): array
+    {
+        $taken = [];
+
+        foreach ($product->batches as $batch) {
+            if (! $batch->received_date) {
+                continue;
+            }
+
+            $day = $batch->received_date->format('Ymd');
+            $prefix = static::batchNumberPrefix($product, $batch->received_date);
+
+            if (! str_starts_with((string) $batch->batch_number, $prefix)) {
+                continue;   // a supplier lot number, or a seeded OPENING-*
+            }
+
+            $sequence = (int) substr((string) $batch->batch_number, strlen($prefix));
+            $taken[$day] = max($taken[$day] ?? 0, $sequence);
+        }
+
+        return $taken;
     }
 
     /**
