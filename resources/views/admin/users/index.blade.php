@@ -199,10 +199,13 @@
     <div class="users-toolbar">
         <div class="users-search">
             <i class="ti ti-search" aria-hidden="true"></i>
-            <input type="text" name="search" value="{{ request('search') }}"
+            <input type="text" id="usersSearchInput" name="search" value="{{ request('search') }}"
                    placeholder="Search by name or email..."
                    autocomplete="off"
                    data-suggest-url="{{ route('suggest.users') }}">
+            {{-- With JavaScript off this button (and Enter) still submits the
+                 form normally -- the live search below is an enhancement, not
+                 the only way this works. --}}
             <button type="submit" aria-label="Search"><i class="ti ti-search" aria-hidden="true"></i></button>
         </div>
 
@@ -297,167 +300,11 @@
     </div>
 </div>
 
-@php
-    // Every sortable heading, resolved HERE rather than inside the table.
-    //
-    // Two Blade rules are behind that, both learned the hard way, and both
-    // producing an "Undefined variable" at render time from markup that reads
-    // perfectly:
-    //
-    //  1. Blade lifts raw PHP blocks out FIRST, with a non-greedy regex that
-    //     knows nothing about the parenthesised one-line form. Use that form
-    //     anywhere in a view that also uses blocks and it pairs itself with the
-    //     next block terminator, swallowing everything between. So this view
-    //     uses the block form only, and never inside a loop.
-    //
-    //  2. That same regex does not care that it is looking at a COMMENT. Naming
-    //     either directive literally in a comment -- even to warn about this --
-    //     ends the block early, right there. Which is exactly how this comment
-    //     broke the first time it was written. Describe them, never spell them.
-    //
-    // Same family as the endif-then-if trap in REMEDI.md: keep the PHP out of
-    // the markup, and keep the directive names out of the PHP.
-    $columns = [];
-
-    foreach (['id' => 'ID', 'name' => 'Name', 'role' => 'Role', 'status' => 'Status', 'joined' => 'Date Joined'] as $key => $label) {
-        $active = request('sort') === $key;
-        $desc = $active && request('dir') === 'desc';
-
-        $columns[$key] = [
-            'label' => $label,
-            'url' => request()->fullUrlWithQuery(['sort' => $key, 'dir' => $active && ! $desc ? 'desc' : 'asc', 'page' => null]),
-            'active' => $active,
-            // The chevron reflects the direction currently APPLIED, not the one
-            // a click would produce — the arrow describes the table, not the link.
-            'icon' => $active ? ($desc ? 'ti-chevron-down' : 'ti-chevron-up') : 'ti-selector',
-            'aria' => $active ? ($desc ? 'descending' : 'ascending') : 'none',
-        ];
-    }
-
-    // At most two initials, from the first and last word of the name.
-    $initialsOf = function (string $name) {
-        $words = preg_split('/\s+/', trim($name), -1, PREG_SPLIT_NO_EMPTY) ?: [$name];
-
-        return mb_strtoupper(mb_substr($words[0], 0, 1).(count($words) > 1 ? mb_substr(end($words), 0, 1) : ''));
-    };
-@endphp
-
-<div class="card">
-    <div class="table-scroll"><table class="remedi-table">
-        <thead>
-            <tr>
-                @foreach(['id', 'name'] as $key)
-                    <th aria-sort="{{ $columns[$key]['aria'] }}">
-                        <a href="{{ $columns[$key]['url'] }}" class="th-sort {{ $columns[$key]['active'] ? 'is-sorted' : '' }}">
-                            {{ $columns[$key]['label'] }} <i class="ti {{ $columns[$key]['icon'] }}" aria-hidden="true"></i>
-                        </a>
-                    </th>
-                @endforeach
-                <th>Email</th>
-                @foreach(['role', 'status', 'joined'] as $key)
-                    <th aria-sort="{{ $columns[$key]['aria'] }}">
-                        <a href="{{ $columns[$key]['url'] }}" class="th-sort {{ $columns[$key]['active'] ? 'is-sorted' : '' }}">
-                            {{ $columns[$key]['label'] }} <i class="ti {{ $columns[$key]['icon'] }}" aria-hidden="true"></i>
-                        </a>
-                    </th>
-                @endforeach
-                <th>Actions</th>
-            </tr>
-        </thead>
-        <tbody>
-        @forelse($users as $user)
-            <tr>
-                <td>{{ $user->id }}</td>
-                <td>
-                    <div class="user-cell">
-                        <span class="user-avatar" aria-hidden="true">{{ $initialsOf($user->name) }}</span>
-                        <div>
-                            <div class="user-cell-name">{{ $user->name }}</div>
-                            <div class="user-cell-role">{{ $user->isAdmin() ? 'System Administrator' : 'Staff' }}</div>
-                        </div>
-                    </div>
-                </td>
-                <td>{{ $user->email }}</td>
-                <td>
-                    <span class="badge {{ $user->role === 'admin' ? 'badge-success' : 'badge-warning' }}">
-                        {{ ucfirst($user->role) }}
-                    </span>
-                </td>
-                <td>
-                    {{-- data-user-status, not a colour class, is what the toggle
-                         handler targets: an admin's ROLE badge is also
-                         .badge-success and sits earlier in the row, so matching
-                         on colour rewrote the role to "Active". --}}
-                    @if($user->is_active)
-                        <span class="badge badge-success" data-user-status>Active</span>
-                    @else
-                        <span class="badge badge-danger" data-user-status>Inactive</span>
-                    @endif
-                </td>
-                <td>{{ $user->created_at->format('M d, Y') }}</td>
-                <td>
-                    <div class="actions-cell">
-                        <a href="{{ route('users.edit', $user) }}" class="btn btn-info action-btn"><i class="ti ti-pencil" aria-hidden="true"></i> Edit</a>
-
-                        @if($user->id !== auth()->id())
-                            <form method="POST" action="{{ route('users.toggle', $user) }}"
-                                  class="js-confirm"
-                                  data-confirm-title="{{ $user->is_active ? 'Deactivate' : 'Activate' }} this account?"
-                                  data-confirm-body="{{ $user->is_active
-                                        ? $user->name . ' will be signed out and unable to sign in again.'
-                                        : $user->name . ' will be able to sign in again.' }}"
-                                  data-confirm-body-off="{{ $user->name }} will be signed out and unable to sign in again."
-                                  data-confirm-body-on="{{ $user->name }} will be able to sign in again."
-                                  data-confirm-label="{{ $user->is_active ? 'Deactivate' : 'Activate' }}"
-                                  data-confirm-icon="{{ $user->is_active ? 'ti-user-off' : 'ti-user-check' }}"
-                                  data-confirm-tone="neutral"
-                                  data-on-success="toggle">
-                                @csrf
-                                @method('PATCH')
-                                <button type="submit" class="btn action-btn action-toggle {{ $user->is_active ? 'btn-warning' : 'btn-success' }}">
-                                    <i class="ti {{ $user->is_active ? 'ti-user-off' : 'ti-user-check' }}" aria-hidden="true"></i>
-                                    {{ $user->is_active ? 'Deactivate' : 'Activate' }}
-                                </button>
-                            </form>
-
-                            {{-- Stays a real POST form: the shared js-confirm
-                                 handler in layouts/app.blade.php only intercepts
-                                 submit, so with JavaScript off this still
-                                 deletes (unconfirmed) rather than being a dead
-                                 button — same trade-off as #logoutModal. --}}
-                            <form method="POST" action="{{ route('users.destroy', $user) }}"
-                                  class="js-confirm"
-                                  data-confirm-title="Delete this account?"
-                                  data-confirm-body="Permanently delete {{ $user->name }} ({{ $user->email }})? This cannot be undone."
-                                  data-confirm-label="Delete"
-                                  data-confirm-icon="ti-trash"
-                                  data-on-success="remove-row">
-                                @csrf
-                                @method('DELETE')
-                                <button type="submit" class="btn btn-danger action-btn"><i class="ti ti-trash" aria-hidden="true"></i> Delete</button>
-                            </form>
-                        @else
-                            <span class="badge badge-success">You</span>
-                        @endif
-                    </div>
-                </td>
-            </tr>
-        @empty
-            <tr><td colspan="7">No users found.</td></tr>
-        @endforelse
-        </tbody>
-    </table></div>
-
-    <div class="users-foot">
-        <span class="users-count">
-            @if($users->total())
-                Showing {{ $users->firstItem() }} to {{ $users->lastItem() }} of {{ number_format($users->total()) }} users
-            @else
-                No users to show
-            @endif
-        </span>
-        <div>{{ $users->links() }}</div>
-    </div>
+{{-- The table + footer live in _rows.blade.php, shared with the AJAX
+     search/filter refresh below — see the AJAX partial pattern in CLAUDE.md.
+     #usersResults is the whole swappable region. --}}
+<div class="card" id="usersResults">
+    @include('admin.users._rows')
 </div>
 
 <script>
@@ -481,6 +328,97 @@
             var first = panel.querySelector('select');
             if (first) first.focus();
         }
+    });
+})();
+
+/* Realtime search, matching the pattern products/index.blade.php and
+ * inventory/index.blade.php already use -- see "AJAX partial pattern" and
+ * "Search: live filtering, no dropdown" in REMEDI.md. Search debounces on
+ * every keystroke; the role/status filters and the suggestion dropdown's
+ * pick both re-run the same search immediately.
+ *
+ * Deliberately does NOT touch the KPI cards above #usersResults -- those are
+ * counted before any filter (see UserController::index) and the AJAX
+ * response never carries them, so there is nothing here that could
+ * accidentally make "Total Users" start reporting the search box.
+ */
+(function () {
+    var input = document.getElementById('usersSearchInput');
+    var roleSelect = document.getElementById('role');
+    var statusSelect = document.getElementById('status');
+    var wrapper = document.getElementById('usersResults');
+    var form = document.getElementById('usersFilterForm');
+    if (!input || !wrapper || !form) return;
+
+    var baseUrl = "{{ route('users.index') }}";
+    var debounceTimer;
+    var currentController;
+
+    function runSearch(pushState) {
+        if (pushState === undefined) pushState = true;
+        if (currentController) currentController.abort();
+        currentController = new AbortController();
+
+        var url = new URL(baseUrl);
+        var term = input.value.trim();
+        var role = roleSelect ? roleSelect.value : '';
+        var status = statusSelect ? statusSelect.value : '';
+        // Sort/dir travel with every search, the same way the hidden fields
+        // carry them on a plain form submit -- otherwise typing in the search
+        // box would silently drop whatever column the table was sorted by.
+        var sort = form.elements.sort ? form.elements.sort.value : '';
+        var dir = form.elements.dir ? form.elements.dir.value : '';
+
+        if (term) url.searchParams.set('search', term);
+        if (role) url.searchParams.set('role', role);
+        if (status) url.searchParams.set('status', status);
+        if (sort) url.searchParams.set('sort', sort);
+        if (dir) url.searchParams.set('dir', dir);
+
+        var restoreScroll = REMEDI.holdScroll();
+        REMEDI.showListSkeleton(wrapper, { rows: 6 });
+
+        fetch(url, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+            signal: currentController.signal,
+        })
+            .then(function (res) { return res.json(); })
+            .then(function (data) {
+                REMEDI.clearListSkeleton(wrapper);
+                wrapper.innerHTML = data.html;
+                restoreScroll();
+
+                if (pushState) window.history.pushState({}, '', url);
+            })
+            .catch(function (err) {
+                if (err.name !== 'AbortError') console.error(err);
+            });
+    }
+
+    input.addEventListener('input', function () {
+        clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(function () { runSearch(); }, 300);
+    });
+
+    // Choosing a suggestion runs the same search the field would.
+    input.addEventListener('suggest:live', function () { runSearch(); });
+
+    if (roleSelect) roleSelect.addEventListener('change', function () { runSearch(); });
+    if (statusSelect) statusSelect.addEventListener('change', function () { runSearch(); });
+
+    // Enter in the search box, or clicking Apply -- same live path rather
+    // than a full page reload.
+    form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        runSearch();
+    });
+
+    window.addEventListener('popstate', function () {
+        var params = new URLSearchParams(window.location.search);
+        input.value = params.get('search') || '';
+        if (roleSelect) roleSelect.value = params.get('role') || '';
+        if (statusSelect) statusSelect.value = params.get('status') || '';
+        runSearch(false);
     });
 })();
 </script>

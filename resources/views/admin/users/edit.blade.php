@@ -51,7 +51,11 @@
                 </div>
                 {{-- Disabled inputs are not submitted, so the hidden field below
                      carries the unchanged role. UserController refuses a
-                     self-demotion anyway; this only keeps the form honest. --}}
+                     self-demotion anyway; this only keeps the form honest.
+                     The blocked cursor on hover (.form-field select:disabled,
+                     defined in the layout) is the visual cue -- not an icon in
+                     the field, the pointer itself changing when you try to
+                     use it. --}}
                 <select id="role" name="role" required {{ $user->id === auth()->id() ? 'disabled' : '' }}>
                     <option value="admin" {{ $user->role === 'admin' ? 'selected' : '' }}>Admin</option>
                     <option value="staff" {{ $user->role === 'staff' ? 'selected' : '' }}>Staff</option>
