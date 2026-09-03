@@ -33,7 +33,7 @@ return new class extends Migration
         // rather than dropping the products' only category.
         if (! $target) {
             $source->update(['name' => Category::CANONICAL_BEVERAGES]);
-            Cache::forget('sidebar_categories');
+            $this->forgetSidebarCache();
 
             return;
         }
@@ -48,7 +48,7 @@ return new class extends Migration
 
         // The sidebar category list is cached for 6 hours (see
         // AppServiceProvider); drop it so the merged list shows immediately.
-        Cache::forget('sidebar_categories');
+        $this->forgetSidebarCache();
     }
 
     public function down(): void
@@ -56,5 +56,28 @@ return new class extends Migration
         // Irreversible: once the two categories are merged there is no
         // record of which products originally sat under "Beverages", so
         // splitting them back apart would be guesswork.
+    }
+
+    /**
+     * Best-effort cache-bust, tolerant of the cache STORE not existing yet.
+     *
+     * On CACHE_DRIVER=database (Railway; see docs/DEPLOY-RAILWAY.md) this
+     * migration runs before 2026_09_02_000001_create_sessions_and_cache_tables
+     * creates the `cache` table, so on a brand-new install Cache::forget()
+     * throws a real QueryException -- "Base table ... 'cache' doesn't exist"
+     * -- rather than silently no-opping the way it does on the local
+     * CACHE_DRIVER=file, where this never surfaced. Caught rather than fixed
+     * by reordering the migrations: the six-hour staleness this skips is
+     * harmless and self-heals (AppServiceProvider also clears this key on
+     * every Category/Product write), but two migrations disagreeing about
+     * which one gets to run first is a much worse thing to introduce.
+     * Verified against Railway's first deploy, where this was uncaught.
+     */
+    private function forgetSidebarCache(): void
+    {
+        try {
+            Cache::forget('sidebar_categories');
+        } catch (\Throwable) {
+        }
     }
 };

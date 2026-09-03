@@ -72,7 +72,7 @@ return new class extends Migration
 
         // The sidebar's category list is cached for 6 hours (AppServiceProvider);
         // without this the three new categories do not appear until it expires.
-        Cache::forget('sidebar_categories');
+        $this->forgetSidebarCache();
     }
 
     public function down(): void
@@ -81,5 +81,29 @@ return new class extends Migration
         // file's, and nothing here records which product came from which. A
         // rollback would have to re-derive them, and the whole point of this
         // migration is that those values were wrong.
+    }
+
+    /**
+     * Best-effort cache-bust, tolerant of the cache STORE not existing yet.
+     *
+     * On CACHE_DRIVER=database (Railway; see docs/DEPLOY-RAILWAY.md) this
+     * migration runs before 2026_09_02_000001_create_sessions_and_cache_tables
+     * creates the `cache` table, so on a brand-new install Cache::forget()
+     * throws a real QueryException -- "Base table ... 'cache' doesn't exist"
+     * -- rather than silently no-opping the way it does on the local
+     * CACHE_DRIVER=file, where this never surfaced. Caught rather than fixed
+     * by reordering the migrations: the six-hour staleness this skips is
+     * harmless and self-heals (AppServiceProvider also clears this key on
+     * every Category/Product write), but two migrations disagreeing about
+     * which one gets to run first is a much worse thing to introduce.
+     * Verified against Railway's first deploy, where this was uncaught and
+     * failed the whole migration batch.
+     */
+    private function forgetSidebarCache(): void
+    {
+        try {
+            Cache::forget('sidebar_categories');
+        } catch (\Throwable) {
+        }
     }
 };
