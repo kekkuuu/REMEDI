@@ -99,7 +99,8 @@ class ActivityFeedTest extends TestCase
         $titles = array_column($this->feed(), 'title');
 
         $this->assertContains('Record added', $titles);
-        $this->assertContains('Account updated', $titles);
+        // Named precisely now: this used to read the generic "Account updated".
+        $this->assertContains('Account deactivated', $titles);
         $this->assertContains('Record deleted', $titles);
         $this->assertContains('Signed in', $titles);
     }
@@ -118,5 +119,92 @@ class ActivityFeedTest extends TestCase
         $bodies = array_column($this->feed(), 'body');
 
         $this->assertNotEmpty(array_filter($bodies, fn ($b) => str_contains($b, 'TXN-20260903-00006')));
+    }
+
+    /* ---- Account changes, and the toast stack ------------------------- */
+
+    /**
+     * Each account event is NAMED, not lumped into one label.
+     *
+     * Deleting an account read as "Account updated", which is the one account
+     * change you would most want stated plainly in a notification.
+     */
+    public function test_each_account_event_is_named(): void
+    {
+        $this->actingAs(User::factory()->admin()->create());
+
+        $this->log('Created', 'Added user account: Cesia Austria (staff)');
+        $this->log('Updated', 'Updated user account: Cesia Austria');
+        $this->log('Updated', 'Account deactivated: Cesia Austria');
+        $this->log('Deleted', 'Deleted user account: Cesia Austria');
+
+        $titles = array_column($this->feed(), 'title');
+
+        $this->assertContains('New user added', $titles);
+        $this->assertContains('User account updated', $titles);
+        $this->assertContains('Account deactivated', $titles);
+        $this->assertContains('User account deleted', $titles);
+    }
+
+    public function test_account_changes_carry_the_toast_kind_and_sign_ins_do_not(): void
+    {
+        $this->actingAs(User::factory()->admin()->create());
+
+        $this->log('Created', 'Added user account: Cesia Austria (staff)');
+        $this->log('Login', 'Admin logged in');
+
+        $byTitle = collect($this->feed())->keyBy('title');
+
+        $this->assertSame(AlertService::ACCOUNT_KIND, $byTitle['New user added']['kind']);
+        // A card every time anybody signs in would make the stack useless.
+        $this->assertSame('activity', $byTitle['Signed in']['kind']);
+    }
+
+    /** The seed the toast stack plays on page load. */
+    private function toastSeed(string $html): array
+    {
+        if (! preg_match('/id="remediToastSeed">(.*?)<\/script>/s', $html, $m)) {
+            return [];
+        }
+
+        return json_decode(html_entity_decode($m[1]), true) ?: [];
+    }
+
+    public function test_an_account_change_reaches_the_toast_seed(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $this->log('Deleted', 'Deleted user account: Mirae Montero');
+
+        $seed = $this->toastSeed($this->actingAs($admin)->get('/users')->getContent());
+
+        $this->assertContains(AlertService::ACCOUNT_KIND, $seed['kinds'] ?? []);
+        $this->assertNotEmpty(
+            array_filter($seed['items'] ?? [], fn ($i) => str_contains($i['body'] ?? '', 'Mirae Montero')),
+            'an account change must be playable as a toast, not only listed in the bell'
+        );
+    }
+
+    /**
+     * Staff must never receive audit-derived rows, toasts included.
+     *
+     * activity() is admin-only and deliberately outside payload()'s cache,
+     * which every signed-in user shares -- putting role-dependent rows in that
+     * key is how a staff account ends up seeing whatever an admin cached first.
+     */
+    public function test_staff_never_see_an_account_change_in_their_toasts(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+        $this->log('Deleted', 'Deleted user account: Mirae Montero');
+
+        $staff = User::factory()->create();
+        $seed = $this->toastSeed($this->actingAs($staff)->get('/dashboard')->getContent());
+
+        $this->assertEmpty(
+            array_filter($seed['items'] ?? [], fn ($i) => ($i['kind'] ?? '') === AlertService::ACCOUNT_KIND),
+            'a staff toast stack must carry no audit-derived rows at all'
+        );
     }
 }

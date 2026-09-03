@@ -46,6 +46,23 @@ class AlertService
     public const PER_KIND = 3;
 
     /**
+     * The kind carried by an account CHANGE (added / updated / deleted /
+     * activated / deactivated), as opposed to a sign-in.
+     *
+     * Its own kind because the toast stack watches kinds, and account changes
+     * are the one audit-derived thing worth interrupting an admin about: they
+     * are rare, deliberate, and someone else did them. Sign-ins keep the
+     * generic 'activity' kind -- a card every time anybody logs in would make
+     * the stack useless by lunchtime.
+     *
+     * ADMIN ONLY by construction: these rows only ever come from activity(),
+     * which never enters the shared payload() cache. See the note on that
+     * method -- putting role-dependent rows in a key every user shares is how a
+     * staff account ends up seeing whatever an admin cached first.
+     */
+    public const ACCOUNT_KIND = 'user_account';
+
+    /**
      * How many per kind the full notifications page lists.
      *
      * Not "all": low stock alone runs to 645 products, and a page that dumps
@@ -431,11 +448,22 @@ class AlertService
 
                 $isReport = str_contains($row->details, 'Report');
 
+                // A sign-in is not a change to an account. Both belong in
+                // System, but only the second is something to interrupt anyone
+                // about, so they are separated here rather than in the view:
+                // ACCOUNT_KIND is what the toasts watch for.
+                $isSession = in_array($row->action, ['Login', 'Logout'], true);
+
                 [$group, $icon, $cls, $title] = match (true) {
                     $isAccount && $row->action === 'Login' => ['system', 'ti-login', 'is-system', 'Signed in'],
                     $isAccount && $row->action === 'Logout' => ['system', 'ti-logout', 'is-system', 'Signed out'],
-                    $isAccount && $row->action === 'Created' => ['system', 'ti-user-plus', 'is-system', 'New user registered'],
-                    $isAccount => ['system', 'ti-user-cog', 'is-system', 'Account updated'],
+                    $isAccount && $row->action === 'Created' => ['system', 'ti-user-plus', 'is-system', 'New user added'],
+                    // Deleting an account read as "Account updated", which is
+                    // the one account change you would most want named plainly.
+                    $isAccount && $row->action === 'Deleted' => ['system', 'ti-user-minus', 'is-system', 'User account deleted'],
+                    $isAccount && str_starts_with($row->details, 'Account deactivated') => ['system', 'ti-user-off', 'is-system', 'Account deactivated'],
+                    $isAccount && str_starts_with($row->details, 'Account activated') => ['system', 'ti-user-check', 'is-system', 'Account activated'],
+                    $isAccount => ['system', 'ti-user-cog', 'is-system', 'User account updated'],
                     $isReport => ['updates', 'ti-file-text', 'is-update', 'New report generated'],
                     $row->action === 'Deleted' => ['updates', 'ti-trash', 'is-update', 'Record deleted'],
                     $row->action === 'Created' => ['updates', 'ti-plus', 'is-update', 'Record added'],
@@ -445,7 +473,12 @@ class AlertService
                 return [
                     'id' => 'audit:'.$row->id,
                     'group' => $group,
-                    'kind' => 'activity',
+                    // Account CHANGES carry their own kind so the toast stack
+                    // can watch for them; sign-ins stay generic activity, since
+                    // popping a card every time someone logs in would make the
+                    // stack useless by lunchtime. Nothing filters the bell on
+                    // `kind` -- its tabs read `group` -- so this is free there.
+                    'kind' => $isAccount && ! $isSession ? self::ACCOUNT_KIND : 'activity',
                     'cls' => $cls,
                     'icon' => $icon,
                     'title' => $title,

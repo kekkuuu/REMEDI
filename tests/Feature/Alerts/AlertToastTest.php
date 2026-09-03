@@ -176,13 +176,25 @@ class AlertToastTest extends TestCase
     /**
      * The watched kinds travel with the seed even when nothing is open, because
      * the live watcher uses them to decide which incoming items it cares about.
+     *
+     * The four STOCK kinds, plus account changes -- a user added, updated,
+     * deleted, activated or deactivated. Those are rare, deliberate and usually
+     * someone else's doing, which is the shape of thing a pop-up is for, where a
+     * shelf running low is a standing condition the bell can hold. Sign-ins are
+     * excluded at the source: a card every time anybody logs in would make the
+     * stack useless by lunchtime. `fail_to_return` stays with the bell, since a
+     * missed return window is a standing regret rather than news.
+     *
+     * Admin-only in practice -- the account rows come from activity(), which
+     * resolves to [] for staff. Feature\Alerts\ActivityFeedTest asserts that
+     * a staff toast stack carries none of them.
      */
     public function test_the_seed_names_every_watched_kind(): void
     {
         $this->product('Healthy Item', 1, 500, now()->addDays(300)->toDateString());
 
         $this->assertSame(
-            ['low_stock', 'expiring', 'expired', 'need_to_return'],
+            ['low_stock', 'expiring', 'expired', 'need_to_return', AlertService::ACCOUNT_KIND],
             $this->toastSeed($this->page())['kinds']
         );
     }

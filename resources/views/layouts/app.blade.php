@@ -1448,6 +1448,13 @@
         .remedi-toast.is-expired .remedi-toast__icon  { background: #fee2e2; color: #b91c1c; }
         .remedi-toast.is-return   { border-left-color: #3b82f6; }
         .remedi-toast.is-return .remedi-toast__icon   { background: #e0f2fe; color: #1d4ed8; }
+        /* Account changes. Deliberately OFF the amber-to-red severity ramp the
+           stock kinds use: nothing is wrong with the shelf, someone changed who
+           can get in. Violet says "different sort of thing" without claiming a
+           rung on a ladder it does not belong on -- the same argument that keeps
+           out-of-stock graphite rather than a deeper red. */
+        .remedi-toast.is-system   { border-left-color: #7c3aed; }
+        .remedi-toast.is-system .remedi-toast__icon   { background: #ede9fe; color: #6d28d9; }
 
         @keyframes toastIn {
             from { opacity: 0; transform: translateX(24px) scale(.97); }
@@ -3330,15 +3337,33 @@
         // All four stock kinds. fail_to_return is deliberately left to the bell:
         // a missed return window is a standing regret, not something to
         // interrupt anyone about.
-        $toastKinds = ['low_stock', 'expiring', 'expired', 'need_to_return'];
+        //
+        // Plus account CHANGES -- a user added, updated, deleted, activated or
+        // deactivated. Those are rare, deliberate, and usually done by someone
+        // else, which is exactly the shape of thing a pop-up is for; a shelf
+        // running low is a standing condition the bell can hold. Sign-ins are
+        // excluded at the source (AlertService::ACCOUNT_KIND) -- a card every
+        // time anybody logs in would make the stack useless by lunchtime.
+        $toastKinds = ['low_stock', 'expiring', 'expired', 'need_to_return', \App\Services\AlertService::ACCOUNT_KIND];
 
+        // $topbarActivity is ALREADY admin-only -- the view composer resolves it
+        // to [] for staff, and AlertController does the same for the polled
+        // feed. So this adds nothing to a staff bell and needs no second gate;
+        // note the rows are merged HERE, in a per-request render, never into
+        // payload()'s cache, which every signed-in user shares.
         $toastSeed = [
             'kinds' => $toastKinds,
 
-            // Already ordered newest-first across kinds by AlertService, so the
-            // queue plays most-recent-first without re-sorting here.
+            // AlertService orders each source newest-first, but MERGING two of
+            // them appends rather than interleaves -- so account rows landed at
+            // the END of the list however recent they were, and the greeting,
+            // which takes the first MAX_VISIBLE, could never reach them. Sorted
+            // on `sort_at`, the onset stamp every row on both sides carries, so
+            // "most recent first" means it across both sources.
             'items' => collect($topbarAlertItems ?? [])
+                ->merge($topbarActivity ?? [])
                 ->whereIn('kind', $toastKinds)
+                ->sortByDesc('sort_at')
                 ->values()
                 ->all(),
         ];
@@ -5473,7 +5498,12 @@
            badge still counts it -- this stack is deliberately the recent-news
            surface, not the complete one. */
         window.addEventListener('remedi:alerts', function (e) {
-            var items = ((e.detail || {}).items) || [];
+            var detail = e.detail || {};
+            // `activity` is its own key on the polled payload, not part of
+            // `items` -- so watching only `items` meant an account change could
+            // be seeded into the greeting but could never pop LIVE. Empty for
+            // staff, who never receive audit rows at all.
+            var items = (detail.items || []).concat(detail.activity || []);
 
             var fresh = items.filter(function (i) {
                 return WATCHED[i.kind] && !seen[i.id];
