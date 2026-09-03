@@ -386,6 +386,27 @@ class AlertService
     {
         return Cache::remember('topbar_activity', now()->addSeconds(self::TTL_SECONDS), function () use ($limit) {
             $rows = AuditTrail::query()
+                // READS ARE NOT NEWS. `Viewed` is written every time someone
+                // opens a report -- including the same report twice while
+                // adjusting a filter -- and on this install it is 877 of 1,426
+                // audit rows, 62% of the trail. This method takes the newest
+                // few with no notion of importance, so those rows crowded out
+                // everything that actually CHANGED something: measured before
+                // this line, all six slots in the bell read "New report
+                // generated", and a batch addition and a live sale sitting in
+                // the same window never appeared at all.
+                //
+                // The mapping below always handled batches correctly (Created
+                // -> "Record added"); they were never being selected. Nothing
+                // was broken downstream, which is why it looked like the
+                // notification system was ignoring them.
+                //
+                // Filtered in SQL, not after the fetch, so the window really is
+                // the newest N CHANGES rather than the survivors of a window
+                // mostly full of page views. The audit trail still records every
+                // view in full -- that is its job; this is a notification panel,
+                // and generating a report is something the reader just did.
+                ->where('action', '!=', 'Viewed')
                 ->latest('id')
                 ->limit($limit * 3)
                 ->get(['id', 'action', 'details', 'username', 'created_at']);
@@ -394,8 +415,19 @@ class AlertService
                 // System = who got in and whose account changed. Updates =
                 // what happened to the data. Anything else is noise for a
                 // notification panel and is dropped below.
+                // "whose account changed" includes DEACTIVATION, which is the
+                // main thing that ever happens to an account here.
+                // UserController writes those as "Account deactivated: Emman",
+                // which does not contain the string 'user account' the next
+                // line looks for -- so activating and deactivating people were
+                // classified as generic "Record updated" and filed under
+                // Updates, away from the sign-ins and account changes they
+                // belong beside. Same shape as the audit filter offering
+                // "Create" while every row says "Created": a string that never
+                // matched the data it was written for.
                 $isAccount = in_array($row->action, ['Login', 'Logout'], true)
-                    || str_contains($row->details, 'user account');
+                    || str_contains($row->details, 'user account')
+                    || str_starts_with($row->details, 'Account ');
 
                 $isReport = str_contains($row->details, 'Report');
 
