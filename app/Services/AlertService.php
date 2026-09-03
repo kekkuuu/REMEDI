@@ -503,8 +503,24 @@ class AlertService
                     // timestamp is when it happened rather than when a
                     // condition started.
                     'when' => self::whenLabel($row->created_at?->toIso8601String()),
-                    // Relative: activity() is cached under `topbar_activity`.
-                    'href' => route('audit.index', [], false),
+                    // Account changes point at USER MANAGEMENT, everything else
+                    // at the audit trail. The trail is the record of what
+                    // happened; /users is where you do something about it, and
+                    // a notification that someone was deactivated is only
+                    // useful if it lands you where you can act.
+                    //
+                    // Relative on both: activity() is cached under
+                    // `topbar_activity`, and an absolute URL bakes in whichever
+                    // host warmed the cache -- warm from 127.0.0.1, read from
+                    // localhost, and the session cookie is not sent.
+                    'href' => $isAccount && ! $isSession
+                        ? route('users.index', [], false)
+                        : route('audit.index', [], false),
+
+                    // The label for the action pill both the bell row and the
+                    // toast card render. Null everywhere else: a pill that said
+                    // "View" on every row would be furniture, not an action.
+                    'action' => $isAccount && ! $isSession ? 'Manage users' : null,
                 ];
             })->filter(fn ($i) => $i['title'] !== 'Profile Test')
                 ->take($limit)

@@ -187,6 +187,60 @@ class ActivityFeedTest extends TestCase
     }
 
     /**
+     * The action pill: where the notification sends you, and what it says.
+     *
+     * The audit trail is the record of what happened; /users is where you do
+     * something about it. A notification saying someone was deactivated is only
+     * useful if it lands you where you can act on that.
+     */
+    public function test_an_account_change_links_to_user_management(): void
+    {
+        $this->actingAs(User::factory()->admin()->create());
+
+        $this->log('Deleted', 'Deleted user account: Mirae Montero');
+        $this->log('Created', "Added batch 'ACE-20260903-01' (5 units) for ACEITE");
+
+        $rows = collect($this->feed())->keyBy('title');
+
+        $this->assertSame('/users', $rows['User account deleted']['href']);
+        $this->assertSame('Manage users', $rows['User account deleted']['action']);
+
+        // Everything else still points at the record, with no pill: one that
+        // said "View" on every row would be furniture rather than an action.
+        $this->assertSame('/audit', $rows['Record added']['href']);
+        $this->assertNull($rows['Record added']['action']);
+    }
+
+    /** Relative, because activity() is cached under a key every reader shares. */
+    public function test_the_action_link_is_relative(): void
+    {
+        $this->actingAs(User::factory()->admin()->create());
+
+        $this->log('Deleted', 'Deleted user account: Mirae Montero');
+
+        foreach ($this->feed() as $row) {
+            $this->assertStringStartsWith('/', $row['href'],
+                'an absolute URL in a cached payload bakes in whichever host warmed it');
+        }
+    }
+
+    public function test_the_pill_renders_in_the_bell(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin);
+
+        $this->log('Deleted', 'Deleted user account: Mirae Montero');
+
+        $html = $this->actingAs($admin)->get('/users')->getContent();
+
+        $this->assertStringContainsString('class="bell-action"', $html);
+        // Inside the row's anchor, so it must not be interactive content --
+        // a <button> or a second <a> there is invalid and browsers recover by
+        // splitting the anchor, which breaks the row.
+        $this->assertStringNotContainsString('<button class="bell-action"', $html);
+    }
+
+    /**
      * Staff must never receive audit-derived rows, toasts included.
      *
      * activity() is admin-only and deliberately outside payload()'s cache,

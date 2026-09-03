@@ -1279,6 +1279,29 @@
         .topbar-bell-row.is-expired i { color: #b91c1c; }
         .topbar-bell-row.is-return   { border-left-color: #3b82f6; }
         .topbar-bell-row.is-return i { color: #1d4ed8; }
+        /* The action pill. A span, not a button -- see the note in the row
+           markup: it lives inside the row's own anchor, which may not contain
+           interactive content. Styled as a control because it names where the
+           row goes, which for an account change is User Management rather than
+           the audit trail. */
+        .bell-action {
+            align-self: flex-start;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 5px;
+            padding: 3px 9px;
+            border: 1px solid #ddd6fe;
+            border-radius: 999px;
+            background: #f5f3ff;
+            color: #6d28d9;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .bell-action i { font-size: 12px; }
+        .topbar-bell-row:hover .bell-action { background: #ede9fe; border-color: #c4b5fd; }
+
         .topbar-bell-row.is-missed   { border-left-color: #9f1239; }
         .topbar-bell-row.is-missed i { color: #9f1239; }
 
@@ -1453,6 +1476,18 @@
            can get in. Violet says "different sort of thing" without claiming a
            rung on a ladder it does not belong on -- the same argument that keeps
            out-of-stock graphite rather than a deeper red. */
+        .remedi-toast__action {
+            align-self: flex-start;
+            margin-top: 6px;
+            padding: 3px 9px;
+            border: 1px solid #ddd6fe;
+            border-radius: 999px;
+            background: #f5f3ff;
+            color: #6d28d9;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
         .remedi-toast.is-system   { border-left-color: #7c3aed; }
         .remedi-toast.is-system .remedi-toast__icon   { background: #ede9fe; color: #6d28d9; }
 
@@ -3482,6 +3517,18 @@
                                                 @if(empty($item['at']) && !empty($item['sort_at'])) data-since="{{ $item['sort_at'] }}" @endif
                                             >{{ $item['when'] }}</em>
                                         @endif
+                                        {{-- Styled as a button, and deliberately a SPAN.
+                                             The row is already an <a>, and interactive
+                                             content cannot nest inside one -- a <button>
+                                             or second <a> here is invalid HTML and
+                                             browsers recover from it by splitting the
+                                             anchor, which breaks the row. The whole row
+                                             carries the same href, so the pill is
+                                             clickable in the only sense that matters; it
+                                             is there to name the destination. --}}
+                                        @if(!empty($item['action']))
+                                            <span class="bell-action">{{ $item['action'] }} <i class="ti ti-arrow-right" aria-hidden="true"></i></span>
+                                        @endif
                                     </span>
                                     <span class="unread-dot" aria-hidden="true"></span>
                                 </a>
@@ -4753,6 +4800,22 @@
                         text.appendChild(time);
                     }
 
+                    // The action pill, matching the Blade render exactly. A
+                    // span for the same reason it is one there: this sits
+                    // inside the row's anchor, which may not contain a button
+                    // or a second link. If these two drift, the pill vanishes
+                    // on the first poll -- the same failure data-when had.
+                    if (it.action) {
+                        const action = document.createElement('span');
+                        action.className = 'bell-action';
+                        action.textContent = it.action + ' ';
+                        const arrow = document.createElement('i');
+                        arrow.className = 'ti ti-arrow-right';
+                        arrow.setAttribute('aria-hidden', 'true');
+                        action.appendChild(arrow);
+                        text.appendChild(action);
+                    }
+
                     const dot = document.createElement('span');
                     dot.className = 'unread-dot';
                     dot.setAttribute('aria-hidden', 'true');
@@ -5342,6 +5405,16 @@
                 when.className = 'remedi-toast__when';
                 when.textContent = row.when;
                 text.appendChild(when);
+            }
+
+            // Same pill the bell row carries, and a span for the same reason:
+            // the card body is an <a>, which may not contain a button or a
+            // second link. The card's own href is the action's destination.
+            if (row.action) {
+                var action = document.createElement('span');
+                action.className = 'remedi-toast__action';
+                action.textContent = row.action;
+                text.appendChild(action);
             }
 
             link.appendChild(icon);
