@@ -20,6 +20,13 @@ if ($uri !== '/' && file_exists($file = __DIR__.'/public'.$uri) && ! is_dir($fil
     header('Content-Type: '.get_mime_type($file).'; charset=UTF-8');
     readfile($file);
 } else {
+    // Laravel writes compiled Blade views to VIEW_COMPILED_PATH (see vercel.json)
+    // via file_put_contents(), which does not create missing parent directories --
+    // so every view render fails until this directory exists.
+    if (! is_dir('/tmp/views')) {
+        mkdir('/tmp/views', 0755, true);
+    }
+
     require __DIR__.'/public/index.php';
 }
 
