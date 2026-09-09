@@ -160,7 +160,16 @@ class DemandForecastService
      */
     public function topDemandSeries(int $limit = 10): array
     {
-        $from = SalesHistory::reportableThrough();
+        // ForecastHorizon, not SalesHistory::reportableThrough() -- that one
+        // clamps ACTUAL sales_history data to today, a different concern.
+        // Comparing a month-start forecast_date against today's date happened
+        // to exclude the current month on every day but the 1st (any date
+        // after 09-01 is already past forecast_date 2026-09-01), so this was
+        // a latent bug rather than a visibly wrong one: loading this page on
+        // the 1st of a month would have let that month's nowcast back into
+        // "the products carrying the coming demand", one boundary disagreeing
+        // with every other "next month" figure in the app for one day a month.
+        $from = ForecastHorizon::firstActionableMonth();
 
         $rows = DB::table('demand_forecasts')
             ->where('forecast_date', '>=', $from)
