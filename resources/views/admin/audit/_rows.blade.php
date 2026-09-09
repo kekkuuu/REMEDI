@@ -25,8 +25,12 @@
       <tbody>
         @forelse ($logs as $log)
         <tr style="border-bottom:0.5px solid #e5e7eb;" onmouseover="this.style.background='#f9fafb'" onmouseout="this.style.background=''">
+          {{-- Same convention as Sales History: the list is newest-first, but
+               the NUMBER counts the other way -- the latest entry shows the
+               total count in this filtered set and the oldest shows 1, so the
+               number reads as "the Nth log", not "the Nth row on screen". --}}
           <td style="padding:11px 14px; color:#9ca3af; font-size:12px;">
-            {{ $loop->iteration + ($logs->currentPage() - 1) * $logs->perPage() }}
+            {{ $logs->total() - ($loop->iteration + ($logs->currentPage() - 1) * $logs->perPage()) + 1 }}
           </td>
 
           {{-- Username with avatar --}}
