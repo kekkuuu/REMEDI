@@ -160,8 +160,15 @@
         .audit-filters #audit-search { flex: 1 1 100%; }
         .audit-date { flex: 1 1 calc(50% - 5px); }
         .audit-date input { flex: 1; }
-        .audit-presets { flex: 1 1 100%; }
-        .audit-presets .btn { flex: 1; justify-content: center; }
+        /* flex-wrap here, not just on .audit-filters -- .audit-presets is its
+           own inline-flex row, so its four buttons stayed on one line and
+           ran off the edge of the screen regardless of the parent wrapping.
+           min-width:0 is what actually lets a flex item shrink below its
+           content's natural width; without it "Show All" or "30 days" held
+           the button (and the row) wider than the 343px this leaves at
+           375px, so the last button was clipped with no way to reach it. */
+        .audit-presets { flex: 1 1 100%; flex-wrap: wrap; }
+        .audit-presets .btn { flex: 1 1 calc(50% - 3px); justify-content: center; min-width: 0; }
         .audit-count { margin-left: 0; flex: 1 1 100%; }
     }
 </style>
