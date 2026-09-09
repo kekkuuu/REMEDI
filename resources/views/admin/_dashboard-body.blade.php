@@ -984,7 +984,14 @@
          the shares AND a link) and buys this chart the full column width, which
          a bar chart of product names actually uses. --}}
     <div class="card">
-        <p class="panel-title">Lowest Stock vs. Reorder Level</p>
+        <div class="panel-head">
+            <p class="panel-title">Lowest Stock vs. Reorder Level</p>
+            {{-- Same rule and the same count as the Low Stock KPI above
+                 (is_running_out) -- the chart itself is capped to the 10
+                 most critical items so it stays readable, this is where the
+                 rest of $lowStockCount live, stock alongside reorder level. --}}
+            <a href="{{ route('inventory.index', ['filter' => 'low_stock']) }}" class="view-all">View All</a>
+        </div>
         <div class="chart-box" style="height:250px;"><canvas id="lowestStockChart"></canvas></div>
     </div>
     </div>{{-- end .inv-side --}}

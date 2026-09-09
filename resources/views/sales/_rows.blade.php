@@ -15,8 +15,13 @@
     <tbody>
         @forelse($sales as $sale)
             <tr>
-                {{-- Row number, continuous across pages: firstItem() is the index of the first row on THIS page, so page 2 starts at 11 rather than restarting at 1. --}}
-                <td style="text-align:right; color:#94a3b8;">{{ $sales->firstItem() + $loop->index }}</td>
+                {{-- The list is newest-first, but the NUMBER counts the other way:
+                     the latest transaction shows the highest number (the total
+                     count in this filtered set) and the oldest shows 1, so the
+                     number reads as "the Nth sale", not "the Nth row on screen".
+                     firstItem() + loop->index is the row's 1-based position from
+                     the top of the descending list, continuous across pages. --}}
+                <td style="text-align:right; color:#94a3b8;">{{ $sales->total() - ($sales->firstItem() + $loop->index) + 1 }}</td>
                 <td style="font-family: monospace; font-size: 14px; color: #4f46e5;">{{ $sale->transaction_no }}</td>
                 <td>{{ $sale->created_at->format('M d, Y') }}</td>
                 <td style="color: #64748b;">{{ $sale->created_at->format('h:i A') }}</td>

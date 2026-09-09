@@ -75,7 +75,14 @@ class SaleController extends Controller
             $query->whereDate('created_at', '<=', $endDate);
         }
 
-        $sales = $query->orderByDesc('created_at')->paginate(15)->withQueryString();
+        // transaction_no, not created_at: two sales created within the same
+        // second (backfilled data especially) tie on created_at with no
+        // defined order between them, so the list could show an older
+        // transaction number above a newer one. transaction_no is zero-padded
+        // (TXN-YYYYMMDD-NNNNN), so ordering the string orders the number it
+        // encodes -- the same reasoning Sale::nextTransactionNo() already
+        // relies on to find the latest row.
+        $sales = $query->orderByDesc('transaction_no')->paginate(15)->withQueryString();
 
         // Today's sales summary — aggregate directly rather than
         // fetching every row (with its eager-loaded user/items/product

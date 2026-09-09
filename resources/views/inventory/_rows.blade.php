@@ -8,6 +8,7 @@
             <th>Category</th>
             <th>Selling Price</th>
             <th>Total Stock</th>
+            <th>Reorder Level</th>
             <th>Nearest Expiry</th>
             <th class="col-status">Status</th>
             @if(auth()->user()->isAdmin())
@@ -31,6 +32,11 @@
             <td>{{ $product->category->name }}</td>
             <td>&#8369;{{ number_format($product->selling_price, 2) }}</td>
             <td>{{ $product->total_stock }} {{ $product->unit }}</td>
+            {{-- The chart on the dashboard compares stock to this number, so
+                 the list its "View All" opens has to actually show it -- a
+                 "Low Stock" badge alone told you a product was under its
+                 line, never by how much or where the line was. --}}
+            <td>{{ $product->reorder_level }} {{ $product->unit }}</td>
             <td>
                 @if($product->nearest_expiry)
                     {{ \Carbon\Carbon::parse($product->nearest_expiry)->format('M d, Y') }}
@@ -148,7 +154,7 @@
             @endif
         </tr>
     @empty
-        <tr><td colspan="{{ auth()->user()->isAdmin() ? 10 : 9 }}">No products match this filter.</td></tr>
+        <tr><td colspan="{{ auth()->user()->isAdmin() ? 11 : 10 }}">No products match this filter.</td></tr>
     @endforelse
     </tbody>
 </table></div>
