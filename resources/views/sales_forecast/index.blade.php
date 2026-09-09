@@ -66,8 +66,21 @@
     $hasUnitsBand = $unitsUpperSeries->filter(fn ($v) => $v !== null)->isNotEmpty();
     $hasRevenueBand = $revenueUpperSeries->filter(fn ($v) => $v !== null)->isNotEmpty();
 
-    $forecastUnitsTotal = $trend['forecastUnits']->sum();
-    $forecastRevenueTotal = $trend['forecastRevenue']->sum();
+    // Same boundary as the Demand Forecasts detail page (App\Support\ForecastHorizon):
+    // the horizon OPENS on the current month, which is a nowcast against a
+    // partial actual, not something anyone can still act on. The chart above
+    // deliberately keeps that row (the model's estimate read against the
+    // partial month is informative), but summing it into an "upcoming
+    // months" total counted a month already 9+ days gone as still ahead --
+    // the same fault ForecastHorizon was written to close on Demand Forecasts,
+    // just never applied here. Filtering to the first actionable month and
+    // later mirrors forecast/show.blade.php's $actionable exactly.
+    $actionableMonthKey = \App\Support\ForecastHorizon::firstActionableMonthKey();
+    $actionableUnits = $trend['forecastUnits']->filter(fn ($v, $m) => $m >= $actionableMonthKey);
+    $actionableRevenue = $trend['forecastRevenue']->filter(fn ($v, $m) => $m >= $actionableMonthKey);
+    $forecastUnitsTotal = $actionableUnits->sum();
+    $forecastRevenueTotal = $actionableRevenue->sum();
+    $forecastMonths = $actionableUnits->count();
 @endphp
 <div class="card" style="margin-bottom:18px;">
     <h2 style="margin-top:0; margin-bottom:4px; font-size:20px; font-weight:500;">
@@ -84,11 +97,11 @@
             <p style="font-size:22px; font-weight:500; margin:0;">{{ $trend['lastActualMonth'] ?? '—' }}</p>
         </div>
         <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
-            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast total, units (upcoming months)</p>
+            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast total, units ({{ $forecastMonths }}-month)</p>
             <p style="font-size:22px; font-weight:500; margin:0;">{{ number_format($forecastUnitsTotal) }}</p>
         </div>
         <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
-            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast total, revenue (upcoming months)</p>
+            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast total, revenue ({{ $forecastMonths }}-month)</p>
             {{-- Money keeps its centavos. number_format() with no precision rounds
                  to whole pesos, so this KPI silently reported a figure that was
                  up to 50 centavos away from the number it was summing. The units
