@@ -27,3 +27,6 @@ resources/python/__pycache__/
 # curl cookie jars from manual API pokes; these hold live session tokens.
 cj.txt
 *.cookies
+
+.vercel
+.env*
