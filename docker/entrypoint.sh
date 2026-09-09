@@ -41,6 +41,15 @@ php artisan view:clear
 php artisan config:cache
 php artisan view:cache
 
+# ── Scheduler ──────────────────────────────────────────────────────────────
+# Kernel::schedule() runs forecast:generate nightly at 02:00, but nothing was
+# ever invoking it -- FrankenPHP only serves HTTP, so that job silently never
+# fired regardless of how long this container stayed up. schedule:work polls
+# once a minute for the life of the process, same as a cron entry running
+# `schedule:run` would. Backgrounded so it survives the `exec` below (which
+# replaces this shell as PID 1 but leaves already-forked children in place).
+php artisan schedule:work &
+
 # ── Serve ──────────────────────────────────────────────────────────────────
 # Railway injects $PORT. FrankenPHP reads $SERVER_NAME, so bind them together,
 # falling back to 8080 for a plain `docker run`.
