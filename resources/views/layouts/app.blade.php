@@ -1773,6 +1773,11 @@
             line-height: 1.1;
             color: #1e293b;
             font-variant-numeric: tabular-nums;
+            /* A long peso figure (no spaces to wrap on) silently ran past the
+               card and was clipped by .kpi's own overflow:hidden -- the
+               digits were just gone, with nothing on screen to say so.
+               break-word lets it wrap onto a second line instead. */
+            overflow-wrap: break-word;
         }
 
         .kpi-sub {
