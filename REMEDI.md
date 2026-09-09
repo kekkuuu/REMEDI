@@ -821,7 +821,9 @@ sums, which is what should happen. Joined through `products.sku`, the only place
 
 After regenerating both pipelines: horizon **2026-09-01 .. 2027-02-01, six months, none of them
 past**; 1,247 products scored, MAE 2.28, sMAPE 30.1%, grades Normal 752 / Acceptable 198 / Not
-acceptable 297.
+acceptable 297. **These accuracy figures describe the holdout-selection cascade and are superseded —
+see "Forecasting pipeline" below for the single-SARIMA numbers measured 2026-09-09.** The horizon and
+row counts on this line are unaffected by that change and still hold.
 
 **Anyone narrowing the range `sales_history` covers must re-run both pipelines and check that
 `MIN(forecast_date)` is not before the current month.** That single assertion is what catches this.
@@ -935,6 +937,45 @@ NOT evidence of how it would perform against a real pharmacy's sales. Base level
 from each product's real observed volume, so relative catalogue sizes are preserved.
 
 ### Forecasting pipeline
+
+**Superseded 2026-09-09.** Everything below this notice, down to the next `###` heading, documents
+the holdout-scored CROSS-MODEL cascade that both Python scripts used to run — it is history, not
+current behaviour, kept because the measurements are the reason a cascade existed at all and are
+worth having if one is ever reintroduced. **Both scripts now fit only SARIMA models, never a
+different family** — `_pick_by_holdout`, `_selection_error`, `_candidates`, the median ensemble,
+Holt-Winters (seasonal and plain), plain ARIMA-as-a-separate-method, Croston SBA, and the trailing
+moving-average floor no longer exist in either script — **at the user's explicit request, with the
+accuracy tradeoff acknowledged up front.**
+
+Forcing ONE order (`SARIMA(0,1,1)(0,1,1,12)`, the "airline" order this file's own seasonal-order
+comparison below found best on average) onto every product was tried first and measured worse across
+the board than the cascade (MAE 2.28→2.42, sMAPE 30.1%→33.3%), because that order needs a full
+seasonal cycle to estimate its seasonal MA term and roughly half this catalogue does not have one. The
+order is now chosen PER PRODUCT from `SARIMA_CANDIDATES` — `(0,1,1)(0,1,1,12)`, `(1,1,1)(0,1,1,12)`,
+and the same two equations with `P=D=Q=0` and `s` dropped (plain `ARIMA(1,1,1)` / `ARIMA(0,1,1)`) —
+scored on a 3-month holdout with **MAPE first, sMAPE as fallback**, deliberately the reverse of the
+retired cascade's `(MAE, sMAPE)` criterion: leading with MAPE only stayed safe once selection could no
+longer cross into a different model family and overfit a metric nobody else reports. A product where
+every candidate fails still gets **no forecast at all** — there is nothing outside the SARIMA family
+left to fall back to.
+
+Re-measured 2026-09-09 after the order search replaced the single fixed order, same rebuilt sales
+record as the rest of this file (`sales_history` + POS, 113,960 + 878 rows): **1,286 of 2,638
+products got a demand forecast** (`demand_forecasts`, 7,716 rows) — up from 1,268 under the single
+fixed order and above the 1,286 the cross-model cascade covered before that. Holdout accuracy over
+**1,247** scored products (matching the cascade's exact coverage) came out **MAE 2.31, RMSE 2.75,
+sMAPE 31.8%, MAPE 87.1% over 501 products where defined** — better than the single-fixed-order run
+on every metric (MAE 2.42, RMSE 2.89, sMAPE 33.3%, MAPE 91.8%), though still short of the retired
+cascade's own reading (MAE 2.28, RMSE 2.70, sMAPE 30.1%, MAPE 83.1%). Grades: **Normal 721 /
+Acceptable 233 / Not acceptable 293**, against 690/223/315 for the single order and 752/198/297 for
+the cascade. The order search recovers most, not all, of what forcing one order cost — expected,
+since selection still never leaves the SARIMA family the cascade used to range across. Re-run both
+`forecast:generate` and `sales-forecast:generate` (`--python=python` on Windows) after touching either
+script and re-derive these numbers rather than trusting them — see CLAUDE.md "Re-deriving a
+measurement" for the one-liner.
+
+---
+
 Two independent pipelines, both PHP → Python subprocess → CSV → upsert into MySQL:
 
 | Concern | Command | Python script | Table | Service / Controller |

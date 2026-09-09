@@ -61,17 +61,31 @@ import pandas as pd
 
 warnings.filterwarnings("ignore")
 
-# Seasonal differencing at period 12 (D=1, m=12) burns a whole year of
-# observations before it can estimate anything, so two cycles is NOT enough --
-# with 24-32 months it is wildly over-parameterised and the fit oscillates.
-# Measured on this catalogue (183 products, 3-month holdout): seasonal SARIMA
-# scored MAE 1319.63 and produced a negative forecast for 49% of products,
-# against MAE 17.83 and 0% negative for the non-seasonal chain below. Three
-# full cycles before the seasonal model is allowed to run.
-MIN_MONTHS_FOR_SEASONAL_SARIMA = 36
-MIN_MONTHS_FOR_SEASONAL_SMOOTHING = 24  # Holt-Winters needs two cycles to fit 12 seasonal indices
-MIN_MONTHS_FOR_SARIMA = 24   # non-seasonal ARIMA(1,1,1)
-MIN_MONTHS_FOR_SMOOTHING = 12  # enough for trend-only exponential smoothing
+# Every product is forecast with a SARIMA(p,d,q)(P,D,Q,s) model -- never a
+# different model family (Holt-Winters, plain ARIMA-as-a-separate-method,
+# Croston SBA and the moving-average floor were all removed, at the user's
+# explicit request, and are not coming back). Within that family, though,
+# ONE order forced onto every product is a poor fit for a lot of this
+# catalogue: SARIMA(0,1,1)(0,1,1,12), the "airline model" REMEDI.md measured
+# as the best SINGLE specification, needs a full seasonal cycle to estimate
+# its seasonal MA term at all -- and roughly half this catalogue does not
+# have the history or the regularity for that to be reliable.
+#
+# SARIMA_CANDIDATES is a small grid of orders, all still SARIMA, that
+# _pick_sarima_order() scores per product on a holdout exactly the way the
+# retired cross-model cascade used to -- the difference is every candidate
+# stays inside the one model family the user asked for. The last two are the
+# same equation with P=D=Q=0 and s dropped, i.e. plain ARIMA(p,d,q), offered
+# because a short or irregular series can fail a seasonal fit outright while
+# still supporting a light non-seasonal one.
+SARIMA_CANDIDATES = [
+    ((0, 1, 1), (0, 1, 1, 12)),
+    ((1, 1, 1), (0, 1, 1, 12)),
+    ((1, 1, 1), (0, 0, 0, 0)),
+    ((0, 1, 1), (0, 0, 0, 0)),
+]
+SARIMA_ORDER, SARIMA_SEASONAL_ORDER = SARIMA_CANDIDATES[0]
+SARIMA_SELECTION_HOLDOUT = 3
 MIN_MONTHS_FOR_ANY_FORECAST = 3
 
 # Each task ships one product's monthly series to a worker and gets its
@@ -326,290 +340,9 @@ def _sarimax_rows(monthly, future_dates, horizon, order, seasonal_order, method)
     ]
 
 
-def _smoothing_rows(monthly, future_dates, horizon, hist_mean, seasonal=False):
-    """
-    Damped-trend exponential smoothing, raw rows.
-
-    With seasonal=True this is additive Holt-Winters (period 12). It is now one
-    of the three votes in _ensemble_rows as well as a fallback in its own right,
-    so it runs for every product with 3+ years of history and its cost is on the
-    hot path.
-
-    use_brute=False matters for that reason. The statsmodels default runs a
-    brute-force grid search for the optimiser's starting values, which measured
-    218ms per product against 114ms without it -- on 2,637 products that is the
-    difference between a 4-minute nightly job and a 2-minute one. Measured over
-    a random 40-product sample, the two settings' forecasts differ by a mean of
-    0.027 units, i.e. ~0.3% of the model's own MAE: the grid search is buying
-    precision far below the noise floor of this data.
-    """
-    from statsmodels.tsa.holtwinters import ExponentialSmoothing
-
-    kwargs = {"seasonal": "add", "seasonal_periods": 12} if seasonal else {}
-    model = ExponentialSmoothing(monthly, trend="add", damped_trend=True, **kwargs)
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        fit = model.fit(use_brute=False)
-
-    mean = fit.forecast(horizon)
-    resid_std = float(np.std(fit.resid)) if len(fit.resid) > 1 else hist_mean * 0.2
-
-    return [
-        {
-            "forecast_date": date,
-            "forecast_value": round(float(m), 2),
-            "lower_ci": round(float(m) - resid_std, 2),
-            "upper_ci": round(float(m) + resid_std, 2),
-            "method": "holt_winters_seasonal" if seasonal else "holt_winters",
-        }
-        for date, m in zip(future_dates, mean)
-    ]
-
-
-def _seasonal_naive_values(monthly, horizon):
-    """
-    Same calendar month one and two years back, averaged.
-
-    No parameters to estimate, so it cannot diverge -- which is exactly why it
-    earns a vote below. Two years rather than one because a single prior month
-    carries that month's noise straight into the forecast.
-    """
-    v = np.asarray(monthly, dtype=float)
-    out = []
-
-    for h in range(1, horizon + 1):
-        picks = []
-        if len(v) >= 13 - h:
-            picks.append(v[h - 13])
-        if len(v) >= 25 - h:
-            picks.append(v[h - 25])
-        out.append(float(np.mean(picks)) if picks else float(v[-1]))
-
-    return out
-
-
-def _ensemble_rows(monthly, future_dates, horizon, hist_mean, ceiling):
-    """
-    Element-wise MEDIAN of three seasonal views of the same series.
-
-    The three read the 12-month cycle differently and, more importantly, they
-    fail differently: the airline SARIMA can overswing when one month of the
-    cycle is an outlier, damped Holt-Winters carries a level that lags a turning
-    point, and the seasonal naive is unbiased but noisy. Taking the median
-    discards whichever one disagrees most with the other two, which is the
-    failure that used to push a product all the way down the fallback chain.
-
-    A member that cannot fit, or whose fit fails _plausible, gets NO vote --
-    a diverged member must not drag the median with it. If nothing survives,
-    this raises and the chain falls through to the plain airline SARIMA below.
-
-    Measured on the FULL catalogue (2,637 products, every one scored -- a
-    candidate that rejects a product falls through the same chain, so no model
-    can flatter itself by dropping the hard ones), against the airline SARIMA
-    as primary:
-
-      | holdout | metric | airline alone | this ensemble |
-      |---|---|---|---|
-      | 3mo | MAE   |  8.76 |  8.49 (-3.1%) |
-      | 3mo | RMSE  | 47.29 | 44.59 (-5.7%) |
-      | 3mo | MAPE  | 20.0% | 18.6% (-7.0%) |
-      | 3mo | sMAPE | 19.4% | 18.3% (-5.7%) |
-      | 6mo | MAE   |  8.17 |  7.78 (-4.7%) |
-      | 6mo | RMSE  | 38.94 | 38.09 (-2.2%) |
-      | 6mo | MAPE  | 20.5% | 18.6% (-9.2%) |
-      | 6mo | sMAPE | 19.7% | 18.4% (-6.6%) |
-
-    6 months is the production horizon (--horizon default); 3 is the holdout the
-    earlier order comparison in this file used. No single model tried -- and the
-    search covered (0,1,2), (0,1,3), (1,1,2), (2,1,1), (1,0,1), D=0 seasonal
-    terms, sqrt and log1p transforms -- beat this on MAE, RMSE and MAPE at once.
-    Plain Holt-Winters edges it on MAE (7.78 at 6mo) and loses on RMSE.
-
-    Note this keeps SARIMA as the centre of the method: it is one of the three
-    votes and still the only member that estimates an interval, which is where
-    lower_ci/upper_ci below come from.
-    """
-    members = []
-    ci_row_source = None
-
-    try:
-        sarima = _sarimax_rows(
-            monthly, future_dates, horizon, (0, 1, 1), (0, 1, 1, 12), "sarima_seasonal"
-        )
-        values = [r["forecast_value"] for r in sarima]
-        if _plausible(values, ceiling):
-            members.append(values)
-            ci_row_source = sarima
-    except Exception:
-        pass
-
-    try:
-        hw = _smoothing_rows(monthly, future_dates, horizon, hist_mean, seasonal=True)
-        values = [r["forecast_value"] for r in hw]
-        if _plausible(values, ceiling):
-            members.append(values)
-            if ci_row_source is None:
-                ci_row_source = hw
-    except Exception:
-        pass
-
-    naive = _seasonal_naive_values(monthly, horizon)
-    if _plausible(naive, ceiling):
-        members.append(naive)
-
-    if not members:
-        raise RuntimeError("no ensemble member produced a plausible fit")
-
-    combined = np.median(np.asarray(members, dtype=float), axis=0)
-
-    # Interval width comes from the member that actually estimates uncertainty,
-    # recentred on the combined point forecast. Falls back to a proportional
-    # band when only the naive member survived (it has no interval of its own).
-    halves = []
-    for i in range(horizon):
-        half = float("nan")
-        if ci_row_source is not None:
-            lo, hi = ci_row_source[i]["lower_ci"], ci_row_source[i]["upper_ci"]
-            if np.isfinite(lo) and np.isfinite(hi):
-                half = abs(hi - lo) / 2.0
-        if not np.isfinite(half):
-            half = max(abs(float(combined[i])) * 0.2, hist_mean * 0.1)
-        halves.append(half)
-
-    return [
-        {
-            "forecast_date": date,
-            "forecast_value": round(float(m), 2),
-            "lower_ci": round(float(m) - half, 2),
-            "upper_ci": round(float(m) + half, 2),
-            "method": "sarima_ensemble",
-        }
-        for date, m, half in zip(future_dates, combined, halves)
-    ]
-
-
-def _moving_average_rows(series, future_dates):
-    """The floor of the chain: cannot go negative and cannot explode."""
-    window = series.tail(min(6, len(series)))
-    avg = float(window.mean())
-    std = float(window.std(ddof=0)) if len(window) > 1 else avg * 0.2
-
-    return [
-        {
-            "forecast_date": date,
-            "forecast_value": round(avg, 2),
-            "lower_ci": round(avg - std, 2),
-            "upper_ci": round(avg + std, 2),
-            "method": "moving_average",
-        }
-        for date in future_dates
-    ]
-
-
-def _croston_rows(series, future_dates, horizon, sba=True):
-    """
-    Croston's method (SBA variant), the standard estimator for intermittent
-    demand -- which is what most of this catalogue is.
-
-    SARIMA, ARIMA and Holt-Winters all assume demand arrives every period and
-    fit a level/trend to the raw series. When two months in three are zero that
-    assumption is simply wrong, and the fit chases the zeros. 1,419 products
-    here sell 5-20 units a month with a coefficient of variation of 0.75, and
-    709 sell under 5.
-
-    Croston splits the series into two: how MUCH is bought when a purchase
-    happens, and how OFTEN purchases happen. Each is smoothed separately and
-    the forecast is size / interval -- a demand RATE, which is exactly what a
-    reorder level needs.
-
-    The SBA correction (Syntetos-Boylan, multiply by 1 - alpha/2) removes the
-    upward bias in classic Croston, which otherwise systematically over-orders.
-    """
-    values = np.asarray(series, dtype=float)
-    nonzero_idx = np.flatnonzero(values > 0)
-
-    # Fewer than two purchases gives nothing to estimate an interval from.
-    if len(nonzero_idx) < 2:
-        return []
-
-    alpha = 0.1
-
-    sizes = values[nonzero_idx]
-    intervals = np.diff(np.concatenate(([nonzero_idx[0]], nonzero_idx))).astype(float)
-    intervals[0] = max(1.0, float(nonzero_idx[0]) + 1.0)
-
-    z = float(sizes[0])       # smoothed demand size
-    x = float(intervals[0])   # smoothed interval between demands
-
-    for size, gap in zip(sizes[1:], intervals[1:]):
-        z += alpha * (float(size) - z)
-        x += alpha * (float(gap) - x)
-
-    if x <= 0:
-        return []
-
-    rate = z / x
-
-    if sba:
-        rate *= (1.0 - alpha / 2.0)
-
-    # A flat rate is the whole point: Croston forecasts an average demand per
-    # period, not a shape. Spread is taken from the observed sizes so the band
-    # still says something about how lumpy the purchases are.
-    spread = float(np.std(sizes)) if len(sizes) > 1 else rate * 0.5
-
-    return [
-        {
-            "forecast_date": date,
-            "forecast_value": round(float(rate), 2),
-            "lower_ci": round(max(0.0, rate - spread), 2),
-            "upper_ci": round(rate + spread, 2),
-            "method": "croston_sba",
-        }
-        for date in future_dates
-    ]
-
-
 def _future_dates(series, horizon):
     return pd.date_range(series.index[-1] + pd.offsets.MonthBegin(1), periods=horizon, freq="MS")
 
-
-def _candidates(series, horizon, ceiling):
-    """
-    Every model this series is long enough to support, richest first.
-
-    Returned as (name, builder) pairs so the same set can be built against a
-    TRUNCATED series for scoring and against the full one for the real
-    forecast, without the two definitions drifting apart.
-    """
-    n = len(series)
-    dates = _future_dates(series, horizon)
-    hist_mean = float(series.mean())
-    out = []
-
-    if n >= MIN_MONTHS_FOR_SEASONAL_SARIMA:
-        out.append(("sarima_ensemble",
-                    lambda: _ensemble_rows(series, dates, horizon, hist_mean, ceiling)))
-        out.append(("sarima_seasonal",
-                    lambda: _sarimax_rows(series, dates, horizon, (0, 1, 1), (0, 1, 1, 12), "sarima_seasonal")))
-    if n >= MIN_MONTHS_FOR_SEASONAL_SMOOTHING:
-        out.append(("holt_winters_seasonal",
-                    lambda: _smoothing_rows(series, dates, horizon, hist_mean, seasonal=True)))
-    if n >= MIN_MONTHS_FOR_SARIMA:
-        out.append(("arima",
-                    lambda: _sarimax_rows(series, dates, horizon, (1, 1, 1), (0, 0, 0, 0), "arima")))
-    if n >= MIN_MONTHS_FOR_SMOOTHING:
-        out.append(("holt_winters",
-                    lambda: _smoothing_rows(series, dates, horizon, hist_mean)))
-
-    # Offered to EVERY series, not gated on length: intermittency is about
-    # how often demand arrives, not how many months of it exist, and the
-    # holdout contest decides whether it actually wins.
-    out.append(("croston_sba", lambda: _croston_rows(series, dates, horizon)))
-
-    out.append(("moving_average", lambda: _moving_average_rows(series, dates)))
-
-    return out
 
 
 def _clamp_rows(rows, ceiling):
@@ -642,38 +375,17 @@ def _clamp_rows(rows, ceiling):
     return rows
 
 
-def _fit_named(series, name, horizon, ceiling):
-    """Build one named model against `series`, or None if it will not fit."""
-    for cname, build in _candidates(series, horizon, ceiling):
-        if cname != name:
-            continue
-        try:
-            rows = build()
-        except Exception:  # noqa: BLE001 - a failed fit is just "no answer"
-            return None
-
-        return _clamp_rows(rows, ceiling) if rows else None
-
-    return None
-
-
-def _selection_error(rows, observed):
+def _sarima_selection_error(rows, observed):
     """
-    How wrong a candidate was on the months it was not allowed to see.
+    How wrong one SARIMA order was on the months it was not allowed to see.
 
-    Scored with sMAPE, not MAE, and the difference matters a great deal here.
-
-    MAE minimises ABSOLUTE error, so on a product selling 0-3 units a month it
-    happily picks whichever model hugs the mean -- which is close in units and
-    dreadful in percentage terms, and percentage is what the accuracy panel
-    reports. Selecting on one measure while reporting another is how the
-    headline MAPE stayed at 122.6% even after selection was introduced.
-
-    sMAPE is the right criterion for this catalogue: it is scale-free, so it can
-    compare a 3-unit product against a 300-unit one, and unlike MAPE it stays
-    defined when the month sold nothing -- which is most months for most of
-    these products. Ties break on MAE so the unit-level error still decides
-    between two models that are equally wrong proportionally.
+    MAPE-first, falling back to sMAPE when the holdout sold nothing (MAPE
+    undefined). This is the opposite order from the retired cross-model
+    cascade's criterion, deliberately: that one led with MAE/sMAPE because
+    optimising MAPE directly, across DIFFERENT model families, tended to
+    overfit low-volume products in a way that did not generalise. Choosing
+    only ever stays inside the SARIMA family here, so there is no such risk,
+    and lowering MAPE specifically is the point of trying more than one order.
     """
     if not rows:
         return None
@@ -684,50 +396,36 @@ def _selection_error(rows, observed):
     if len(pred) == 0:
         return None
 
+    nonzero = obs != 0
+    mape = (
+        float(np.mean(np.abs((pred[nonzero] - obs[nonzero]) / obs[nonzero])) * 100.0)
+        if nonzero.any() else None
+    )
+
     denom = np.abs(pred) + np.abs(obs)
-    # 0 predicted against 0 actual is a perfect call, not a division by zero.
     terms = np.where(denom == 0, 0.0, np.abs(pred - obs) / np.where(denom == 0, 1.0, denom))
     smape = float(np.mean(terms) * 200.0)
-    mae = float(np.mean(np.abs(pred - obs)))
 
-    # (MAE, sMAPE), in that order, and the order was decided by measurement
-    # rather than argument. Running the whole catalogue both ways:
-    #
-    #            criterion | MAE  | RMSE | MAPE   | sMAPE
-    #   ------------------ | ---- | ---- | ------ | ------
-    #   sMAPE first        | 8.16 | 9.65 | 123.1% |  98.1%
-    #   MAE first          | 8.12 | 9.63 | 122.6% | 101.5%
-    #
-    # MAE-first wins on three of the four, including the MAPE this is mainly
-    # judged on, so it leads and sMAPE breaks its ties.
-    return (mae, smape)
+    return (mape if mape is not None else float("inf"), smape)
 
 
-def _pick_by_holdout(series, holdout, ceiling):
+def _pick_sarima_order(series, holdout, ceiling):
     """
-    Choose the model that is actually most accurate on THIS product.
-
-    The cascade used to take the richest model the history could support and
-    keep it if it merely looked plausible -- so the SARIMA ensemble ended up on
-    2,346 of 2,576 products, including short intermittent series it is the wrong
-    tool for. On the scale-free measure it was the worst performer in the
-    catalogue: MAPE 132.5%, against 77.3% for plain ARIMA and 74.9% for seasonal
-    Holt-Winters. Length of history says what a model CAN fit, not what fits.
-
-    Scored with _selection_error (sMAPE, tie-broken on MAE) so the model chosen
-    is the one that minimises the error the accuracy panel actually reports.
+    Choose the SARIMA order that scores best on THIS product's own holdout,
+    among SARIMA_CANDIDATES only -- never a different model family.
     """
+    if len(series) < MIN_MONTHS_FOR_ANY_FORECAST + holdout:
+        return None
+
     train = series.iloc[:-holdout]
     observed = series.iloc[-holdout:].to_numpy(dtype=float)
-
-    if len(train) < MIN_MONTHS_FOR_ANY_FORECAST:
-        return None
+    dates = _future_dates(train, holdout)
 
     best = None
 
-    for name, build in _candidates(train, holdout, ceiling):
+    for order, seasonal_order in SARIMA_CANDIDATES:
         try:
-            rows = build()
+            rows = _sarimax_rows(train, dates, holdout, order, seasonal_order, "sarima")
         except Exception:  # noqa: BLE001 - a failed fit just loses the contest
             continue
 
@@ -739,28 +437,27 @@ def _pick_by_holdout(series, holdout, ceiling):
         if not _plausible([r["forecast_value"] for r in rows], ceiling):
             continue
 
-        error = _selection_error(rows, observed)
+        error = _sarima_selection_error(rows, observed)
 
         if error is None:
             continue
 
-        # (sMAPE, MAE) compares lexicographically: proportional error
-        # decides, unit error breaks ties.
         if best is None or error < best[1]:
-            best = (name, error)
+            best = ((order, seasonal_order), error)
 
     return best[0] if best else None
 
 
-def forecast_product(monthly: pd.Series, horizon: int, select: bool = True):
+def forecast_product(monthly: pd.Series, horizon: int):
     """
-    Forecast one product using the model that scores best on its own history.
+    Forecast one product with a SARIMA model -- always SARIMA, but the
+    ORDER is picked per product from SARIMA_CANDIDATES by holdout accuracy
+    (see _pick_sarima_order), rather than forcing the same order onto every
+    series regardless of how well it fits.
 
-    `select=False` turns the contest off and falls back to the original
-    "richest plausible model" order. The scoring pass uses it so selection
-    cannot recurse into itself.
-
-    Returns a list of dicts, one per forecasted month.
+    Returns a list of dicts, one per forecasted month, or [] when nothing in
+    SARIMA_CANDIDATES produces a usable fit. There is no fallback outside
+    the SARIMA family: a rejected fit means no forecast.
     """
     monthly = monthly.asfreq("MS", fill_value=0)
     n = len(monthly)
@@ -771,21 +468,30 @@ def forecast_product(monthly: pd.Series, horizon: int, select: bool = True):
     hist_max = float(monthly.max())
     hist_mean = float(monthly.mean())
     ceiling = max(hist_max * 2.5, hist_mean * 4, 1.0)
+    dates = _future_dates(monthly, horizon)
 
-    if select and n >= MIN_MONTHS_FOR_ANY_FORECAST + SELECTION_HOLDOUT:
-        winner = _pick_by_holdout(monthly, SELECTION_HOLDOUT, ceiling)
+    if n >= MIN_MONTHS_FOR_ANY_FORECAST + SARIMA_SELECTION_HOLDOUT:
+        winner = _pick_sarima_order(monthly, SARIMA_SELECTION_HOLDOUT, ceiling)
 
         if winner:
-            rows = _fit_named(monthly, winner, horizon, ceiling)
+            try:
+                rows = _sarimax_rows(monthly, dates, horizon, winner[0], winner[1], "sarima")
+            except Exception:  # noqa: BLE001 - refit failed; fall through below
+                rows = None
 
-            if rows and _plausible([r["forecast_value"] for r in rows], ceiling):
-                return rows
+            if rows:
+                rows = _clamp_rows(rows, ceiling)
+                if _plausible([r["forecast_value"] for r in rows], ceiling):
+                    return rows
 
-    # Fallback: the original order, first plausible fit wins.
-    for _name, build in _candidates(monthly, horizon, ceiling):
+    # Too short to hold out SARIMA_SELECTION_HOLDOUT months, or the winning
+    # order failed to refit on the full series (rare -- more data usually
+    # helps rather than hurts): try every candidate directly, richest first,
+    # first plausible fit wins. Still never leaves the SARIMA family.
+    for order, seasonal_order in SARIMA_CANDIDATES:
         try:
-            rows = build()
-        except Exception:  # noqa: BLE001 - any fitting failure means "try the next"
+            rows = _sarimax_rows(monthly, dates, horizon, order, seasonal_order, "sarima")
+        except Exception:  # noqa: BLE001 - any fitting failure means "try the next order"
             continue
 
         if not rows:
@@ -796,10 +502,7 @@ def forecast_product(monthly: pd.Series, horizon: int, select: bool = True):
         if _plausible([r["forecast_value"] for r in rows], ceiling):
             return rows
 
-    return _clamp_rows(_moving_average_rows(monthly, _future_dates(monthly, horizon)), ceiling)
-
-
-SELECTION_HOLDOUT = 3
+    return []
 
 
 HOLDOUT_MONTHS = 3
@@ -809,8 +512,8 @@ def backtest_product(monthly: pd.Series, holdout: int = HOLDOUT_MONTHS):
     """
     Score this product's forecast against months it was not allowed to see.
 
-    Refits the SAME cascade forecast_product() uses, on the series minus its
-    last `holdout` months, then compares the predictions to the months held
+    Refits the SAME SARIMA model forecast_product() uses, on the series minus
+    its last `holdout` months, then compares the predictions to the months held
     back. Scoring the model actually in use is the whole point -- a metric
     taken from some other model would describe a forecast nobody is looking at.
 
@@ -1017,15 +720,7 @@ def main():
         for row in rows:
             # .get(), not [] -- a new method name in forecast_product() must not
             # abort a 2,600-product run at the write step.
-            confidence = {
-                "sarima_ensemble": "high",
-                "sarima_seasonal": "high",
-                "sarima": "high",          # legacy name, kept so old CSVs still load
-                "arima": "high",
-                "holt_winters_seasonal": "high",
-                "holt_winters": "medium",
-                "moving_average": "low",
-            }.get(row["method"], "low")
+            confidence = "high" if row["method"] == "sarima" else "low"
             method_counts[row["method"]] += 1
             output_rows.append({
                 "product_sku": sku,

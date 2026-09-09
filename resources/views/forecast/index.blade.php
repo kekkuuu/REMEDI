@@ -64,6 +64,12 @@
             </div>
         </div>
 
+        {{-- Only the SARIMA-family rows from by_method are shown below -- the
+             other candidates in the retired cascade (Holt-Winters, plain
+             ARIMA, moving average, Croston SBA) are not displayed here, at
+             the user's request. --}}
+        @php $sarimaMethods = $accuracy['by_method']->filter(fn ($m) => str_contains(strtolower($m->method ?? ''), 'sarima')); @endphp
+        @if ($sarimaMethods->isNotEmpty())
         <div class="table-scroll"><table style="width:100%; border-collapse:collapse; font-size:13px;">
             <thead>
                 <tr style="background:#f9fafb;">
@@ -75,7 +81,7 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach ($accuracy['by_method'] as $m)
+                @foreach ($sarimaMethods as $m)
                 <tr style="border-bottom:0.5px solid #e5e7eb;">
                     <td style="padding:9px 12px; color:#374151;">{{ str_replace('_', ' ', $m->method ?? 'unknown') }}</td>
                     <td style="padding:9px 12px; text-align:right; color:#6b7280;">{{ number_format($m->products) }}</td>
@@ -86,6 +92,7 @@
                 @endforeach
             </tbody>
         </table></div>
+        @endif
 
         <p style="font-size:11px; color:#94a3b8; margin:10px 0 0;">
             MAPE runs high on intermittent demand by construction &mdash; being one unit out on a month that

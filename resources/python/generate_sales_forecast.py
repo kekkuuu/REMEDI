@@ -54,14 +54,25 @@ import pandas as pd
 
 warnings.filterwarnings("ignore")
 
-# See generate_forecasts.py for the measurement behind this: seasonal
-# differencing at period 12 needs three full cycles, not two. At 24-32 months it
-# is over-parameterised, oscillates, and half its output comes out negative --
-# which max(0, x) then turned into a confident forecast of zero.
-MIN_MONTHS_FOR_SEASONAL_SARIMA = 36
-MIN_MONTHS_FOR_SEASONAL_SMOOTHING = 24  # Holt-Winters needs two cycles for 12 seasonal indices
-MIN_MONTHS_FOR_SARIMA = 24   # non-seasonal ARIMA(1,1,1)
-MIN_MONTHS_FOR_SMOOTHING = 12
+# Kept in step with generate_forecasts.py: every product is forecast with a
+# SARIMA(p,d,q)(P,D,Q,s) model -- never a different model family
+# (Holt-Winters, plain ARIMA-as-a-separate-method and a moving average were
+# removed, at the user's explicit request, and are not coming back). The
+# ORDER is picked per product from SARIMA_CANDIDATES by holdout accuracy
+# (see _pick_sarima_order in forecast_series below) rather than forcing the
+# same order onto every series -- SARIMA(0,1,1)(0,1,1,12), the "airline
+# model" REMEDI.md measured as the best SINGLE specification, needs a full
+# seasonal cycle to estimate its seasonal MA term at all, which roughly half
+# this catalogue does not have. The last two candidates are the same
+# equation with P=D=Q=0 and s dropped, i.e. plain ARIMA(p,d,q), offered
+# because a short or irregular series can fail a seasonal fit outright.
+SARIMA_CANDIDATES = [
+    ((0, 1, 1), (0, 1, 1, 12)),
+    ((1, 1, 1), (0, 1, 1, 12)),
+    ((1, 1, 1), (0, 0, 0, 0)),
+    ((0, 1, 1), (0, 0, 0, 0)),
+]
+SARIMA_SELECTION_HOLDOUT = 3
 MIN_MONTHS_FOR_ANY_FORECAST = 3
 
 TASK_CHUNK_SIZE = 8
@@ -195,9 +206,13 @@ def monthly_series(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def forecast_series(series: pd.Series, horizon: int):
-    """Same SARIMA -> Holt-Winters -> moving-average cascade as
-    generate_forecasts.py, kept in sync deliberately so unit and demand
-    forecasts behave consistently."""
+    """
+    Forecast one product with a SARIMA model -- always SARIMA, but the ORDER
+    is picked per product from SARIMA_CANDIDATES by holdout accuracy, the
+    same approach as generate_forecasts.py::forecast_product (kept in sync
+    deliberately so unit and demand forecasts behave consistently). No model
+    outside the SARIMA family is fit.
+    """
     series = series.asfreq("MS", fill_value=0)
     n = len(series)
     last_date = series.index[-1]
@@ -246,11 +261,15 @@ def forecast_series(series: pd.Series, horizon: int):
 
         return bool((vals <= ceiling).all())
 
-    def sarimax_rows(order, seasonal_order, method):
+    def sarimax_rows(order, seasonal_order, fit_series=None, fit_dates=None, fit_horizon=None):
         from statsmodels.tsa.statespace.sarimax import SARIMAX
 
+        fit_series = series if fit_series is None else fit_series
+        fit_dates = future_dates if fit_dates is None else fit_dates
+        fit_horizon = horizon if fit_horizon is None else fit_horizon
+
         model = SARIMAX(
-            series, order=order, seasonal_order=seasonal_order,
+            fit_series, order=order, seasonal_order=seasonal_order,
             enforce_stationarity=False, enforce_invertibility=False,
         )
         with warnings.catch_warnings():
@@ -260,7 +279,7 @@ def forecast_series(series: pd.Series, horizon: int):
             warnings.simplefilter("ignore")
             fit = model.fit(disp=False, maxiter=200, method="powell")
 
-        pred = fit.get_forecast(steps=horizon)
+        pred = fit.get_forecast(steps=fit_horizon)
         ci = pred.conf_int(alpha=0.2)
 
         return [
@@ -269,147 +288,79 @@ def forecast_series(series: pd.Series, horizon: int):
                 "forecast_value": round(float(m), 2),
                 "lower_ci": round(float(lo), 2) if not np.isnan(lo) else 0.0,
                 "upper_ci": round(float(hi), 2) if not np.isnan(hi) else float("nan"),
-                "method": method,
+                "method": "sarima",
             }
-            for date, m, (lo, hi) in zip(future_dates, pred.predicted_mean, ci.values)
+            for date, m, (lo, hi) in zip(fit_dates, pred.predicted_mean, ci.values)
         ]
 
-    def smoothing_rows(seasonal=False):
-        from statsmodels.tsa.holtwinters import ExponentialSmoothing
-
-        kwargs = {"seasonal": "add", "seasonal_periods": 12} if seasonal else {}
-        model = ExponentialSmoothing(series, trend="add", damped_trend=True, **kwargs)
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            # use_brute=False: see generate_forecasts.py::_smoothing_rows. This
-            # now runs for every product as an ensemble member, and the brute
-            # grid search doubles its cost for a ~0.03-unit change in output.
-            fit = model.fit(use_brute=False)
-
-        mean = fit.forecast(horizon)
-        resid_std = float(np.std(fit.resid)) if len(fit.resid) > 1 else hist_mean * 0.2
-
-        return [
-            {
-                "forecast_date": date,
-                "forecast_value": round(float(m), 2),
-                "lower_ci": round(float(m) - resid_std, 2),
-                "upper_ci": round(float(m) + resid_std, 2),
-                "method": "holt_winters_seasonal" if seasonal else "holt_winters",
-            }
-            for date, m in zip(future_dates, mean)
-        ]
-
-    def seasonal_naive_values():
-        """Same calendar month one and two years back, averaged. Cannot diverge."""
-        v = np.asarray(series, dtype=float)
-        out = []
-        for h in range(1, horizon + 1):
-            picks = []
-            if len(v) >= 13 - h:
-                picks.append(v[h - 13])
-            if len(v) >= 25 - h:
-                picks.append(v[h - 25])
-            out.append(float(np.mean(picks)) if picks else float(v[-1]))
-        return out
-
-    def ensemble_rows():
+    def selection_error(rows, observed):
         """
-        Element-wise MEDIAN of airline SARIMA + seasonal Holt-Winters +
-        seasonal naive. Kept identical to generate_forecasts.py::_ensemble_rows
-        -- see that docstring for why the median and for the measurement. A
-        member whose fit is implausible gets no vote; if none survive this
-        raises and the chain falls through to the plain airline SARIMA.
+        MAPE-first, sMAPE fallback -- see generate_forecasts.py's
+        _sarima_selection_error for why this is safe here (never leaves the
+        SARIMA family) where it would not be safe across model families.
         """
-        members = []
-        ci_row_source = None
+        if not rows:
+            return None
 
+        pred = np.array([float(r["forecast_value"]) for r in rows[:len(observed)]], dtype=float)
+        obs = np.asarray(observed, dtype=float)[:len(pred)]
+
+        if len(pred) == 0:
+            return None
+
+        nz = obs != 0
+        mape = float(np.mean(np.abs((pred[nz] - obs[nz]) / obs[nz])) * 100.0) if nz.any() else None
+
+        denom = np.abs(pred) + np.abs(obs)
+        terms = np.where(denom == 0, 0.0, np.abs(pred - obs) / np.where(denom == 0, 1.0, denom))
+        smape = float(np.mean(terms) * 200.0)
+
+        return (mape if mape is not None else float("inf"), smape)
+
+    def pick_order():
+        """Best SARIMA order for THIS product, scored on its own holdout."""
+        if n < MIN_MONTHS_FOR_ANY_FORECAST + SARIMA_SELECTION_HOLDOUT:
+            return None
+
+        train = series.iloc[:-SARIMA_SELECTION_HOLDOUT]
+        observed = series.iloc[-SARIMA_SELECTION_HOLDOUT:].to_numpy(dtype=float)
+        holdout_dates = pd.date_range(
+            train.index[-1] + pd.offsets.MonthBegin(1), periods=SARIMA_SELECTION_HOLDOUT, freq="MS"
+        )
+
+        best = None
+        for order, seasonal_order in SARIMA_CANDIDATES:
+            try:
+                rows = sarimax_rows(order, seasonal_order, train, holdout_dates, SARIMA_SELECTION_HOLDOUT)
+            except Exception:
+                continue
+
+            if not rows or not plausible(rows):
+                continue
+
+            error = selection_error(rows, observed)
+            if error is None:
+                continue
+
+            if best is None or error < best[1]:
+                best = ((order, seasonal_order), error)
+
+        return best[0] if best else None
+
+    winner = pick_order()
+    orders_to_try = [winner] if winner else []
+    orders_to_try += [o for o in SARIMA_CANDIDATES if o != winner]
+
+    for order, seasonal_order in orders_to_try:
         try:
-            rows = sarimax_rows((0, 1, 1), (0, 1, 1, 12), "sarima_seasonal")
-            if plausible(rows):
-                members.append([r["forecast_value"] for r in rows])
-                ci_row_source = rows
-        except Exception:
-            pass
+            rows = sarimax_rows(order, seasonal_order)
+        except Exception:  # noqa: BLE001 - any fitting failure means "try the next order"
+            continue
 
-        try:
-            rows = smoothing_rows(seasonal=True)
-            if plausible(rows):
-                members.append([r["forecast_value"] for r in rows])
-                if ci_row_source is None:
-                    ci_row_source = rows
-        except Exception:
-            pass
-
-        naive = seasonal_naive_values()
-        if plausible([{"forecast_value": v, "lower_ci": v, "upper_ci": v} for v in naive]):
-            members.append(naive)
-
-        if not members:
-            raise RuntimeError("no ensemble member produced a plausible fit")
-
-        combined = np.median(np.asarray(members, dtype=float), axis=0)
-
-        halves = []
-        for i in range(horizon):
-            half = float("nan")
-            if ci_row_source is not None:
-                lo, hi = ci_row_source[i]["lower_ci"], ci_row_source[i]["upper_ci"]
-                if np.isfinite(lo) and np.isfinite(hi):
-                    half = abs(hi - lo) / 2.0
-            if not np.isfinite(half):
-                half = max(abs(float(combined[i])) * 0.2, hist_mean * 0.1)
-            halves.append(half)
-
-        return [
-            {
-                "forecast_date": date,
-                "forecast_value": round(float(m), 2),
-                "lower_ci": round(float(m) - half, 2),
-                "upper_ci": round(float(m) + half, 2),
-                "method": "sarima_ensemble",
-            }
-            for date, m, half in zip(future_dates, combined, halves)
-        ]
-
-    candidates = []
-
-    # Median ensemble first, then the "airline" model (0,1,1)(0,1,1,12) alone --
-    # seasonal MA, not AR. See generate_forecasts.py for both measurements.
-    if n >= MIN_MONTHS_FOR_SEASONAL_SARIMA:
-        candidates.append(ensemble_rows)
-        candidates.append(lambda: sarimax_rows((0, 1, 1), (0, 1, 1, 12), "sarima_seasonal"))
-    if n >= MIN_MONTHS_FOR_SEASONAL_SMOOTHING:
-        candidates.append(lambda: smoothing_rows(seasonal=True))
-    if n >= MIN_MONTHS_FOR_SARIMA:
-        candidates.append(lambda: sarimax_rows((1, 1, 1), (0, 0, 0, 0), "arima"))
-    if n >= MIN_MONTHS_FOR_SMOOTHING:
-        candidates.append(smoothing_rows)
-
-    for build in candidates:
-        try:
-            rows = build()
-        except Exception:
-            continue  # any fitting failure just means "try the next model"
-
-        if plausible(rows):
+        if rows and plausible(rows):
             return clamp(rows)
 
-    # Floor of the chain: cannot go negative, cannot exceed the ceiling.
-    window = series.tail(min(6, n))
-    avg = float(window.mean())
-    std = float(window.std(ddof=0)) if len(window) > 1 else avg * 0.2
-
-    return clamp([
-        {
-            "forecast_date": date,
-            "forecast_value": round(avg, 2),
-            "lower_ci": round(avg - std, 2),
-            "upper_ci": round(avg + std, 2),
-            "method": "moving_average",
-        }
-        for date in future_dates
-    ])
+    return []
 
 
 def _forecast_task(task):
@@ -524,15 +475,7 @@ def main():
         # shipping the whole price table to every worker process.
         price = float(prices.get(sku, 0) or 0)
         for row in rows:
-            confidence = {
-                "sarima_ensemble": "high",
-                "sarima_seasonal": "high",
-                "sarima": "high",          # legacy name, kept so old CSVs still load
-                "arima": "high",
-                "holt_winters_seasonal": "high",
-                "holt_winters": "medium",
-                "moving_average": "low",
-            }.get(row["method"], "low")
+            confidence = "high" if row["method"] == "sarima" else "low"
             output_rows.append({
                 "product_sku": sku,
                 "forecast_date": row["forecast_date"].strftime("%Y-%m-%d"),

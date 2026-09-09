@@ -982,30 +982,42 @@ of 2 read as a 23% miss. 12,387 of 15,474 rows carried decimals, 2,339 of them a
 and 1. `_clamp_rows()` rounds the value and both CI bounds, then re-orders the bounds so rounding
 cannot invert the band. Measured effect: sMAPE 86.8% → 74.1%.
 
-**`croston_sba` is in the candidate set, and it barely earns its place — that is measured, not**
-**assumed.** Croston is the textbook estimator for intermittent demand: it splits the series into how
-MUCH is bought and how OFTEN, smooths each, and forecasts the rate. The condition it targets is
-genuinely present — **36% of product-months have no sale**, and 1,250 of 2,474 products miss more than
-30% of their months. The SBA correction (× 1 − α/2) is applied because plain Croston is biased high
-and would systematically over-order.
+**As of 2026-09-09, both pipelines fit ONLY SARIMA models, at the user's explicit request, replacing
+the holdout-scored cross-model cascade described below in git history.** `generate_forecasts.py` and
+`generate_sales_forecast.py` no longer contain `_pick_by_holdout()`, `_selection_error()`,
+`_candidates()`, Holt-Winters, plain ARIMA-as-a-separate-method, the seasonal-naive/Holt-Winters/
+SARIMA median ensemble, Croston SBA, or the moving-average floor. **This alone was a measured
+regression** (MAE 2.28→2.42, sMAPE 30.1%→33.3%, see "Re-measured on the rebuilt sales record" below)
+because a single order forced onto every product fits some of them badly — most of all
+SARIMA(0,1,1)(0,1,1,12), the "airline" order, which needs a full seasonal cycle to estimate its
+seasonal MA term and roughly half this catalogue does not have one.
 
-Adding it moved the headline almost nowhere: MAE 5.16 → 5.15, RMSE 6.14 → 6.13, MAPE unchanged at
-59.1%, sMAPE 74.1% → 74.4% (slightly worse). It wins the contest on 190 of 2,576 products. The reason
-is that `moving_average` was already doing its job: a 6-month mean of a zero-heavy series *is* a demand
-rate, which is exactly what Croston estimates. Kept because it wins those 190 on merit and costs only
-runtime on a job that runs nightly at 02:00 (271s vs ~200s) — but do not expect it to rescue a metric.
-**The model is chosen by measured accuracy, not by how much history a product has.** The cascade used
-to take the richest model the series could support and keep it if it merely looked plausible — which
-put the SARIMA ensemble on 2,346 of 2,576 products, including short intermittent series it is the
-wrong tool for, where it was the catalogue's *worst* performer on the scale-free measure (MAPE 132.5%
-against 77.3% for plain ARIMA). `_pick_by_holdout()` now fits every candidate on a truncated series,
-scores each against months it was not shown, and refits the winner on the full history. Length of
-history says what a model CAN fit, not what fits.
+**So the order itself is now chosen per product, from `SARIMA_CANDIDATES` — four orders, still all
+SARIMA, never a different model family.** Two are seasonal (`(0,1,1)(0,1,1,12)` and
+`(1,1,1)(0,1,1,12)`), two are the same equation with `P=D=Q=0` and `s` dropped — i.e. plain
+`ARIMA(p,d,q)` — for a series too short or irregular to support a 12-month seasonal term at all.
+`_pick_sarima_order()` fits every candidate on a 3-month holdout and scores with **MAPE first, sMAPE
+as fallback** — the opposite order from the retired cascade's `(MAE, sMAPE)` criterion, and safe here
+specifically because selection never leaves the SARIMA family, so there is no risk of picking a model
+tuned to a metric nobody reports. The winning order is refit on the full series; if that refit fails
+(rare), every candidate is tried directly, richest first. A product where nothing in
+`SARIMA_CANDIDATES` produces a usable fit gets no forecast — there is still no fallback outside the
+family. `demand_forecasts`/`sales_forecasts.method` reads `sarima` regardless of which order won, so
+the "Model" column on both forecast pages stays one row; the order chosen per product is not
+persisted anywhere, only its output. Re-run both `forecast:generate` and `sales-forecast:generate`
+after touching either script, and re-derive the accuracy numbers below rather than trusting them.
 
-**The selection criterion is `(MAE, sMAPE)` and that order was measured, not argued.** Running the
-whole catalogue both ways: sMAPE-first gave MAE 8.16 / RMSE 9.65 / MAPE 123.1% / sMAPE 98.1%;
-MAE-first gave 8.12 / 9.63 / 122.6% / 101.5%. MAE-first wins three of four including MAPE, so it
-leads. The comparison table is in `_selection_error()` — do not re-litigate it from intuition.
+The retired cascade, for context (no longer live — kept here only so a future re-introduction has the
+prior measurements to build on): `croston_sba` existed because Croston is the textbook estimator for
+intermittent demand, splitting the series into how MUCH is bought and how OFTEN and forecasting the
+rate — genuinely applicable, since **36% of product-months had no sale**. It moved the headline almost
+nowhere (MAE 5.16 → 5.15, sMAPE 74.1% → 74.4%) because `moving_average` was already doing the same
+job for a zero-heavy series, but won 190 of 2,576 products on merit. Selection itself existed because
+the old cascade took the richest model a series could support and kept it if merely plausible, which
+put the SARIMA ensemble on 2,346 of 2,576 products including short series it was the wrong tool for.
+`_pick_by_holdout()` fit every candidate on a truncated series and scored each with `(MAE, sMAPE)` —
+an order settled by measurement (MAE-first: 8.12/9.63/122.6%/101.5%; sMAPE-first: 8.16/9.65/123.1%/
+98.1% — MAE-first won three of four).
 
 **MAPE is bounded by how noisy the demand is, not by the model.** It falls hard with volume —
 currently **17.3%** for products selling 100+ units a month against **65.8%** for those selling 5–20 —
@@ -1025,26 +1037,36 @@ sporadic product for having sold nothing. A product with no score is **Not rated
 The badge, the list column and the index distribution all call this one grader, so a product cannot
 read Normal on one screen and Acceptable on another.
 
-**Re-measured on the rebuilt sales record: MAE 8.43 → 2.28, RMSE 10.06 → 2.70, sMAPE → 30.1%
-(re-confirmed 2026-09-09 via `DemandForecastService::accuracySummary()` directly — the table has not
-been regenerated since 2026-09-02, so this is the same run, read precisely), and the grades read
-Normal 752 / Acceptable 198 / Not acceptable 297 over 1,247 scored products.** MAPE is still 83.1%
-across the 501 products where it is defined, and that is the honest figure for intermittent demand —
-being one unit out on a month that sold two is a 50% error however good the fit, which is why
-`ForecastGrade` falls back to sMAPE.
+**As of 2026-09-09 both forecast scripts fit only SARIMA models, with the ORDER chosen per product —
+see "Forecasting pipeline" below — and the figures here trace three points in that day's history.**
+MAE: 8.43 (original catalogue) → 2.28 (sales record rebuilt to 450 active lines, still on the
+cross-model cascade) → 2.42 (cascade replaced with ONE forced order,
+`SARIMA(0,1,1)(0,1,1,12)`) → **2.31** (that one order replaced with a per-product search over
+`SARIMA_CANDIDATES`, still SARIMA-only). RMSE followed the same path: 10.06 → 2.70 → 2.89 → **2.75**.
+sMAPE: 30.1% → 33.3% → **31.8%**. The order search recovered most, not all, of what forcing one order
+had cost — expected, since it still never leaves the SARIMA family the cascade used to range across.
+The grades now read **Normal 721 / Acceptable 233 / Not acceptable 293** over **1,247** scored
+products — back to the cascade's exact coverage (1,247), and closer to its grade split (752/198/297)
+than the single-order run's (690/223/315) was. MAPE is **87.1%** across the **501** products where it
+is defined, which is the honest figure for intermittent demand — being one unit out on a month that
+sold two is a 50% error however good the fit, which is why `ForecastGrade` falls back to sMAPE.
 
-**What moved those numbers was the size of the SHELF, not the model.** A first pass spread the shop's
-units across all 2,638 catalogue lines, leaving the median product at 0.73/month and 1,410 products
-grading "Not acceptable". The generator now stocks **450 active lines** (`ACTIVE_SKUS`) on a flatter
-curve (`ZIPF_EXP = 0.75`), which is what a small pharmacy actually keeps; the units, revenue and
-transaction count are unchanged. See REMEDI.md "The sales record was rebuilt" for the comparison.
+**What moved the FIRST jump (8.43 → 2.28) was the size of the SHELF, not the model.** A first pass
+spread the shop's units across all 2,638 catalogue lines, leaving the median product at 0.73/month
+and 1,410 products grading "Not acceptable". The generator now stocks **450 active lines**
+(`ACTIVE_SKUS`) on a flatter curve (`ZIPF_EXP = 0.75`), which is what a small pharmacy actually keeps;
+the units, revenue and transaction count are unchanged. See REMEDI.md "The sales record was rebuilt"
+for that comparison. The SECOND and THIRD jumps are both model changes described above and in
+"Forecasting pipeline" — dropping the cross-model cascade, then recovering part of the loss by
+searching SARIMA orders instead of forcing one.
 
 **Forecast accuracy is measured, not asserted.** `forecast:generate` refits each product's OWN
-cascade on its series minus the last `HOLDOUT_MONTHS` (3) and scores the result against the months it
-was not allowed to see, writing one row per product to `forecast_accuracy` (`--metrics` CSV →
-`importMetrics()`). Scoring the model actually in use is the point; a number from some other model
-would describe a forecast nobody is looking at. Currently 1,247 products scored: **MAE 2.28 / RMSE
-2.70** averaged across products (re-verified 2026-09-09 — see the re-measured figures above).
+SARIMA model (whichever order won that product's holdout) on its series minus the last
+`HOLDOUT_MONTHS` (3) and scores the result against the months it was not allowed to see, writing one
+row per product to `forecast_accuracy` (`--metrics` CSV → `importMetrics()`). Scoring the model
+actually in use is the point; a number from some other model would describe a forecast nobody is
+looking at. Currently 1,247 products scored: **MAE 2.31 / RMSE 2.75** averaged across products
+(measured 2026-09-09, immediately after the SARIMA-order-search run).
 
 **MAPE is nullable and must stay nullable.** It divides by the actual, so a holdout where the product
 sold nothing has no defined percentage error — and that is the common case here, not an edge case:
