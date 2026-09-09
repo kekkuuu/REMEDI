@@ -489,6 +489,18 @@
         return g;
     }
 
+    /* Chart.js's own fallback for a y-axis category label with no room to
+       fit is to truncate from the axis edge -- i.e. the START of the name,
+       leaving only the tail on screen ("...TAB 500MG TAB 100S BOT" with no
+       way to tell which product that is). Truncating here instead keeps the
+       front of the name, which is what actually identifies the product; the
+       tooltip reads from the untouched data label, so hovering still shows
+       the full name regardless of what's cut from the axis. */
+    function truncateTick(value) {
+        const label = this.getLabelForValue(value);
+        return label.length > 20 ? label.slice(0, 19) + '…' : label;
+    }
+
     @if($topProducts->isNotEmpty())
     new Chart(document.getElementById('topProductsChart'), {
         type: 'bar',
@@ -511,7 +523,17 @@
             },
             scales: {
                 x: { beginAtZero: true, ticks: { color: '#9ca3af', font: { size: 10 } }, grid: { color: '#f1f5f9' } },
-                y: { ticks: { color: '#374151', font: { size: 11 } }, grid: { display: false } },
+                y: {
+                    ticks: { color: '#374151', font: { size: 11 }, callback: truncateTick },
+                    grid: { display: false },
+                    // Chart.js still fits the axis to the card's actual width
+                    // and re-truncates on top of truncateTick's own ellipsis
+                    // if that's not enough room -- cutting the FRONT of an
+                    // already-shortened label a second time. Reserving a
+                    // fixed width wide enough for the 20-char cap makes the
+                    // one truncation pass here the only one that happens.
+                    afterFit: (scale) => { scale.width = 190; },
+                },
             },
         },
     });
@@ -539,7 +561,17 @@
             },
             scales: {
                 x: { beginAtZero: true, ticks: { color: '#9ca3af', font: { size: 10 } }, grid: { color: '#f1f5f9' } },
-                y: { ticks: { color: '#374151', font: { size: 11 } }, grid: { display: false } },
+                y: {
+                    ticks: { color: '#374151', font: { size: 11 }, callback: truncateTick },
+                    grid: { display: false },
+                    // Chart.js still fits the axis to the card's actual width
+                    // and re-truncates on top of truncateTick's own ellipsis
+                    // if that's not enough room -- cutting the FRONT of an
+                    // already-shortened label a second time. Reserving a
+                    // fixed width wide enough for the 20-char cap makes the
+                    // one truncation pass here the only one that happens.
+                    afterFit: (scale) => { scale.width = 190; },
+                },
             },
         },
     });

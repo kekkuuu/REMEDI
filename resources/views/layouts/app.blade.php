@@ -2828,6 +2828,14 @@
             .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
             .kpi-value { font-size: 22px; }
             .chart-box { height: 240px; }
+            /* .chart-box-legend-right carries .chart-box too, and this rule's
+               later source position wins the (equal-specificity) cascade over
+               the unconditional 280px above -- shrinking the box back down to
+               240px right in this 768-1024px range, the one width where the
+               legend still sits at 'right' (JS drops it to 'bottom' below
+               768px) but wasn't given the taller box that position needs.
+               Restate the taller height so it wins here too. */
+            .chart-box-legend-right { height: 280px; }
         }
 
         /* ══════════════ MOBILE ══════════════ */
