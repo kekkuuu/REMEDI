@@ -91,16 +91,22 @@
         <a href="{{ route('forecast.index') }}">Demand Forecasting</a>.
     </p>
 
-    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:18px;">
-        <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
+    {{-- grid-template-columns:repeat(3, 1fr) forced three equal columns at
+         every width; grid items default to min-width:auto, which refuses to
+         shrink text below its natural size, so the revenue figure overflowed
+         its cell and ran off-screen on mobile with no way to scroll to it.
+         auto-fit + minmax lets columns wrap on their own below ~150px each,
+         and min-width:0 lets each card's own text wrap within its column. --}}
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; margin-bottom:18px;">
+        <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
             <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Last month with sales</p>
             <p style="font-size:22px; font-weight:500; margin:0;">{{ $trend['lastActualMonth'] ?? '—' }}</p>
         </div>
-        <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
+        <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
             <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast total, units ({{ $forecastMonths }}-month)</p>
             <p style="font-size:22px; font-weight:500; margin:0;">{{ number_format($forecastUnitsTotal) }}</p>
         </div>
-        <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
+        <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
             <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast total, revenue ({{ $forecastMonths }}-month)</p>
             {{-- Money keeps its centavos. number_format() with no precision rounds
                  to whole pesos, so this KPI silently reported a figure that was
