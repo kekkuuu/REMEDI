@@ -663,7 +663,12 @@ Two calibration notes worth keeping:
   baskets a day, is the PHP 9,000 day the profile calls for.
 
 The concentration came out textbook: the top 20% of SKUs carry **76.1%** of units, the busiest product
-moves 193/month, and the median product moves **0.73/month**.
+moves 193/month, and the median product moves **0.73/month** — the readings taken right after this
+regeneration. Re-derived directly from `sales_history` on 2026-09-09 (same rows, same date range, so
+this should reproduce exactly): the busiest product is **LENOXA 500MG X100 TAB at ~168/month**, and
+the median product's average is **0**, not 0.73 — over half the 2,638-product catalogue never sold
+enough in any tracked month to clear even one unit of average monthly demand. The 76.1% concentration
+figure and the two numbers just above were not re-checked against this run.
 
 **The shelf is 450 lines, and that parameter decides whether anything is forecastable.** The first
 pass spread the same units across all 2,638 products, which left the median product selling 0.73 a
@@ -677,16 +682,21 @@ Measured across the two runs, with nothing about the models changed:
 
 | | 2,638 lines | 450-line shelf |
 |---|---|---|
-| Products scored | 2,627 | 1,237 |
-| Products >= 20 units/month | 53 | **70** |
-| Products >= 5 units/month | 257 | **315** |
+| Products scored | 2,627 | 1,247 |
+| Products >= 20 units/month | 53 | **69** |
+| Products >= 5 units/month | 257 | **371** |
 | sMAPE | 85.5% | **30.1%** |
-| Normal / Acceptable / Not acceptable | 658 / 559 / **1,410** | **746** / 191 / **300** |
+| Normal / Acceptable / Not acceptable | 658 / 559 / **1,410** | **752** / 198 / **297** |
 
-MAE is 2.16 and MAPE is still 80.9% over the 490 products where it is defined at all -- and that is
-the honest number for intermittent demand, which is why `ForecastGrade` falls back to sMAPE. 1,316 of
-2,638 products sold at least once in four years; the rest are catalogue entries that never moved,
-which is what the Analytics report's slow-moving section is for.
+The 450-line-shelf column above was re-verified 2026-09-09 directly against `forecast_accuracy` and
+`sales_history` (unchanged since generation): products scored, the >=20 and >=5 counts, and the grade
+split all read a little differently from what was first recorded (1,237 / 70 / 315 / 746 / 191 / 300)
+even though nothing has touched either table since 2026-09-02 — so the original figures were already
+slightly off, not a case of later drift. MAE is 2.28 (not 2.16) and MAPE is 83.1% (not 80.9%) over the
+501 products where it is defined at all (not 490) -- and that is the honest number for intermittent
+demand, which is why `ForecastGrade` falls back to sMAPE. 1,316 of 2,638 products sold at least once
+in four years (this count is unchanged); the rest are catalogue entries that never moved, which is
+what the Analytics report's slow-moving section is for.
 
 **This is concentration, not flattery.** The units, the revenue and the transaction count did not
 change -- only how many lines they are spread across, and a small pharmacy really does keep a few
@@ -697,7 +707,10 @@ number is only worth having while it is earned.
 changed, see "Commands"), both forecast pipelines regenerated (15,768 rows each, 164s for demand), the
 `SalesHistory` and `AlertService` caches cleared. Verified afterwards: no route answers 5xx, the five
 alert kinds still agree between the bell, the Inventory tab, the report KPI and the dashboard panel
-(630 / 30 / 84 / 81 / 81), and the suite is green at 96.
+(630 / 30 / 84 / 81 / 81 immediately after the rebuild on 2026-09-02; re-verified 2026-09-09 as
+**666 / 30 / 91 / 81 / 84** — low stock fell as POS trade sold stock down through 2026-09-03, while
+expired and fail-to-return both grew as the calendar moved a week further past those batches' dates,
+which is expected for time-based alert kinds), and the suite is green at 96.
 
 **The imported record stops the day before the terminal goes live, and that is deliberate.** The
 first POS checkout on this install is 2026-08-16, so the CSV ends on the 15th. The first regeneration

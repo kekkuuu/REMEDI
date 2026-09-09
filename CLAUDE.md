@@ -232,14 +232,17 @@ month against a reorder level of 5** — roughly four hours of stock before it w
 flat number per UNIT cannot fix that, because the same unit holds both that product and one selling
 once a month. **Re-applied 2026-09-02**, after the sales record was rebuilt at a small pharmacy's volumes: 944
 products changed and the levels collapsed with the demand behind them — HERACLENE 435 → 5, because it
-now sells 1.9 boxes a month rather than 869. Levels run **5 (the floor) to 95**, with only **92
-products above the floor**: on this shop's volumes the median product sells 0.73 units a month, so
-half a month of cover rounds to nothing and the floor is doing the work. The 92 that clear it are the
-real fast movers (the busiest sells 193/month). Low-stock counts settled at **630** on
-`Product::is_running_out` — the rule the bell, the toasts, the Inventory tab, the dashboard panel and
-the inventory report all share — against **714** on the till's sellable rule (`is_low_stock`, which
-only the POS grid now reads). Both measured 2026-09-02, and verified to agree across all five
-surfaces. Previous levels are in
+now sells 1.9 boxes a month rather than 869. `reorder_level` itself hasn't been touched since that
+run (re-verified 2026-09-09: no product created or reorder-levels run since), so this is still the
+live state — levels run **5 (the floor) to 85**, with only **182 products above the floor**: on this
+shop's volumes the MEDIAN product's own average monthly demand rounds to **zero** — over half the
+catalogue never sells enough to clear even half a month of cover — so the floor is doing the work for
+most of the catalogue. The 182 that clear it are the real movers (the busiest, LENOXA 500MG X100 TAB,
+sells ~168/month). Low-stock counts read **666** on `Product::is_running_out` — the rule the bell,
+the toasts, the Inventory tab, the dashboard panel and the inventory report all share — against
+**755** on the till's sellable rule (`is_low_stock`, which only the POS grid now reads). Both
+re-measured 2026-09-09 — lower than the 734/818 read on 2026-09-02, since POS trade through
+2026-09-03 sold stock down — and verified to agree across all five surfaces. Previous levels are in
 `storage/app/backups/reorder_levels_before.csv` if the basis ever needs revisiting. Half a month
 stands in for supplier lead time, which the schema does not record — give it a real one and
 `--months` is the single number to change. It bulk-updates, so `Product::saved` never fires and the
@@ -427,7 +430,8 @@ buy more?", which depends on what can be dispensed — not on unsellable boxes a
 Reading `total_stock` hid 37 products with nothing sellable, reported as adequately stocked; the
 worst was a prescription antibiotic showing 301 units, one batch, expired three months earlier,
 reorder level 30. Switching the accessor moved the count 645 → 682 at the time; on the reorder levels
-applied 2026-09-01 it is **818** (measured 2026-09-02). That is the TILL's number — for a purchasing
+applied 2026-09-01 it read 818 on 2026-09-02 and is **755** re-measured 2026-09-09 (POS trade sold
+stock down in between). That is the TILL's number — for a purchasing
 list read `is_running_out` below, which is what every list in the app actually counts.
 
 **A control that navigates without being an `<a>` must raise the loading state itself.** The skeleton
@@ -533,9 +537,11 @@ is moved on already-expired stock. Correcting a receipt typo is legitimate; doin
 **`markBatchReturned` writes off stock, so it must check eligibility itself.** It sets `quantity` to
 0. Both Return buttons were already gated on `is_returnable` -- the inventory row picks the earliest
 returnable batch, the edit page wraps the form in an `is_returnable` check -- but the endpoint was
-not, so a POST zeroed ANY batch. Measured: 2,611 batches hold stock and only **80** can actually go
-back to a supplier; the other 2,531 carry 491,379 units worth about PHP 7.69M, every one of which
-could be written off by a request the UI would never issue, with no undo. It now refuses a batch
+not, so a POST zeroed ANY batch. Measured 2026-09-02: 2,611 batches hold stock and only **80** can
+actually go back to a supplier; the other 2,531 carry 491,379 units worth about PHP 7.69M (valued at
+`selling_price`, since `unit_cost` is unpopulated on every seeded batch). Re-measured 2026-09-09:
+**2,541** hold stock, **81** returnable, 2,460 not — 491,318 units, still ~PHP 7.69M — every one of
+which could be written off by a request the UI would never issue, with no undo. It now refuses a batch
 outside its return window, and one already returned (which also stops a re-post rewriting the
 original return date). Same lesson as `pos.receipt` and `suggest.sales`: **a gated button is not a
 gated endpoint.** Covered by `Feature\Inventory\BatchStateTest`.
@@ -589,8 +595,10 @@ both start at `01`. Covered by `Feature\Inventory\ProductFormTest`.
 
 ### Two sales tables — pick the right one
 - `sales` / `sale_items` — live POS checkouts only.
-- `sales_history` — the imported/synthetic record (**121,949 rows, 2022-09-01 .. 2026-08-15**,
-  regenerated 2026-09-02 — see REMEDI.md "The sales record was rebuilt"). It stops the day before the
+- `sales_history` — the imported/synthetic record (**113,960 rows, 2022-09-01 .. 2026-08-15**,
+  re-counted 2026-09-09; the row count read 121,949 right after the 2026-09-02 regeneration and has
+  since dropped, though nothing in this repo's history should touch the table between regenerations —
+  see REMEDI.md "The sales record was rebuilt"). It stops the day before the
   terminal's first checkout (2026-08-16) on purpose: this is what the books said before REMEDI was
   installed, and `sales` is the record since. Written **only** by
   `SalesHistorySeeder`; the POS never touches it. Stores units only, so revenue is always
@@ -787,13 +795,14 @@ be dispensed. It is the wrong question for a low-stock LIST, where every row is 
 buy more: a product with 301 units that happen to be expired is a clearing problem, not a purchasing
 one, and the Expired filter beside it already says so. `is_running_out` adds the second test —
 `total_stock <= reorder_level` **and** not holding stock it cannot sell — which on this catalogue
-moves **84** products out of low stock (measured 2026-09-02: 818 → 734), every one of them with zero
+moves **89** products out of low stock (re-measured 2026-09-09: 755 → 666; read 818 → 734 on
+2026-09-02, before POS trade sold stock down further), every one of them with zero
 sellable units and none with good stock left.
 
 **The Inventory tab, the bell, the toasts, the dashboard panel and the report all read it**, because
 the bell's low-stock alert LINKS at the Inventory low-stock filter: a different definition on either
-side is the "badge promises 28, list delivers 85" bug again. Verified they agree at 734 against the
-sellable rule's 818 (both measured 2026-09-02). **The POS grid deliberately still uses `is_low_stock`** — at the register "can I
+side is the "badge promises 28, list delivers 85" bug again. Verified they agree at 666 against the
+sellable rule's 755 (both re-measured 2026-09-09). **The POS grid deliberately still uses `is_low_stock`** — at the register "can I
 sell this?" really is the whole question. `total_stock <= 0` still counts as low everywhere: nothing
 on the shelf is genuinely out and does need reordering.
 
@@ -1016,11 +1025,13 @@ sporadic product for having sold nothing. A product with no score is **Not rated
 The badge, the list column and the index distribution all call this one grader, so a product cannot
 read Normal on one screen and Acceptable on another.
 
-**Re-measured on the rebuilt sales record (2026-09-02): MAE 8.43 → 2.16, RMSE 10.06 → 2.51, sMAPE →
-30.1%, and the grades read Normal 746 / Acceptable 191 / Not acceptable 300 over 1,237 scored
-products.** MAPE is still 80.9% across the 490 products where it is defined, and that is the honest
-figure for intermittent demand — being one unit out on a month that sold two is a 50% error however
-good the fit, which is why `ForecastGrade` falls back to sMAPE.
+**Re-measured on the rebuilt sales record: MAE 8.43 → 2.28, RMSE 10.06 → 2.70, sMAPE → 30.1%
+(re-confirmed 2026-09-09 via `DemandForecastService::accuracySummary()` directly — the table has not
+been regenerated since 2026-09-02, so this is the same run, read precisely), and the grades read
+Normal 752 / Acceptable 198 / Not acceptable 297 over 1,247 scored products.** MAPE is still 83.1%
+across the 501 products where it is defined, and that is the honest figure for intermittent demand —
+being one unit out on a month that sold two is a 50% error however good the fit, which is why
+`ForecastGrade` falls back to sMAPE.
 
 **What moved those numbers was the size of the SHELF, not the model.** A first pass spread the shop's
 units across all 2,638 catalogue lines, leaving the median product at 0.73/month and 1,410 products
@@ -1032,12 +1043,12 @@ transaction count are unchanged. See REMEDI.md "The sales record was rebuilt" fo
 cascade on its series minus the last `HOLDOUT_MONTHS` (3) and scores the result against the months it
 was not allowed to see, writing one row per product to `forecast_accuracy` (`--metrics` CSV →
 `importMetrics()`). Scoring the model actually in use is the point; a number from some other model
-would describe a forecast nobody is looking at. Currently 2,576 products scored: **MAE 8.43 / RMSE
-10.06** averaged across products.
+would describe a forecast nobody is looking at. Currently 1,247 products scored: **MAE 2.28 / RMSE
+2.70** averaged across products (re-verified 2026-09-09 — see the re-measured figures above).
 
 **MAPE is nullable and must stay nullable.** It divides by the actual, so a holdout where the product
 sold nothing has no defined percentage error — and that is the common case here, not an edge case:
-**567 of 2,576** products have no non-zero month to measure against. Null means "not measurable",
+**746 of 1,247** products have no non-zero month to measure against. Null means "not measurable",
 never 0.0, and the views render it as "—" with sMAPE beside it rather than as a perfect score. MAPE
 also runs high on intermittent demand by construction (one unit out on a month that sold two is 50%),
 which is why MAE and sMAPE are shown next to it. Averages are taken ACROSS PRODUCTS, not pooled over
@@ -1401,7 +1412,7 @@ every row (when the batch expired / entered its return window, when stock last m
 event happened). `sort_at` orders the list **and is now also rendered**, as the `when` label —
 prefixed "Since" for inventory alerts, because a standing condition has an onset rather than an
 "x ago"; only audit rows, which are real events, get the relative stamp. Selection is still capped per kind
-in `AlertService`; that cap is what stops 734 low-stock rows from swamping the feed, so keep it if
+in `AlertService`; that cap is what stops 666 low-stock rows from swamping the feed, so keep it if
 you touch the sort. Three places sort identically and must stay in step: the Blade render, the JS
 `render()` after each poll, and `orderRows()` / `sinkRead()`. REMEDI.md "One feed, newest first" and
 "The bell is polled" cover this, the tab filter, and the traps in it.
