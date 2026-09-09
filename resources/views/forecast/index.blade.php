@@ -64,41 +64,6 @@
             </div>
         </div>
 
-        {{-- The verdict split. Same grader as each product page uses, so a
-             product cannot read Normal on one screen and Acceptable on the
-             other. Unrated is shown as its own band rather than folded into a
-             passing one -- unmeasured is not the same as accurate. --}}
-        @php
-            $g = $accuracy['grades'];
-            $gTotal = max(1, array_sum($g));
-            $bands = [
-                ['Normal', $g['normal'] ?? 0, '#16a34a'],
-                ['Acceptable', $g['acceptable'] ?? 0, '#d97706'],
-                ['Not acceptable', $g['not_acceptable'] ?? 0, '#dc2626'],
-                ['Not rated', $g['unrated'] ?? 0, '#94a3b8'],
-            ];
-        @endphp
-
-        <div style="display:flex; height:10px; border-radius:999px; overflow:hidden; margin-bottom:10px;">
-            @foreach ($bands as [$label, $count, $colour])
-                @if ($count > 0)
-                    <div title="{{ $label }}: {{ number_format($count) }}"
-                         style="width:{{ ($count / $gTotal) * 100 }}%; background:{{ $colour }};"></div>
-                @endif
-            @endforeach
-        </div>
-
-        <div style="display:flex; gap:16px; flex-wrap:wrap; margin-bottom:14px;">
-            @foreach ($bands as [$label, $count, $colour])
-                <span style="font-size:12px; color:#475569; display:inline-flex; align-items:center; gap:6px;">
-                    <span style="width:9px; height:9px; border-radius:50%; background:{{ $colour }};"></span>
-                    {{ $label }}
-                    <strong>{{ number_format($count) }}</strong>
-                    <span style="color:#94a3b8;">({{ number_format(($count / $gTotal) * 100, 1) }}%)</span>
-                </span>
-            @endforeach
-        </div>
-
         <div class="table-scroll"><table style="width:100%; border-collapse:collapse; font-size:13px;">
             <thead>
                 <tr style="background:#f9fafb;">
@@ -126,8 +91,7 @@
             MAPE runs high on intermittent demand by construction &mdash; being one unit out on a month that
             sold two is a 50% error &mdash; which is why MAE and sMAPE are shown beside it. Measured on this
             catalogue it falls with volume: <strong>17.3%</strong> for products selling 100+ units a month,
-            against <strong>65.8%</strong> for those selling 5&ndash;20. Read the bands above rather than the
-            headline: they tell you which forecasts to trust, product by product.
+            against <strong>65.8%</strong> for those selling 5&ndash;20.
         </p>
     </div>
     @endif

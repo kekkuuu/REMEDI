@@ -10,7 +10,6 @@
                 <th>SKU</th>
                 <th>Category</th>
                 <th>Forecast Qty</th>
-                <th>Accuracy</th>
                 <th>Trend</th>
                 <th>Generated At</th>
             </tr>
@@ -39,15 +38,6 @@
                         <div style="font-size:11px; color:{{ $forecast->is_stale ? '#b45309' : '#94a3b8' }};">
                             {{ $forecast->is_stale ? 'as of ' : '' }}{{ $forecast->forecast_date->format('M Y') }}
                         </div>
-                    </td>
-                    {{-- Verdict per row, so the list can be scanned for forecasts worth
-                         trusting without opening each product. Same grader as the detail page. --}}
-                    <td>
-                        <span style="display:inline-block; padding:2px 9px; border-radius:999px; font-size:11px;
-                                     font-weight:600; color:#fff; background:{{ $forecast->grade['colour'] }};"
-                              title="{{ $forecast->grade['note'] }}">
-                            {{ $forecast->grade['label'] }}
-                        </span>
                     </td>
                     <td>
                         <canvas
