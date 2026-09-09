@@ -12,6 +12,15 @@
  * Docker/Railway deployment documented in docs/DEPLOY-RAILWAY.md.
  */
 
+// This runtime defaults to PHP 8.5 (the app targets ^8.1) and display_errors is
+// on, so a PHP-level deprecation notice -- e.g. config/database.php referencing
+// the now-deprecated PDO::MYSQL_ATTR_SSL_CA -- gets echoed into the response
+// body BEFORE Laravel's own headers are sent. Once any output starts, every
+// later header()/setcookie() call (Content-Type, the session cookie, CSRF)
+// silently fails, so no session ever survives a request. Laravel logs its own
+// exceptions via LOG_CHANNEL=stderr regardless of this setting.
+ini_set('display_errors', '0');
+
 $uri = urldecode(
     parse_url($_SERVER['REQUEST_URI'], PHP_URL_PATH) ?? ''
 );
