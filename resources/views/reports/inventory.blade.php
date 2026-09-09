@@ -521,7 +521,11 @@
             cutout: '62%',
             layout: { padding: { top: 4, bottom: 4, left: 4, right: 8 } },
             plugins: {
-                legend: { position: 'right', align: 'center', labels: { boxWidth: 11, boxHeight: 11, padding: 13, usePointStyle: true, pointStyle: 'circle', font: { size: 11.5 }, color: '#334155' } },
+                // No `position` here -- it inherits Chart.defaults.plugins.legend.position,
+                // set just above from a matchMedia check. Hardcoding 'right' on every
+                // chart instance used to override that default outright, so the
+                // "drops back underneath on phone" comment never actually happened.
+                legend: { align: 'center', labels: { boxWidth: 11, boxHeight: 11, padding: 13, usePointStyle: true, pointStyle: 'circle', font: { size: 11.5 }, color: '#334155' } },
                 tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ₱${ctx.parsed.toLocaleString(undefined, { minimumFractionDigits: 2 })}` } },
             },
         },
@@ -544,7 +548,11 @@
             cutout: '62%',
             layout: { padding: { top: 4, bottom: 4, left: 4, right: 8 } },
             plugins: {
-                legend: { position: 'right', align: 'center', labels: { boxWidth: 11, boxHeight: 11, padding: 13, usePointStyle: true, pointStyle: 'circle', font: { size: 11.5 }, color: '#334155' } },
+                // No `position` here -- it inherits Chart.defaults.plugins.legend.position,
+                // set just above from a matchMedia check. Hardcoding 'right' on every
+                // chart instance used to override that default outright, so the
+                // "drops back underneath on phone" comment never actually happened.
+                legend: { align: 'center', labels: { boxWidth: 11, boxHeight: 11, padding: 13, usePointStyle: true, pointStyle: 'circle', font: { size: 11.5 }, color: '#334155' } },
                 tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed}` } },
             },
         },
