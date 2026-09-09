@@ -107,10 +107,17 @@ class AuditTrailController extends Controller
 
         $query = $this->applyFilters($request, AuditTrail::query());
 
+        // Same filtered scope as the table (search, action, role, date
+        // range) -- cloned before paginate() below consumes $query -- so all
+        // four tiles describe one period. "Total logs: 16" beside an
+        // all-time "Logins: 251" used to only show up if someone manually
+        // narrowed the date range; defaulting the page to today (see
+        // applyTodayDefault()) made it the first thing every admin sees.
+        $loginCount = (clone $query)->where('action', 'Login')->count();
+        $logoutCount = (clone $query)->where('action', 'Logout')->count();
+        $viewCount = (clone $query)->where('action', 'Viewed')->count();
+
         $logs = $query->orderByDesc('created_at')->paginate(20)->withQueryString();
-        $loginCount = AuditTrail::where('action', 'Login')->count();
-        $logoutCount = AuditTrail::where('action', 'Logout')->count();
-        $viewCount = AuditTrail::where('action', 'Viewed')->count();
 
         // Live filtering swaps the table only; same shape the other list pages
         // return (see the AJAX partial pattern in REMEDI.md). Pagination is
