@@ -80,8 +80,31 @@ class AuditTrailController extends Controller
         return $query;
     }
 
+    /**
+     * Default the range to TODAY when nothing was asked for.
+     *
+     * Landing on the full history (1,400+ rows and counting, append-only) is
+     * not a useful first view -- "what happened today" is. `?all=1` (the
+     * "Show All" control) or an explicit date_from/date_to bypasses this.
+     * Merged into the request rather than threaded through as extra
+     * parameters, so applyFilters() and the view's `request('date_from')`
+     * bindings both see the same effective range without a second copy of
+     * this decision. Called from both index() and export() so the CSV can
+     * never disagree with what the table is showing -- the same reason
+     * applyFilters() itself is shared.
+     */
+    private function applyTodayDefault(Request $request): void
+    {
+        if (! $request->boolean('all') && ! $request->filled('date_from') && ! $request->filled('date_to')) {
+            $today = today()->toDateString();
+            $request->merge(['date_from' => $today, 'date_to' => $today]);
+        }
+    }
+
     public function index(Request $request)
     {
+        $this->applyTodayDefault($request);
+
         $query = $this->applyFilters($request, AuditTrail::query());
 
         $logs = $query->orderByDesc('created_at')->paginate(20)->withQueryString();
@@ -105,6 +128,8 @@ class AuditTrailController extends Controller
 
     public function export(Request $request)
     {
+        $this->applyTodayDefault($request);
+
         // Same filters the table is showing. The button sits beside them, so
         // "Export CSV" has to mean "export this", not "export everything".
         $query = $this->applyFilters($request, AuditTrail::query())

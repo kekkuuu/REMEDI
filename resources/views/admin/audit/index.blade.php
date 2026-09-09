@@ -20,7 +20,7 @@
     {{-- Carries the current filters, so the file matches the table on screen.
          Rendered from the request for a full page load; the live filtering
          below keeps it in step after that. --}}
-    <a href="{{ route('audit.export', request()->only(['search', 'action', 'role', 'date_from', 'date_to'])) }}"
+    <a href="{{ route('audit.export', request()->only(['search', 'action', 'role', 'date_from', 'date_to', 'all'])) }}"
        class="btn btn-primary btn-sm" id="audit-export" data-no-skeleton>
       <i class="ti ti-download" style="font-size:14px;"></i> Export CSV
     </a>
@@ -95,7 +95,14 @@
       <button type="button" class="btn btn-secondary btn-sm" data-preset="today"><i class="ti ti-calendar-event" aria-hidden="true"></i> Today</button>
       <button type="button" class="btn btn-secondary btn-sm" data-preset="7"><i class="ti ti-calendar-week" aria-hidden="true"></i> 7 days</button>
       <button type="button" class="btn btn-secondary btn-sm" data-preset="30"><i class="ti ti-calendar-month" aria-hidden="true"></i> 30 days</button>
+      {{-- The page defaults to today (see AuditTrailController::applyTodayDefault);
+           this is the explicit way back to the full history. Round-trips
+           through this hidden field rather than a plain link so it survives
+           the live search/select filters below, which resubmit the whole
+           form on every change. --}}
+      <button type="button" class="btn btn-secondary btn-sm" id="audit-show-all"><i class="ti ti-list" aria-hidden="true"></i> Show All</button>
     </span>
+    <input type="hidden" name="all" id="audit-all-flag" value="{{ request()->boolean('all') ? '1' : '' }}">
 
     <button type="submit" class="btn btn-primary btn-sm"><i class="ti ti-filter" aria-hidden="true"></i> Filter</button>
     <a href="{{ route('audit.index') }}" class="btn btn-secondary btn-sm"><i class="ti ti-rotate" aria-hidden="true"></i> Reset</a>
@@ -226,13 +233,16 @@
     // Choosing a suggestion runs the same search the field would.
     search.addEventListener('suggest:live', () => run());
 
+    const allFlag = document.getElementById('audit-all-flag');
+
     form.querySelectorAll('.js-audit-filter').forEach(el => {
         el.addEventListener('change', () => run());
     });
 
     form.addEventListener('submit', (e) => { e.preventDefault(); run(); });
 
-    // Presets fill the two date inputs and re-run.
+    // Presets fill the two date inputs and re-run. A specific range is the
+    // opposite of "show everything", so clear that flag here too.
     form.querySelectorAll('[data-preset]').forEach(btn => {
         btn.addEventListener('click', () => {
             const to = new Date();
@@ -252,8 +262,18 @@
                 + '-' + String(d.getDate()).padStart(2, '0');
             form.querySelector('[name=date_from]').value = iso(from);
             form.querySelector('[name=date_to]').value = iso(to);
+            allFlag.value = '';
             run();
         });
+    });
+
+    // Show All: clears the date range and sets the flag that tells
+    // AuditTrailController::applyTodayDefault() not to fall back to today.
+    document.getElementById('audit-show-all').addEventListener('click', () => {
+        form.querySelector('[name=date_from]').value = '';
+        form.querySelector('[name=date_to]').value = '';
+        allFlag.value = '1';
+        run();
     });
 
     // Paginate without leaving the page, so the filters survive a page change.
@@ -294,6 +314,7 @@
         const p = new URLSearchParams(window.location.search);
         search.value = p.get('search') || '';
         form.querySelectorAll('.js-audit-filter').forEach(el => { el.value = p.get(el.name) || ''; });
+        allFlag.value = p.get('all') || '';
         run(false);
     });
 })();

@@ -121,9 +121,25 @@ class SalesListTest extends TestCase
         $this->sale($admin, '2026-08-15');
         $this->sale($admin, '2026-08-30');
 
-        $this->assertSame(3, $this->rowsFor($admin, []));
+        // No filter defaults to TODAY (see the next test) -- none of these
+        // fixture sales are dated today, so ?all=1 is what reaches all three.
+        $this->assertSame(3, $this->rowsFor($admin, ['all' => 1]));
         $this->assertSame(1, $this->rowsFor($admin, ['start_date' => '2026-08-10', 'end_date' => '2026-08-20']));
         $this->assertSame(2, $this->rowsFor($admin, ['start_date' => '2026-08-10']));
+    }
+
+    public function test_the_list_defaults_to_today_and_all_shows_everything(): void
+    {
+        $admin = $this->admin();
+        $this->sale($admin, '2026-08-01');
+        $this->sale($admin, now()->toDateString());
+
+        // Landing on the whole history is not a useful first view, so no
+        // filter at all means today only -- not "no filter applied".
+        $this->assertSame(1, $this->rowsFor($admin, []));
+
+        // The explicit way past that default.
+        $this->assertSame(2, $this->rowsFor($admin, ['all' => 1]));
     }
 
     public function test_the_range_is_normalised_to_the_format_the_date_inputs_can_display(): void

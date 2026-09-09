@@ -43,6 +43,11 @@
     <a href="{{ route('sales.index') }}" id="reset-link" class="btn btn-secondary">
         <i class="ti ti-refresh" aria-hidden="true"></i> Reset
     </a>
+    {{-- The page defaults to today (see SaleController::index); this is the
+         explicit way back to the full history. --}}
+    <button type="button" id="show-all-link" class="btn btn-secondary">
+        <i class="ti ti-list" aria-hidden="true"></i> Show All
+    </button>
 </form>
 
 {{-- Sales table --}}
@@ -60,7 +65,14 @@
     const endDateInput = document.getElementById('end-date-input');
     const resultsWrapper = document.getElementById('results-wrapper');
     const resetLink = document.getElementById('reset-link');
+    const showAllLink = document.getElementById('show-all-link');
     const salesBaseUrl = "{{ route('sales.index') }}";
+
+    // The page defaults to today (see SaleController::index) unless this is
+    // set -- sticky across searches and date changes so typing into the
+    // search box while "Show All" is active doesn't silently snap back to
+    // today. Restored from the URL below so a reload or back/forward keeps it.
+    let showingAll = new URLSearchParams(window.location.search).get('all') === '1';
 
     let searchDebounce;
     let searchController;
@@ -74,6 +86,7 @@
         if (term) url.searchParams.set('search', term);
         if (startDateInput.value) url.searchParams.set('start_date', startDateInput.value);
         if (endDateInput.value) url.searchParams.set('end_date', endDateInput.value);
+        if (showingAll) url.searchParams.set('all', '1');
 
         // Swap the stale rows for a skeleton so a search/filter reads as
 
@@ -140,6 +153,18 @@
         searchInput.value = '';
         startDateInput.value = '';
         endDateInput.value = '';
+        showingAll = false;
+        runSalesSearch();
+    });
+
+    // Show All: the explicit way past the today default. Sticky (see
+    // `showingAll` above) so it survives a later search or pagination.
+    showAllLink.addEventListener('click', (e) => {
+        e.preventDefault();
+        searchInput.value = '';
+        startDateInput.value = '';
+        endDateInput.value = '';
+        showingAll = true;
         runSalesSearch();
     });
 
@@ -165,6 +190,7 @@
         searchInput.value = params.get('search') || '';
         startDateInput.value = params.get('start_date') || '';
         endDateInput.value = params.get('end_date') || '';
+        showingAll = params.get('all') === '1';
         runSalesSearch(false);
     });
 </script>

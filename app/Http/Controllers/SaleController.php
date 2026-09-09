@@ -67,6 +67,15 @@ class SaleController extends Controller
             $request->get('end_date')
         );
 
+        // Default to TODAY when nothing was asked for -- landing on the
+        // entire sales history (hundreds of rows, growing every day) is not
+        // a useful first view, and "today" is what the KPI cards above the
+        // table already assume matters most. ?all=1 (the "Show All" control)
+        // or an explicit start_date/end_date bypasses this.
+        if (! $request->boolean('all') && $startDate === null && $endDate === null) {
+            $startDate = $endDate = today()->toDateString();
+        }
+
         if ($startDate) {
             $query->whereDate('created_at', '>=', $startDate);
         }
