@@ -6,6 +6,7 @@ use App\Models\AuditTrail;
 use App\Models\Category;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 class CategoryController extends Controller
 {
@@ -70,16 +71,37 @@ class CategoryController extends Controller
 
     public function destroy(Request $request, Category $category)
     {
-        if ($category->products()->exists()) {
-            return $this->actionFailed($request, 'Cannot delete a category that has products.', 'category');
-        }
+        // products.category_id is ON DELETE CASCADE (unlike sales.user_id,
+        // which was hardened to RESTRICT), so the exists() check below is the
+        // ONLY thing standing between this action and silently wiping every
+        // product -- and its batches, also cascading -- in a category that
+        // looked empty a moment ago. An unguarded check-then-delete leaves a
+        // window: a product created in this category between the check and
+        // the delete is destroyed with it, with none of destroy()'s own
+        // guards (sold-count, sales_history, its own audit entry) ever
+        // running. lockForUpdate() closes that window the same way
+        // Sale::nextTransactionNo() closes its own race -- InnoDB's FK
+        // implementation takes a lock on the referenced parent row before a
+        // child INSERT can proceed, so a concurrent product create blocks
+        // until this transaction commits or rolls back.
+        return DB::transaction(function () use ($request, $category) {
+            $locked = Category::where('id', $category->id)->lockForUpdate()->first();
 
-        $name = $category->name;
+            if (! $locked || $locked->products()->exists()) {
+                return $this->actionFailed($request, 'Cannot delete a category that has products.', 'category');
+            }
 
-        AuditTrail::log('Deleted', "Deleted category: {$name}");
-        $category->delete();
-        Cache::forget('sidebar_categories');
+            $name = $locked->name;
+            $locked->delete();
 
-        return $this->actionOk($request, "Category \"{$name}\" deleted successfully.", back());
+            // Logged AFTER the delete succeeds, never before -- see
+            // ProductController::destroy() for why: an entry asserting a
+            // deletion that did not happen is worse than the crash it
+            // would otherwise accompany.
+            AuditTrail::log('Deleted', "Deleted category: {$name}");
+            Cache::forget('sidebar_categories');
+
+            return $this->actionOk($request, "Category \"{$name}\" deleted successfully.", back());
+        });
     }
 }

@@ -115,9 +115,21 @@ class UserController extends Controller
 
     public function update(Request $request, User $user)
     {
+        // Same trim+lowercase-before-validate as RegisteredUserController::
+        // store() -- this was the one email-write path missing it. The
+        // `lowercase` rule below REJECTS a capitalised address rather than
+        // folding it, so without this an admin editing "Emman@remedi.com"
+        // back in got refused with no clue why (a js-confirm failure shows
+        // only the generic dialog text), and a capitalised address that DID
+        // pass some other path would sit inconsistent with the rest of the
+        // app treating addresses as lowercase.
+        $request->merge([
+            'email' => strtolower(trim((string) $request->input('email'))),
+        ]);
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'email' => 'required|email|max:255|unique:users,email,'.$user->id,
+            'email' => 'required|string|lowercase|email|max:255|unique:users,email,'.$user->id,
             'role' => 'required|in:admin,staff',
             'password' => 'nullable|confirmed|min:8',
         ]);
