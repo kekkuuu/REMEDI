@@ -15,7 +15,14 @@
 
     /* Search is a pill with the glyph INSIDE it rather than a bare input with
        a Search button beside it: the list filters on submit either way, and the
-       button was taking horizontal room from a field people type into. */
+       button was taking horizontal room from a field people type into.
+
+       One glyph, not two: there used to also be a purely decorative, non-
+       interactive ti-search icon pinned to the left of the field, which put
+       two identical magnifying glasses on screen at once -- the submit
+       button's icon on the right is the only one every other search box in
+       the app renders (see sales/index.blade.php), so it does the same job
+       here without the duplicate. */
     .users-search {
         position: relative;
         flex: 1;
@@ -25,21 +32,11 @@
 
     .users-search input {
         width: 100%;
-        padding: 11px 38px 11px 38px;
+        padding: 11px 38px 11px 14px;
         border: 1px solid var(--line);
         border-radius: 12px;
         font-size: 13px;
         background: var(--surface);
-    }
-
-    .users-search .ti-search {
-        position: absolute;
-        left: 13px;
-        top: 50%;
-        transform: translateY(-50%);
-        font-size: 16px;
-        color: #94a3b8;
-        pointer-events: none;
     }
 
     /* Submit lives inside the field, so Enter and the glyph do the same thing. */
@@ -198,7 +195,6 @@
 <form method="GET" action="{{ route('users.index') }}" id="usersFilterForm">
     <div class="users-toolbar">
         <div class="users-search">
-            <i class="ti ti-search" aria-hidden="true"></i>
             <input type="text" id="usersSearchInput" name="search" value="{{ request('search') }}"
                    placeholder="Search by name or email..."
                    autocomplete="off"
