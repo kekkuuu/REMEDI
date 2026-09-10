@@ -707,6 +707,19 @@ def main():
     # chain and adding a method there must not KeyError the write step.
     method_counts = collections.defaultdict(int)
     failures = []
+    # A product can also contribute zero rows with NO exception: rows == []
+    # coming out of forecast_product() means every SARIMA_CANDIDATES order
+    # was either too short a history to fit or got rejected by the
+    # plausibility check -- not a crash, so it never reaches `failures`, and
+    # it is invisible in the output CSV since it wrote nothing at all. A
+    # product that forecast fine last run and lands here this run (e.g. a
+    # borderline convergence result) has its forecast_date rows then removed
+    # by importCsv()'s `generated_at <` sweep with no trace anywhere of why
+    # it went from "has a forecast" to "has none". Tracked separately from
+    # `failures` (which are genuine exceptions) because a nonzero count here
+    # is often the ordinary "too little history" case, not a fault --
+    # printed as a count to check against, not an alarm.
+    empty_no_error = []
     start_time = time.monotonic()
     progress_every = max(1, total_products // 100)  # ~100 progress lines total, regardless of catalog size
 
@@ -717,6 +730,8 @@ def main():
             metric_rows.append({"product_sku": sku, **score})
         if error:
             failures.append((sku, error))
+        elif not rows:
+            empty_no_error.append(sku)
         for row in rows:
             # .get(), not [] -- a new method name in forecast_product() must not
             # abort a 2,600-product run at the write step.
@@ -778,6 +793,22 @@ def main():
             print(f"  - {sku}: {error}", flush=True)
         if len(failures) > 10:
             print(f"  ... and {len(failures) - 10} more", flush=True)
+
+    if empty_no_error:
+        # Not a WARNING -- see the note where empty_no_error is declared.
+        # Still printed unconditionally so a run where this count jumps
+        # (a product that had rows last time and has none now) is at least
+        # visible in the log, even though nothing here can tell "expected,
+        # too little history" apart from "a fit that used to work no longer
+        # does" -- that distinction needs comparing against the previous
+        # run's product list, which this script does not have.
+        print(
+            f"NOTE: {len(empty_no_error)} product(s) produced no forecast rows this run "
+            "with no error raised (too little history, or every SARIMA order was rejected "
+            "as implausible). Not necessarily a problem -- but if a product that forecast "
+            "last run appears here, its previous rows are about to be swept as stale.",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":

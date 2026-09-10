@@ -344,7 +344,12 @@ input.addEventListener('input', () => {
 });
 
     // Choosing a suggestion runs the same search the field would.
-    input.addEventListener('suggest:live', () => { runSearch(term, categorySelect.value); });
+    // `term` isn't in scope here -- it's local to the separate 'input'
+    // listener above -- so this threw ReferenceError on every keystroke
+    // REMEDI.attachSuggest fires 'suggest:live' for (layouts/app.blade.php).
+    // Read the field fresh instead, same as the other two call sites in
+    // this file and every other page's copy of this exact handler.
+    input.addEventListener('suggest:live', () => { runSearch(input.value.trim(), categorySelect.value); });
 
 categorySelect.addEventListener('change', () => {
     runSearch(input.value.trim(), categorySelect.value);

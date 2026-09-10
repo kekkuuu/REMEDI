@@ -183,51 +183,64 @@ class GenerateDemandForecast extends Command
         }
 
         $now = now();
-        $rows = [];
         $count = 0;
 
         // Cleared up front, not swept afterwards. `product_sku` is unique, so
         // inserting over last run's rows collides on every run after the first;
         // and these are whole-run summary statistics, so a row this run could
         // not score must not survive looking current.
-        DB::table('forecast_accuracy')->delete();
+        //
+        // Wrapped in a transaction -- unlike importCsv()'s upsert-then-sweep,
+        // which never has a window where demand_forecasts is empty, this
+        // clears the table BEFORE writing anything back. An interruption
+        // between the delete and the last insert (OOM on a large CSV, a
+        // dropped DB connection, the process being killed) used to leave
+        // forecast_accuracy genuinely empty -- not stale, gone -- until the
+        // next successful run, with every product reading "Not rated" in the
+        // meantime. The transaction makes that all-or-nothing: a failure here
+        // now rolls back to last run's rows instead of erasing them.
+        DB::transaction(function () use ($handle, $header, $now, &$count) {
+            DB::table('forecast_accuracy')->delete();
 
-        while (($line = fgetcsv($handle)) !== false) {
-            $row = array_combine($header, $line);
+            $rows = [];
 
-            if (! $row || ($row['product_sku'] ?? '') === '') {
-                continue;
+            while (($line = fgetcsv($handle)) !== false) {
+                $row = array_combine($header, $line);
+
+                if (! $row || ($row['product_sku'] ?? '') === '') {
+                    continue;
+                }
+
+                $rows[] = [
+                    'product_sku' => $row['product_sku'],
+                    'mae' => (float) $row['mae'],
+                    'rmse' => (float) $row['rmse'],
+                    // '' is what pandas writes for a null MAPE. Cast it to null,
+                    // not 0.0 -- 'undefined' and 'perfect' must not collapse.
+                    'mape' => ($row['mape'] ?? '') === '' ? null : (float) $row['mape'],
+                    'smape' => ($row['smape'] ?? '') === '' ? null : (float) $row['smape'],
+                    'holdout_months' => (int) $row['holdout_months'],
+                    'points_scored' => (int) $row['points_scored'],
+                    'points_scored_mape' => (int) $row['points_scored_mape'],
+                    'method' => $row['method'] ?: null,
+                    'generated_at' => $now,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+                $count++;
+
+                if (count($rows) >= 500) {
+                    DB::table('forecast_accuracy')->insert($rows);
+                    $rows = [];
+                }
             }
 
-            $rows[] = [
-                'product_sku' => $row['product_sku'],
-                'mae' => (float) $row['mae'],
-                'rmse' => (float) $row['rmse'],
-                // '' is what pandas writes for a null MAPE. Cast it to null,
-                // not 0.0 -- 'undefined' and 'perfect' must not collapse.
-                'mape' => ($row['mape'] ?? '') === '' ? null : (float) $row['mape'],
-                'smape' => ($row['smape'] ?? '') === '' ? null : (float) $row['smape'],
-                'holdout_months' => (int) $row['holdout_months'],
-                'points_scored' => (int) $row['points_scored'],
-                'points_scored_mape' => (int) $row['points_scored_mape'],
-                'method' => $row['method'] ?: null,
-                'generated_at' => $now,
-                'created_at' => $now,
-                'updated_at' => $now,
-            ];
-            $count++;
-
-            if (count($rows) >= 500) {
+            if ($rows) {
                 DB::table('forecast_accuracy')->insert($rows);
-                $rows = [];
             }
-        }
+        });
 
         fclose($handle);
-
-        if ($rows) {
-            DB::table('forecast_accuracy')->insert($rows);
-        }
 
         return $count;
     }

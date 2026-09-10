@@ -415,8 +415,14 @@ def main():
             raise SystemExit("--sales-csv is required for --source=csv")
         raw, prices = load_from_csv(args.sales_csv, args.price_csv)
     else:
-        if not args.env_path:
-            raise SystemExit("--env-path is required for --source=mysql")
+        # No --env-path is fine on a server: db_credentials() falls back to
+        # the process environment, and says what is missing if neither has
+        # it -- same as generate_forecasts.py. This script used to gate on
+        # --env-path unconditionally here, which is dead code in the only
+        # in-repo caller (GenerateSalesForecast.php always passes one) but
+        # would reject a direct/container invocation supplying credentials
+        # purely via environment variables with a misleading "required"
+        # error instead of db_credentials()'s more useful missing-key one.
         raw, prices = load_from_mysql(args.env_path)
 
     if raw.empty:
@@ -464,12 +470,22 @@ def main():
 
     output_rows = []
     failures = []
+    # See generate_forecasts.py's identical variable for the full reasoning:
+    # rows == [] with no exception is a rejected/unfittable series, not a
+    # crash, so it never reaches `failures` and is invisible in the output
+    # CSV -- and a product that forecast fine last run landing here this run
+    # has its old rows swept as stale by importCsv() with nothing anywhere
+    # explaining why. Tracked separately since a nonzero count is often the
+    # ordinary "too little history" case, not a fault.
+    empty_no_error = []
     start_time = time.monotonic()
     progress_every = max(1, total_products // 20)
 
     for i, (sku, rows, error) in enumerate(iter_forecasts(tasks, workers), start=1):
         if error:
             failures.append((sku, error))
+        elif not rows:
+            empty_no_error.append(sku)
 
         # Price lookup stays in the parent: it's a dict hit, not worth
         # shipping the whole price table to every worker process.
@@ -515,6 +531,15 @@ def main():
             print(f"  - {sku}: {error}", flush=True)
         if len(failures) > 10:
             print(f"  ... and {len(failures) - 10} more", flush=True)
+
+    if empty_no_error:
+        print(
+            f"NOTE: {len(empty_no_error)} product(s) produced no forecast rows this run "
+            "with no error raised (too little history, or every SARIMA order was rejected "
+            "as implausible). Not necessarily a problem -- but if a product that forecast "
+            "last run appears here, its previous rows are about to be swept as stale.",
+            flush=True,
+        )
 
 
 if __name__ == "__main__":
