@@ -165,7 +165,10 @@
                 <option value="expired" {{ $expiredOnly ? 'selected' : '' }}>Expired only</option>
             </select>
         </div>
-        <div style="display:flex;gap:8px;">
+        {{-- flex-wrap: same overflow class as the sales report's own button
+             row -- Apply/Clear/Print fit one line at 375px, Excel+PDF pushed
+             it past that with no way to reach the last button. --}}
+        <div style="display:flex;flex-wrap:wrap;gap:8px;">
             <button type="submit" class="btn btn-primary btn-sm">
                 <i class="ti ti-filter" style="font-size:14px;"></i> Apply
             </button>

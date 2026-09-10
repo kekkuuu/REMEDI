@@ -2469,8 +2469,14 @@
             .page-head-text.is-record h3 { font-size: 1.35rem; }
         }
 
-        /* Anything pushed to the right of the header (filters, actions). */
-        .page-head-actions { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+        /* Anything pushed to the right of the header (filters, actions).
+           flex-wrap: the only current user (reports/analytics.blade.php)
+           went from 2 items to 4 when the Excel/PDF export links were
+           added, and without wrap the last one ran off the right edge on
+           mobile with no way to reach it -- same overflow class already
+           fixed on the sales/inventory report button rows. Only one
+           consumer of this shared class today, so safe to change here. */
+        .page-head-actions { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 
         /* Retained only so a page that still renders a bare .page-back row is
            not left flush against what follows it. New pages use .page-head. */

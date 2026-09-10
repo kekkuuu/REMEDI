@@ -114,7 +114,13 @@
                    min="{{ $dataStart }}" max="{{ min($dataEnd, now()->toDateString()) }}"
                    onchange="this.form.month.value='';" class="report-select">
         </div>
-        <div style="display:flex;gap:8px;align-items:flex-end;">
+        {{-- flex-wrap: this row held Generate/Clear/Print before -- three
+             buttons that fit one line even at 375px. Adding Excel/PDF pushed
+             it to five, and without wrap the last one (PDF) ran off the
+             right edge with no way to reach it on mobile. Same overflow
+             class as the Sales Forecast KPI row and the audit preset
+             buttons, both fixed here in this file's own git history. --}}
+        <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;">
             <button type="submit" class="btn btn-primary btn-sm">
                 <i class="ti ti-refresh" aria-hidden="true"></i> Generate
             </button>
