@@ -83,6 +83,18 @@
     $nextMonth = $actionable->first();
     $horizonTotal = $actionable->sum('forecast_value');
     $horizonMonths = $actionable->count();
+
+    // Recommended reorder quantity: an order-up-to-level heuristic, not a
+    // second reorder POINT (that is Product::$reorder_level, a threshold
+    // that triggers a low-stock alert -- see SetReorderLevels). This answers
+    // a different question: given next month's forecast demand and the
+    // usual reorder_level buffer, how many units to actually buy now so
+    // stock doesn't fall through that buffer before next month is over.
+    // Null (not zero) when there is no actionable forecast to base it on --
+    // a zero here would read as "you have enough," which is not measured.
+    $recommendedReorderQty = ($product && $nextMonth)
+        ? max(0, (int) round($nextMonth->forecast_value + $product->reorder_level - $product->sellable_stock))
+        : null;
 @endphp
 
 {{-- Title lifted out of the card so Back can sit beside it, matching every
@@ -101,20 +113,35 @@
 
 <div class="card" style="margin-bottom:18px;">
 
-    <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:18px;">
-        <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom:18px;">
+        <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
             <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Last complete month</p>
             <p style="font-size:22px; font-weight:500; margin:0;">{{ $lastActualMonth ?? '—' }}</p>
         </div>
-        <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
+        <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
             <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Next month forecast</p>
             <p style="font-size:22px; font-weight:500; margin:0;">
                 {{ $nextMonth ? number_format($nextMonth->forecast_value) : '—' }}
             </p>
         </div>
-        <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
+        <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
             <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast total ({{ $horizonMonths }}-month)</p>
             <p style="font-size:22px; font-weight:500; margin:0;">{{ number_format($horizonTotal) }}</p>
+        </div>
+        <div style="background:#f0fdf4; border-radius:8px; padding:1rem; min-width:0;">
+            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Recommended reorder qty</p>
+            <p style="font-size:22px; font-weight:500; margin:0;">
+                {{ $recommendedReorderQty !== null ? number_format($recommendedReorderQty) : '—' }}
+            </p>
+            <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">
+                @if ($recommendedReorderQty === null)
+                    no actionable forecast yet
+                @elseif ($recommendedReorderQty === 0)
+                    current stock covers next month + buffer
+                @else
+                    covers next month's demand + reorder buffer
+                @endif
+            </p>
         </div>
     </div>
 

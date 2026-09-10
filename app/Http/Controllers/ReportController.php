@@ -2,14 +2,19 @@
 
 namespace App\Http\Controllers;
 
+use App\Exports\AnalyticsReportExport;
+use App\Exports\InventoryReportExport;
+use App\Exports\SalesReportExport;
 use App\Models\AuditTrail;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SalesHistory;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Maatwebsite\Excel\Facades\Excel;
 
 class ReportController extends Controller
 {
@@ -52,6 +57,17 @@ class ReportController extends Controller
      * of bug as a KPI that disagrees with its own list.
      */
     private const POS_PRINT_CAP = 100;
+
+    /**
+     * How many products the Inventory Report's PDF export renders.
+     *
+     * dompdf builds the PDF from rendered HTML rather than streaming rows the
+     * way the Excel export does, so the unfiltered catalogue (~2,600 products)
+     * risks a slow or memory-heavy render on a serverless request. Ordered by
+     * the same query as the page, so a capped export is always "the first N of
+     * the report you were looking at", not an arbitrary slice.
+     */
+    private const INVENTORY_PDF_CAP = 500;
 
     public function index()
     {
@@ -107,6 +123,46 @@ class ReportController extends Controller
     }
 
     public function sales(Request $request)
+    {
+        $data = $this->buildSalesReportData($request);
+
+        AuditTrail::log('Viewed', "Generated Sales Report ({$data['start']} to {$data['end']})");
+
+        return view('reports.sales', $data);
+    }
+
+    /**
+     * Excel/PDF export of the sales report, honouring the same filters as
+     * the page. Built from buildSalesReportData() -- the one place that
+     * range/month resolution happens -- so an export can never disagree
+     * with the page it was exported from about which range it covers.
+     */
+    public function exportSales(Request $request)
+    {
+        $request->validate(['format' => 'required|in:xlsx,pdf']);
+
+        $data = $this->buildSalesReportData($request);
+        $range = "{$data['start']}_to_{$data['end']}";
+
+        if ($request->get('format') === 'xlsx') {
+            AuditTrail::log('Viewed', "Exported Sales Report as Excel ({$data['start']} to {$data['end']})");
+
+            return Excel::download(new SalesReportExport($data), "sales-report-{$range}.xlsx");
+        }
+
+        AuditTrail::log('Viewed', "Exported Sales Report as PDF ({$data['start']} to {$data['end']})");
+
+        return Pdf::loadView('reports.pdf.sales', $data)->download("sales-report-{$range}.pdf");
+    }
+
+    /**
+     * Everything the sales report page and its exports both need: the
+     * validated/clamped range, the daily or monthly breakdown, and the two
+     * ways the headline total is counted. Kept separate from AuditTrail::log()
+     * and the view() call so the page logs "Generated" and an export logs
+     * "Exported" without duplicating the range/query logic between them.
+     */
+    private function buildSalesReportData(Request $request): array
     {
         // The date inputs are type="date", but nothing stops a hand-edited or
         // bookmarked query string. Unvalidated, `?start_date=banana` reached
@@ -211,17 +267,58 @@ class ReportController extends Controller
                 : $sale->created_at->format('Y-m'))
             ->map(fn ($group) => round((float) $group->sum('total_amount'), 2));
 
-        AuditTrail::log('Viewed', "Generated Sales Report ({$start} to {$end})");
-
-        return view('reports.sales', compact(
+        return compact(
             'sales', 'start', 'end', 'totalSales', 'totalTransactions',
             'dailyBreakdown', 'months', 'month', 'totalUnits', 'activeDays',
             'dataStart', 'dataEnd', 'granularity', 'posTotal', 'historyTotal', 'posByBucket',
             'salesForPrint'
-        ));
+        );
     }
 
     public function inventory(Request $request)
+    {
+        $data = $this->buildInventoryReportData($request);
+
+        $logMsg = 'Generated Inventory Report';
+        if ($data['categoryId'] || $data['lowStockOnly'] || $data['expiredOnly']) {
+            $logMsg .= ' (filtered)';
+        }
+        AuditTrail::log('Viewed', $logMsg);
+
+        return view('reports.inventory', $data);
+    }
+
+    /** Excel/PDF export of the inventory report, same filters as the page. */
+    public function exportInventory(Request $request)
+    {
+        $request->validate(['format' => 'required|in:xlsx,pdf']);
+
+        $data = $this->buildInventoryReportData($request);
+        $suffix = now()->toDateString();
+
+        if ($request->get('format') === 'xlsx') {
+            AuditTrail::log('Viewed', 'Exported Inventory Report as Excel');
+
+            return Excel::download(new InventoryReportExport($data), "inventory-report-{$suffix}.xlsx");
+        }
+
+        AuditTrail::log('Viewed', 'Exported Inventory Report as PDF');
+
+        // dompdf renders HTML-to-PDF, not a streamed table like PhpSpreadsheet --
+        // the unfiltered catalogue is ~2,600 rows, and Chrome-print-to-PDF on the
+        // page's own print copy already needed the row-styling rework documented
+        // in reports/inventory.blade.php to stay under a few MB. Capped here the
+        // same way POS_PRINT_CAP / SLOW_MOVING_LIST_CAP already cap other exports,
+        // so a serverless request can't time out generating one PDF. The Excel
+        // export above carries every row -- PhpSpreadsheet does not have this cost.
+        $pdfData = $data;
+        $pdfData['pdfTotalCount'] = $data['products']->count();
+        $pdfData['products'] = $data['products']->take(self::INVENTORY_PDF_CAP);
+
+        return Pdf::loadView('reports.pdf.inventory', $pdfData)->download("inventory-report-{$suffix}.pdf");
+    }
+
+    private function buildInventoryReportData(Request $request): array
     {
         $categoryId = $request->get('category_id');
 
@@ -339,19 +436,41 @@ class ReportController extends Controller
 
         $categories = Category::orderBy('name')->get();
 
-        $logMsg = 'Generated Inventory Report';
-        if ($categoryId || $lowStockOnly || $expiredOnly) {
-            $logMsg .= ' (filtered)';
-        }
-        AuditTrail::log('Viewed', $logMsg);
-
-        return view('reports.inventory', compact(
+        return compact(
             'products', 'totalStockValue', 'lowStockCount', 'expiredCount',
             'stockValueByCategory', 'categories', 'categoryId', 'lowStockOnly', 'expiredOnly'
-        ));
+        );
     }
 
     public function analytics(Request $request)
+    {
+        $data = $this->buildAnalyticsReportData($request);
+
+        AuditTrail::log('Viewed', "Generated Analytics Report ({$data['start']} to {$data['end']})");
+
+        return view('reports.analytics', $data);
+    }
+
+    /** Excel/PDF export of the analytics report, same filters as the page. */
+    public function exportAnalytics(Request $request)
+    {
+        $request->validate(['format' => 'required|in:xlsx,pdf']);
+
+        $data = $this->buildAnalyticsReportData($request);
+        $range = "{$data['start']}_to_{$data['end']}";
+
+        if ($request->get('format') === 'xlsx') {
+            AuditTrail::log('Viewed', "Exported Analytics Report as Excel ({$data['start']} to {$data['end']})");
+
+            return Excel::download(new AnalyticsReportExport($data), "analytics-report-{$range}.xlsx");
+        }
+
+        AuditTrail::log('Viewed', "Exported Analytics Report as PDF ({$data['start']} to {$data['end']})");
+
+        return Pdf::loadView('reports.pdf.analytics', $data)->download("analytics-report-{$range}.pdf");
+    }
+
+    private function buildAnalyticsReportData(Request $request): array
     {
         $request->validate(['month' => 'nullable|date_format:Y-m']);
 
@@ -423,11 +542,9 @@ class ReportController extends Controller
         // is meaningless when scoped to one month.
         $seasonalTrends = SalesHistory::seasonalTrends();
 
-        AuditTrail::log('Viewed', "Generated Analytics Report ({$start} to {$end})");
-
-        return view('reports.analytics', compact(
+        return compact(
             'topProducts', 'slowMoving', 'slowMovingCount', 'salesTrend', 'seasonalTrends',
             'months', 'month', 'start', 'end', 'dataStart', 'dataEnd', 'granularity'
-        ));
+        );
     }
 }

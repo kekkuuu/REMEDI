@@ -17,13 +17,26 @@
       </div>
       <div style="font-size:13px; color:#6b7280; margin-top:2px;">System activity log — all user actions recorded</div>
     </div>
-    {{-- Carries the current filters, so the file matches the table on screen.
-         Rendered from the request for a full page load; the live filtering
-         below keeps it in step after that. --}}
-    <a href="{{ route('audit.export', request()->only(['search', 'action', 'role', 'date_from', 'date_to', 'all'])) }}"
-       class="btn btn-primary btn-sm" id="audit-export" data-no-skeleton>
-      <i class="ti ti-download" style="font-size:14px;"></i> Export CSV
-    </a>
+    {{-- Both actions live in one flex group -- without it, the outer header's
+         justify-content:space-between treats Export CSV and Backup Database as
+         two independent items and spreads them across the row instead of
+         keeping them together as the button pair they are. --}}
+    <div style="display:flex; align-items:center; flex-wrap:wrap; gap:10px;">
+      {{-- Carries the current filters, so the file matches the table on screen.
+           Rendered from the request for a full page load; the live filtering
+           below keeps it in step after that. --}}
+      <a href="{{ route('audit.export', request()->only(['search', 'action', 'role', 'date_from', 'date_to', 'all'])) }}"
+         class="btn btn-primary btn-sm" id="audit-export" data-no-skeleton>
+        <i class="ti ti-download" style="font-size:14px;"></i> Export CSV
+      </a>
+      {{-- Streams a .sql dump of the operational tables (not the imported/
+           regenerable ones -- see BackupController::BACKUP_TABLES). No restore
+           button by design: this repo's rule for anything that can destroy live
+           data is a person with real database access, not a confirm dialog. --}}
+      <a href="{{ route('admin.backup') }}" class="btn btn-secondary btn-sm" data-no-skeleton>
+        <i class="ti ti-database-export" style="font-size:14px;"></i> Backup Database
+      </a>
+    </div>
   </div>
 
   {{-- Stat Cards --}}

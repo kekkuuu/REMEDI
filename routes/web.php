@@ -3,6 +3,7 @@
 use App\Http\Controllers\AlertController;
 use App\Http\Controllers\AuditTrailController;
 use App\Http\Controllers\Auth\RegisteredUserController;
+use App\Http\Controllers\BackupController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DemandForecastController;
@@ -100,8 +101,11 @@ Route::middleware(['auth', 'active'])->group(function () {
         // Reports
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('/reports/sales', [ReportController::class, 'sales'])->name('reports.sales');
+        Route::get('/reports/sales/export', [ReportController::class, 'exportSales'])->name('reports.sales.export');
         Route::get('/reports/inventory', [ReportController::class, 'inventory'])->name('reports.inventory');
+        Route::get('/reports/inventory/export', [ReportController::class, 'exportInventory'])->name('reports.inventory.export');
         Route::get('/reports/analytics', [ReportController::class, 'analytics'])->name('reports.analytics');
+        Route::get('/reports/analytics/export', [ReportController::class, 'exportAnalytics'])->name('reports.analytics.export');
 
         // Forecasting
         Route::get('/forecast', [DemandForecastController::class, 'index'])->name('forecast.index');
@@ -113,6 +117,7 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::get('/suggest/users', [SuggestController::class, 'users'])->name('suggest.users');
         Route::get('/suggest/audit', [SuggestController::class, 'audit'])->name('suggest.audit');
         Route::get('/audit/export', [AuditTrailController::class, 'export'])->name('audit.export');
+        Route::get('/admin/backup', [BackupController::class, 'download'])->name('admin.backup');
     });
 });
 

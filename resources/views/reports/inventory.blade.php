@@ -177,6 +177,15 @@
             <button type="button" onclick="window.print()" class="btn btn-secondary btn-sm">
                 <i class="ti ti-printer" style="font-size:14px;"></i> Print
             </button>
+            @php
+                $exportParams = array_filter(['category_id' => $categoryId, 'status' => $lowStockOnly ? 'low_stock' : ($expiredOnly ? 'expired' : null)]);
+            @endphp
+            <a href="{{ route('reports.inventory.export', $exportParams + ['format' => 'xlsx']) }}" class="btn btn-secondary btn-sm">
+                <i class="ti ti-file-spreadsheet" style="font-size:14px;"></i> Excel
+            </a>
+            <a href="{{ route('reports.inventory.export', $exportParams + ['format' => 'pdf']) }}" class="btn btn-secondary btn-sm">
+                <i class="ti ti-file-type-pdf" style="font-size:14px;"></i> PDF
+            </a>
         </div>
     </form>
 

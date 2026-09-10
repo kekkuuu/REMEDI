@@ -128,6 +128,16 @@
             <button type="button" id="printReport" class="btn btn-secondary btn-sm">
                 <i class="ti ti-printer" aria-hidden="true"></i> Print
             </button>
+            {{-- $start/$end are the already-resolved, clamped dates for THIS
+                 report -- whether a month or a custom range drove it -- so the
+                 export always matches what is on screen without needing to
+                 carry `month` through separately. --}}
+            <a href="{{ route('reports.sales.export', ['format' => 'xlsx', 'start_date' => $start, 'end_date' => $end]) }}" class="btn btn-secondary btn-sm">
+                <i class="ti ti-file-spreadsheet" aria-hidden="true"></i> Excel
+            </a>
+            <a href="{{ route('reports.sales.export', ['format' => 'pdf', 'start_date' => $start, 'end_date' => $end]) }}" class="btn btn-secondary btn-sm">
+                <i class="ti ti-file-type-pdf" aria-hidden="true"></i> PDF
+            </a>
         </div>
     </form>
 

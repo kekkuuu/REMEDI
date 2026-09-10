@@ -22,6 +22,24 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        // Both packages default to writing under storage_path() -- maatwebsite/
+        // excel's XLSX writer spools to storage/framework/cache/laravel-excel
+        // before streaming the download, and dompdf's font_cache defaults to
+        // storage/fonts. That's the exact class of problem vercel.json already
+        // works around for the framework's own caches (config/events/routes,
+        // compiled views) by redirecting them to /tmp -- server.php's own
+        // comment explains why: only /tmp is writable on that runtime. Neither
+        // export package's config is published in this app, so there's nothing
+        // for vercel.json's env block to point at; overriding here instead of
+        // publishing ~350 lines of vendor config just to change one key each.
+        // sys_get_temp_dir() is correct everywhere this app runs (XAMPP, the
+        // Railway container, and Vercel, where it resolves to /tmp) and, unlike
+        // a storage_path() subdirectory, is guaranteed to already exist.
+        config([
+            'excel.temporary_files.local_path' => sys_get_temp_dir(),
+            'dompdf.font_cache' => sys_get_temp_dir(),
+        ]);
+
         Paginator::defaultView('vendor.pagination.custom');
         Paginator::defaultSimpleView('vendor.pagination.custom');
 
