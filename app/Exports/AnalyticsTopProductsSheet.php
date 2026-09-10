@@ -11,6 +11,8 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 
 class AnalyticsTopProductsSheet implements FromCollection, ShouldAutoSize, WithHeadings, WithMapping, WithTitle
 {
+    use EscapesFormulas;
+
     public function __construct(private Collection $rows) {}
 
     public function collection()
@@ -25,7 +27,12 @@ class AnalyticsTopProductsSheet implements FromCollection, ShouldAutoSize, WithH
 
     public function map($row): array
     {
-        return [$row->product_sku, $row->name, (int) $row->total_qty, (float) $row->total_revenue];
+        return [
+            $this->escapeCell($row->product_sku),
+            $this->escapeCell($row->name),
+            (int) $row->total_qty,
+            (float) $row->total_revenue,
+        ];
     }
 
     public function title(): string

@@ -71,11 +71,13 @@
                 <i class="ti ti-printer" style="font-size:14px;"></i> Print
             </button>
             {{-- analytics() only ever takes `month`, never a date range -- unlike
-                 the sales report, it has no start_date/end_date input at all. --}}
-            <a href="{{ route('reports.analytics.export', array_filter(['format' => 'xlsx', 'month' => $month])) }}" class="btn btn-secondary btn-sm">
+                 the sales report, it has no start_date/end_date input at all.
+                 data-no-skeleton on both: these download a file rather than
+                 navigate, and without it the "Loading…" pill never clears. --}}
+            <a href="{{ route('reports.analytics.export', array_filter(['format' => 'xlsx', 'month' => $month])) }}" class="btn btn-secondary btn-sm" data-no-skeleton>
                 <i class="ti ti-file-spreadsheet" style="font-size:14px;"></i> Excel
             </a>
-            <a href="{{ route('reports.analytics.export', array_filter(['format' => 'pdf', 'month' => $month])) }}" class="btn btn-secondary btn-sm">
+            <a href="{{ route('reports.analytics.export', array_filter(['format' => 'pdf', 'month' => $month])) }}" class="btn btn-secondary btn-sm" data-no-skeleton>
                 <i class="ti ti-file-type-pdf" style="font-size:14px;"></i> PDF
             </a>
         </div>

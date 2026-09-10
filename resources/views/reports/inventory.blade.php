@@ -180,10 +180,14 @@
             @php
                 $exportParams = array_filter(['category_id' => $categoryId, 'status' => $lowStockOnly ? 'low_stock' : ($expiredOnly ? 'expired' : null)]);
             @endphp
-            <a href="{{ route('reports.inventory.export', $exportParams + ['format' => 'xlsx']) }}" class="btn btn-secondary btn-sm">
+            {{-- data-no-skeleton on both: these download a file rather than
+                 navigate, and without it the "Loading…" pill from
+                 layouts/app.blade.php's click-guard never clears -- no
+                 document ever arrives to finish the navigation it started. --}}
+            <a href="{{ route('reports.inventory.export', $exportParams + ['format' => 'xlsx']) }}" class="btn btn-secondary btn-sm" data-no-skeleton>
                 <i class="ti ti-file-spreadsheet" style="font-size:14px;"></i> Excel
             </a>
-            <a href="{{ route('reports.inventory.export', $exportParams + ['format' => 'pdf']) }}" class="btn btn-secondary btn-sm">
+            <a href="{{ route('reports.inventory.export', $exportParams + ['format' => 'pdf']) }}" class="btn btn-secondary btn-sm" data-no-skeleton>
                 <i class="ti ti-file-type-pdf" style="font-size:14px;"></i> PDF
             </a>
         </div>

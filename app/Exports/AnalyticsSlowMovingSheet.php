@@ -11,6 +11,8 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 
 class AnalyticsSlowMovingSheet implements FromCollection, ShouldAutoSize, WithHeadings, WithMapping, WithTitle
 {
+    use EscapesFormulas;
+
     public function __construct(private Collection $rows) {}
 
     public function collection()
@@ -25,7 +27,12 @@ class AnalyticsSlowMovingSheet implements FromCollection, ShouldAutoSize, WithHe
 
     public function map($row): array
     {
-        return [$row->sku, $row->name, (float) $row->units_sold, (int) $row->total_stock];
+        return [
+            $this->escapeCell($row->sku),
+            $this->escapeCell($row->name),
+            (float) $row->units_sold,
+            (int) $row->total_stock,
+        ];
     }
 
     public function title(): string

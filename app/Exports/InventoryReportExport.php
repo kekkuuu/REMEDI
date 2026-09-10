@@ -17,6 +17,8 @@ use Maatwebsite\Excel\Concerns\WithTitle;
  */
 class InventoryReportExport implements FromCollection, ShouldAutoSize, WithHeadings, WithMapping, WithTitle
 {
+    use EscapesFormulas;
+
     public function __construct(private array $data) {}
 
     public function collection()
@@ -38,9 +40,9 @@ class InventoryReportExport implements FromCollection, ShouldAutoSize, WithHeadi
                 : ($p->total_stock <= $p->reorder_level ? 'Low Stock' : 'OK'));
 
         return [
-            $p->name,
-            $p->sku,
-            $p->category->name ?? '—',
+            $this->escapeCell($p->name),
+            $this->escapeCell($p->sku),
+            $this->escapeCell($p->category->name ?? '—'),
             $p->unit,
             $p->total_stock,
             (float) $p->selling_price,

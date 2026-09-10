@@ -131,11 +131,17 @@
             {{-- $start/$end are the already-resolved, clamped dates for THIS
                  report -- whether a month or a custom range drove it -- so the
                  export always matches what is on screen without needing to
-                 carry `month` through separately. --}}
-            <a href="{{ route('reports.sales.export', ['format' => 'xlsx', 'start_date' => $start, 'end_date' => $end]) }}" class="btn btn-secondary btn-sm">
+                 carry `month` through separately.
+                 data-no-skeleton: this link triggers a file download, not a
+                 page navigation -- without it the click-guard in
+                 layouts/app.blade.php shows the "Loading…" pill expecting a
+                 document to replace the page, which never arrives, and the
+                 pill is stuck until the next real navigation. Same reason
+                 audit.export and admin.backup both carry it. --}}
+            <a href="{{ route('reports.sales.export', ['format' => 'xlsx', 'start_date' => $start, 'end_date' => $end]) }}" class="btn btn-secondary btn-sm" data-no-skeleton>
                 <i class="ti ti-file-spreadsheet" aria-hidden="true"></i> Excel
             </a>
-            <a href="{{ route('reports.sales.export', ['format' => 'pdf', 'start_date' => $start, 'end_date' => $end]) }}" class="btn btn-secondary btn-sm">
+            <a href="{{ route('reports.sales.export', ['format' => 'pdf', 'start_date' => $start, 'end_date' => $end]) }}" class="btn btn-secondary btn-sm" data-no-skeleton>
                 <i class="ti ti-file-type-pdf" aria-hidden="true"></i> PDF
             </a>
         </div>
