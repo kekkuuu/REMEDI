@@ -329,26 +329,31 @@ class ProductController extends Controller
 
         $validated['product_id'] = $product->id;
 
-        // ALWAYS derived, never read from the request. Deriving here rather
-        // than trusting the field the browser filled in is also what closes the
-        // race the readonly field would otherwise open: two people adding a
-        // batch for the same product on the same day are both shown `-01`, and
-        // whichever posts second must still be told it is `-02`.
+        // ALWAYS derived, never read from the request -- deriving here rather
+        // than trusting the field the browser filled in is what stops a user
+        // from TYPING a colliding number. Closing the race between two
+        // concurrent requests is a separate step: nextBatchNumber() takes a
+        // row lock, and that lock only holds until whatever transaction it
+        // was called inside commits -- hence wrapping the derive-then-create
+        // pair in one transaction here, rather than letting the lock release
+        // the instant the SELECT finishes.
         //
         // After validation, so `received_date` is known to be a real date that
         // is not in the future -- generating from unvalidated input would stamp
         // a number with a day the same request is about to reject.
-        $validated['batch_number'] = ProductBatch::nextBatchNumber($product, $validated['received_date']);
+        DB::transaction(function () use (&$validated, $product) {
+            $validated['batch_number'] = ProductBatch::nextBatchNumber($product, $validated['received_date']);
 
-        // The quantity a batch arrived with, as opposed to what is left of it
-        // after FEFO checkouts have eaten into `quantity`. The seeder, the
-        // receiving-report importer and migration 2026_08_17_000004 all set
-        // this; only this action did not, so every batch added through the UI
-        // (here and the Inventory quick-restock, which posts to this same
-        // route) lost the original figure.
-        $validated['qty_received'] = $validated['quantity'];
+            // The quantity a batch arrived with, as opposed to what is left of
+            // it after FEFO checkouts have eaten into `quantity`. The seeder,
+            // the receiving-report importer and migration 2026_08_17_000004
+            // all set this; only this action did not, so every batch added
+            // through the UI (here and the Inventory quick-restock, which
+            // posts to this same route) lost the original figure.
+            $validated['qty_received'] = $validated['quantity'];
 
-        ProductBatch::create($validated);
+            ProductBatch::create($validated);
+        });
 
         AuditTrail::log('Created', "Added batch '{$validated['batch_number']}' ({$validated['quantity']} units) for {$product->name}");
 

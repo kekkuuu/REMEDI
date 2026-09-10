@@ -184,9 +184,32 @@ class ProductBatch extends Model
     {
         $prefix = static::batchNumberPrefix($product, $receivedDate);
 
+        // lockForUpdate(), same shape as Sale::nextTransactionNo() -- and for
+        // the same reason. Deriving the number server-side stops a user from
+        // TYPING a colliding one, but does nothing about two requests both
+        // reading "last -01" before either has inserted "-02": without a
+        // lock held until the caller's transaction commits, two people
+        // adding a batch for the same product on the same day can both be
+        // handed the identical "-02", silently defeating the one thing this
+        // numbering scheme exists for ("a second delivery... is the
+        // identical string, and the two rows cannot be told apart"). Only
+        // effective when the caller wraps this in DB::transaction() --
+        // see ProductController::addBatch().
+        //
+        // Same residual gap Sale::nextTransactionNo() has, and for the same
+        // reason: a row lock has nothing to lock when THIS is the first
+        // batch for this product on this day -- no row matches the prefix
+        // yet, so two concurrent first-of-day requests can still both land
+        // on "-01". PosController::withTransactionNoRetry() closes that
+        // narrower window for transaction numbers by retrying on a unique-
+        // constraint violation; batch_number carries no unique constraint at
+        // all (nothing joins on it -- see the table in CLAUDE.md), so there
+        // is no violation to retry on without a schema change. Left as the
+        // documented gap rather than adding one unilaterally.
         $last = static::where('product_id', $product->id)
             ->where('batch_number', 'like', $prefix.'%')
             ->orderByDesc('batch_number')
+            ->lockForUpdate()
             ->value('batch_number');
 
         $sequence = $last ? ((int) substr($last, strlen($prefix))) + 1 : 1;
