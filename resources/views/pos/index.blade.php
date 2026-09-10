@@ -471,6 +471,22 @@
         renderCart();
     }
 
+    /* Product names reach here from an admin-only source (the grid tile's
+       inline JSON encoding of the product name, or the JSON lookupBySku()
+       response for a barcode scan) but are otherwise plain, unvalidated
+       strings -- ProductController allows any characters. Escaping on the way
+       into innerHTML, not on the way in, matches how every other product-name
+       sink in this app treats the same data (the receipt partial and the
+       toast seed both escape it too). */
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
     function renderCart() {
         const body = document.getElementById('cart-body');
         const hiddenInputs = document.getElementById('hidden-inputs');
@@ -488,7 +504,7 @@
 
             body.innerHTML += `
                 <tr>
-                    <td>${item.name}</td>
+                    <td>${escapeHtml(item.name)}</td>
                     <td><input type="number" min="1" max="${item.maxStock}" value="${item.qty}" class="cart-qty-input" onchange="updateQty(${id}, this.value)"></td>
                     <td>&#8369;${subtotal.toFixed(2)}</td>
                     <td><button type="button" class="btn btn-danger" style="padding:2px 6px;" onclick="removeFromCart(${id})">x</button></td>

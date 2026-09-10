@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AuditTrail;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 
 class UserController extends Controller
@@ -160,10 +161,48 @@ class UserController extends Controller
             return $this->actionFailed($request, 'You cannot deactivate your own account.', 'user');
         }
 
-        $user->is_active = ! $user->is_active;
-        $user->save();
+        // The self-check above stops an admin locking THEMSELVES out, but does
+        // nothing about two different active admins deactivating each other in
+        // the same instant -- both requests pass EnsureUserIsActive (each
+        // actor's own is_active is still true when it's read), both pass the
+        // self-check (the target is the OTHER admin), and both writes land,
+        // leaving zero active admins and every role:admin route -- including
+        // this one -- unreachable through the UI. destroy() gets this
+        // protection for free (the actor can never delete themselves, so the
+        // actor alone guarantees a survivor); toggling doesn't have that
+        // guarantee, so it needs the same explicit count ProfileController::
+        // destroy() takes, plus a lock so two concurrent toggles can't both
+        // read "at least one other active admin" before either commits.
+        $status = DB::transaction(function () use ($user) {
+            $locked = User::whereKey($user->getKey())->lockForUpdate()->first();
 
-        $status = $user->is_active ? 'activated' : 'deactivated';
+            if ($locked->isAdmin() && $locked->is_active) {
+                $otherActiveAdmins = User::where('role', 'admin')
+                    ->where('is_active', true)
+                    ->whereKeyNot($locked->getKey())
+                    ->count();
+
+                if ($otherActiveAdmins === 0) {
+                    return null;
+                }
+            }
+
+            $locked->is_active = ! $locked->is_active;
+            $locked->save();
+            $user->is_active = $locked->is_active;
+
+            return $locked->is_active ? 'activated' : 'deactivated';
+        });
+
+        if ($status === null) {
+            return $this->actionFailed(
+                $request,
+                'This is the only active administrator account. Deactivating it would leave no one '
+                    .'able to manage users, products or reports. Promote another account to Admin first.',
+                'user'
+            );
+        }
+
         AuditTrail::log('Updated', "Account {$status}: {$user->name}");
 
         // `state` lets the row update itself in place -- the badge and the

@@ -35,6 +35,13 @@ class SaleController extends Controller
         $scopedToday = (clone $query)->whereDate('created_at', today());
 
         if ($request->filled('search')) {
+            // Reject anything but a plain string before it reaches likeTerm(),
+            // which is typed ?string -- ?search[]=x resolves to an array here
+            // (filled() is true for a non-empty array too), and PHP does not
+            // coerce an array to a typed string parameter: uncaught TypeError,
+            // 500, for any signed-in user including via the AJAX live search.
+            $request->validate(['search' => 'string|max:255']);
+
             // likeTerm() escapes the user's own % and _ — see Controller.
             $query->where('transaction_no', 'like', $this->likeTerm($request->search));
         }

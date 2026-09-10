@@ -84,11 +84,16 @@ class ReportController extends Controller
      * was a day in the future. Every range the reports use funnels through
      * here.
      *
-     * String comparison is safe and intentional: both sides are Y-m-d, which
-     * sorts lexicographically.
+     * Normalise to Y-m-d before comparing, the same reasoning as
+     * SaleController::orderedRange(): the callers' `nullable|date` validation
+     * accepts far more than Y-m-d ("August 25, 2026" passes), and comparing
+     * those as plain strings sorts alphabetically rather than chronologically
+     * -- a non-ISO but validly-parsed date could compare greater than today
+     * even when it is not, silently clamping both ends of the range to today.
      */
     private function clampEnd(string $end): string
     {
+        $end = Carbon::parse($end)->toDateString();
         $today = today()->toDateString();
 
         return $end > $today ? $today : $end;

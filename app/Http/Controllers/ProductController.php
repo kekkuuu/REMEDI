@@ -256,23 +256,40 @@ class ProductController extends Controller
             );
         }
 
-        // `inventory_receipts` is the fourth sku-keyed table, and it is
-        // deliberately NOT a reason to refuse the delete.
+        // `inventory_receipts`, `demand_forecasts`, `sales_forecasts` and
+        // `forecast_accuracy` are the remaining sku-keyed tables (sales_history
+        // is the one already guarded above), and none of them is a reason to
+        // refuse the delete.
         //
         // Receipts are purchase history — what arrived, not what was sold — so
         // unlike `sales_history` they carry no revenue and no report reads a
-        // peso figure through them. Guarding on them would block essentially
-        // every deletion (nearly all stock arrives via a receipt) to protect
-        // rows that DashboardController only consults as a fallback ranking.
+        // peso figure through them. Forecast/accuracy rows carry no revenue
+        // either, only a prediction about a product that is about to stop
+        // existing. Guarding on any of them would block essentially every
+        // deletion (nearly all stock arrives via a receipt, and most products
+        // eventually get forecast) to protect rows nothing critical reads.
         //
-        // Leaving them behind is wrong too: the ranking resolves SKUs with
-        // `Product::whereIn('sku', ...)`, so orphans are silently dropped from
-        // the join and simply accumulate as dead rows keyed to a product that
-        // no longer exists. Clear them with the product, inside a transaction
-        // so a failed delete cannot take the receipts with it, and say how many
-        // in the audit entry — a deletion that quietly discards records should
-        // still leave a count behind.
-        $receiptRows = DB::table('inventory_receipts')->where('product_sku', $product->sku)->count();
+        // Leaving them behind is wrong too, and NOT symmetric with a
+        // rename — update()'s SKU_KEYED_TABLES loop re-points these same four
+        // tables because the product still exists under a new SKU, but a
+        // delete has no new SKU to re-point to, so the class doc comment's
+        // "cleaned up by destroy()" means delete, not re-point. Left alone,
+        // `sku` has no FK, so the string simply survives as a dangling
+        // reference — and because a deleted SKU is free to be reused by an
+        // unrelated future product (store() only checks uniqueness against
+        // CURRENT rows), that new product could silently inherit the dead
+        // one's stale forecast until the next scheduled run overwrites it.
+        // demand_forecasts/forecast_accuracy self-heal via the nightly
+        // forecast:generate cron; sales_forecasts has no equivalent schedule,
+        // so an orphaned row there would sit until someone runs
+        // sales-forecast:generate by hand. Clear all four with the product,
+        // inside a transaction so a failed delete cannot take them with it,
+        // and say how many in the audit entry — a deletion that quietly
+        // discards records should still leave a count behind.
+        $cleanupTables = array_diff(self::SKU_KEYED_TABLES, ['sales_history']);
+        $cleanupCounts = collect($cleanupTables)
+            ->mapWithKeys(fn ($table) => [$table => DB::table($table)->where('product_sku', $product->sku)->count()]);
+        $receiptRows = $cleanupCounts['inventory_receipts'] ?? 0;
 
         // Log AFTER the delete succeeds, never before.
         //
@@ -281,8 +298,10 @@ class ProductController extends Controller
         // there untouched. For a pharmacy that log is a compliance artifact;
         // an entry asserting something that did not happen is worse than the
         // crash it accompanied.
-        DB::transaction(function () use ($product) {
-            DB::table('inventory_receipts')->where('product_sku', $product->sku)->delete();
+        DB::transaction(function () use ($product, $cleanupTables) {
+            foreach ($cleanupTables as $table) {
+                DB::table($table)->where('product_sku', $product->sku)->delete();
+            }
             $product->delete();
         });
 
@@ -391,7 +410,19 @@ class ProductController extends Controller
 
         $validated = $request->validate($rules);
 
-        $batch->update($validated);
+        // Lock the row before writing: unlocked, two admins editing the same
+        // batch at once (one correcting a receipt-count typo, another marking
+        // spoilage) both read the pre-edit quantity, and whichever UPDATE
+        // commits second silently clobbers the first's change with no
+        // conflict signal to either user -- yet the audit entry below still
+        // logs the loser's edit as if it took effect. Re-reading under
+        // lockForUpdate() inside a transaction serialises the two writes
+        // instead, the same pattern already used for the batch-number and
+        // transaction-number races.
+        DB::transaction(function () use ($batch, $validated) {
+            ProductBatch::whereKey($batch->getKey())->lockForUpdate()->first();
+            $batch->update($validated);
+        });
 
         // Record WHAT changed, not just that something did.
         //
@@ -434,9 +465,29 @@ class ProductController extends Controller
         // a batch that has been sold from is part of the sales record. 29 of
         // the batches on this install are referenced that way, and deleting any
         // of them used to 500 with the raw SQL in the response body.
-        $soldCount = $batch->saleItems()->count();
+        //
+        // Locked and re-checked inside a transaction rather than a plain
+        // count-then-delete: unlocked, a sale landing on this exact batch
+        // between the count and the delete would hit the RESTRICT constraint
+        // and surface as the same raw-SQL 500 this guard exists to prevent.
+        // Locking the row also serialises this against PosController::checkout,
+        // which now takes the same lock on every batch it's about to sell from
+        // (see the comment there) — whichever of the two gets here first wins
+        // outright, rather than racing to fail in an ugly way.
+        $refused = DB::transaction(function () use ($batch) {
+            $locked = ProductBatch::whereKey($batch->getKey())->lockForUpdate()->first();
+            $soldCount = $locked->saleItems()->count();
 
-        if ($soldCount > 0) {
+            if ($soldCount > 0) {
+                return true;
+            }
+
+            $locked->delete();
+
+            return false;
+        });
+
+        if ($refused) {
             return $this->actionFailed(
                 $request,
                 "Batch {$batchNumber} has been sold from and cannot be deleted — "
@@ -447,8 +498,6 @@ class ProductController extends Controller
         }
 
         // Logged only once the delete has actually happened; see destroy().
-        $batch->delete();
-
         AuditTrail::log('Deleted', "Removed batch '{$batchNumber}' from {$name}");
 
         AlertService::forget();
@@ -497,26 +546,54 @@ class ProductController extends Controller
             );
         }
 
-        $returnedQty = $batch->quantity;
+        // Re-check under a lock before writing. Unlocked, two concurrent
+        // requests for the same batch (two tabs, a retried submit, a replayed
+        // request) can both pass the returned_at/is_returnable checks above
+        // before either commits -- the quantity still converges to 0 either
+        // way, but the audit trail gets two entries both claiming to be the
+        // write-off, and returned_by ends up as whichever request happened to
+        // win the race rather than necessarily the admin who intended it.
+        // Locking and re-testing inside the transaction makes the loser see
+        // the winner's already-set returned_at and refuse cleanly instead.
+        [$returnedQty, $refused] = DB::transaction(function () use ($batch, $request) {
+            $locked = ProductBatch::whereKey($batch->getKey())->lockForUpdate()->first();
 
-        $batch->update([
-            'returned_at' => now(),
-            'returned_by' => $request->user()->id,
-            // The units have gone back to the supplier, so they are no longer
-            // on the shelf. This was left untouched, and the rest of the app
-            // already assumed otherwise -- InventoryController widened its
-            // eager load to `quantity > 0 OR returned_at IS NOT NULL` precisely
-            // because "a returned batch has normally been shipped back, so its
-            // quantity is 0". Nothing actually made that true, so a returned
-            // batch kept counting toward total_stock and stayed in the FEFO
-            // queue: BABY DOVE BAR 75G sat at "Successfully Returned" with 3
-            // units the till would still have sold.
-            //
-            // qty_received preserves how many arrived, so zeroing this loses
-            // nothing -- and the batch keeps its row, its badges and its place
-            // in the Returned filter.
-            'quantity' => 0,
-        ]);
+            if ($locked->returned_at || ! $locked->is_returnable) {
+                return [null, true];
+            }
+
+            $qty = $locked->quantity;
+
+            $locked->update([
+                'returned_at' => now(),
+                'returned_by' => $request->user()->id,
+                // The units have gone back to the supplier, so they are no
+                // longer on the shelf. This was left untouched, and the rest
+                // of the app already assumed otherwise -- InventoryController
+                // widened its eager load to `quantity > 0 OR returned_at IS
+                // NOT NULL` precisely because "a returned batch has normally
+                // been shipped back, so its quantity is 0". Nothing actually
+                // made that true, so a returned batch kept counting toward
+                // total_stock and stayed in the FEFO queue: BABY DOVE BAR 75G
+                // sat at "Successfully Returned" with 3 units the till would
+                // still have sold.
+                //
+                // qty_received preserves how many arrived, so zeroing this
+                // loses nothing -- and the batch keeps its row, its badges
+                // and its place in the Returned filter.
+                'quantity' => 0,
+            ]);
+
+            return [$qty, false];
+        });
+
+        if ($refused) {
+            return $this->actionFailed(
+                $request,
+                "Batch {$batch->batch_number} was already returned or is no longer eligible.",
+                'batch'
+            );
+        }
 
         AuditTrail::log('Updated', "Marked batch '{$batch->batch_number}' of {$batch->product->name} as returned to supplier ({$returnedQty} units removed from stock)");
 

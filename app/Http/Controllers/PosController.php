@@ -230,9 +230,21 @@ public function index(Request $request)
                 // is right for rotation, but on its own it made the register
                 // reach for the most-expired batch first -- see
                 // ProductBatch::scopeSellable().
+                //
+                // lockForUpdate(): without it, two registers selling the last
+                // units of the same batch both read the pre-sale quantity,
+                // both compute a deductQty that fits, and both decrement --
+                // the second UPDATE reads a fresh (already-decremented) row
+                // under the hood, so the column can go negative with neither
+                // request ever seeing $remainingQty > 0. Locking these rows
+                // makes the second transaction block until the first commits,
+                // so it reads the TRUE remaining quantity and the assertion
+                // below can actually catch it. Same pattern as
+                // Sale::nextTransactionNo() and ProductBatch::nextBatchNumber().
                 $batches = $line['product']->batches()
                     ->sellable()
                     ->orderBy('expiry_date', 'asc')
+                    ->lockForUpdate()
                     ->get();
 
                 foreach ($batches as $batch) {
