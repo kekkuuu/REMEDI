@@ -459,7 +459,20 @@
                  exactly `Logo.mp4` if the file is ever replaced. --}}
             <video id="splashVideo" src="{{ asset('Logo.mp4') }}" muted playsinline preload="auto" fetchpriority="high"
                    style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;"></video>
-            <canvas id="splashCanvas" class="splash-logo" role="img" aria-label="REMEDI"></canvas>
+            {{-- width/height match Logo.mp4's real dimensions (824x768).
+                 Without them a <canvas> defaults to 300x150 (2:1) until the
+                 first real frame is drawn and chromaKeyFrame() sets
+                 canvas.width/height to the video's actual size -- at which
+                 point the intrinsic ratio jumps from 2:1 to ~1.07:1, nearly
+                 doubling the rendered height under `height:auto` and
+                 visibly shoving the whole vertically-centred splash block
+                 (subtitle, dots, button) down the screen the moment
+                 playback starts. Declaring the real size up front means
+                 the space is correctly reserved from the very first paint,
+                 so there's nothing left to reflow when JS's own
+                 `if (canvas.width !== video.videoWidth)` check runs and
+                 finds they already match. --}}
+            <canvas id="splashCanvas" class="splash-logo" width="824" height="768" role="img" aria-label="REMEDI"></canvas>
             <p class="splash-subtitle">Web-Based Pharmacy Management System</p>
             <div class="splash-dots" aria-hidden="true"><span></span><span></span><span></span></div>
             {{-- Hidden until the video finishes (or the fallback timer
