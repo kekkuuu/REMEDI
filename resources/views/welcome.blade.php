@@ -160,6 +160,45 @@
             40% { opacity: 1; transform: scale(1); }
         }
 
+        /* The dots mean "something is happening" -- once the video has run
+           its course there's nothing left to wait on, so they hand off to
+           the button rather than pulsing forever beside it. !important is
+           required: .splash-dots' own fadeUp animation (`forwards`, so it
+           keeps asserting opacity:1 once finished) outranks a plain
+           declaration at equal specificity, same reason the
+           prefers-reduced-motion override above needs it. */
+        .splash-inner.is-ready .splash-dots {
+            opacity: 0 !important;
+            pointer-events: none;
+        }
+
+        .get-started-btn {
+            margin-top: 28px;
+            padding: 13px 40px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            color: #fff;
+            background: var(--brand);
+            border: none;
+            border-radius: 999px;
+            cursor: pointer;
+            opacity: 0;
+            transform: translateY(8px);
+            pointer-events: none;
+            transition: opacity .4s ease, transform .4s ease, background .15s ease;
+        }
+
+        .get-started-btn:hover { background: var(--brand-dark); }
+
+        .splash-inner.is-ready .get-started-btn {
+            opacity: 1;
+            transform: translateY(0);
+            pointer-events: auto;
+        }
+
         .brand-name {
             font-family: 'Outfit', sans-serif;
             font-size: 2.75rem;
@@ -286,6 +325,8 @@
             .splash-logo, .splash-subtitle, .splash-dots { animation: none !important; opacity: 1 !important; transform: none !important; }
             #splash, #login-stage { transition: none; }
             .splash-dots span { animation: none; opacity: .6; }
+            .get-started-btn { transition: none; }
+            .splash-inner.is-ready .splash-dots { opacity: 0 !important; }
         }
     </style>
 </head>
@@ -293,12 +334,11 @@
 
     {{-- ═══════════════════════════ 1. SPLASH SCREEN ═══════════════════════════
          Shown only on this page's own load (there is no client-side routing
-         here, so every fresh GET / is a genuine "initial load"). Duration
-         tracks the video's own `ended` event plus a HOLD_AFTER_END_MS pause
-         on the final frame -- see the script below. FALLBACK_DURATION_MS is
-         the only hardcoded number, and only ever covers "did the video start
-         playing at all" (cleared as soon as it does), never the video's or
-         the hold's own length. --}}
+         here, so every fresh GET / is a genuine "initial load"). The video
+         plays once and stops on its final frame; nothing times out into
+         login any more -- a Get Started button appears once playback ends
+         (or once FALLBACK_DURATION_MS decides it never will) and login is
+         reached only by clicking it. See revealGetStarted() below. --}}
     <div id="splash">
         <div class="splash-inner">
             {{-- LOGO: public/Logo.mp4 -- the animated REMEDI mark. Standard
@@ -316,6 +356,11 @@
             <canvas id="splashCanvas" class="splash-logo" role="img" aria-label="REMEDI"></canvas>
             <p class="splash-subtitle">Web-Based Pharmacy Management System</p>
             <div class="splash-dots" aria-hidden="true"><span></span><span></span><span></span></div>
+            {{-- Hidden until the video finishes (or the fallback timer
+                 decides it never will) -- see revealGetStarted() below.
+                 Nothing here auto-advances to login any more; this is the
+                 only way in. --}}
+            <button type="button" id="getStartedBtn" class="get-started-btn">Get Started</button>
         </div>
     </div>
 
@@ -370,10 +415,9 @@
             // Only used if the video never actually STARTS playing -- blocked
             // autoplay, a decode failure, a very slow network. Cleared the
             // moment the `playing` event fires (see below), so it only ever
-            // has to cover "did playback begin", never "how long does the
-            // whole play-through-plus-hold take" -- keeping those two
-            // concerns separate is what stops this from ever racing ahead of
-            // a longer clip or a longer hold again.
+            // has to cover "did playback begin" -- if it never does, the Get
+            // Started button is revealed anyway rather than leaving the
+            // splash with nothing to click.
             var FALLBACK_DURATION_MS = 4000;
 
             var splash = document.getElementById('splash');
@@ -381,6 +425,7 @@
             var video = document.getElementById('splashVideo');
             var canvas = document.getElementById('splashCanvas');
             var ctx = canvas.getContext('2d', { willReadFrequently: true });
+            var getStartedBtn = document.getElementById('getStartedBtn');
 
             // Server-rendered flag: true when this page is being shown again
             // because a login POST just failed and redirected back to `/`.
@@ -659,6 +704,18 @@
                 });
             }
 
+            // Swaps the loading dots for the Get Started button -- the only
+            // way off the splash now. Idempotent: the video's `ended` event,
+            // the fallback timer, and a rejected play() promise can all lead
+            // here, and only the first should count.
+            var getStartedShown = false;
+            function revealGetStarted() {
+                if (getStartedShown) return;
+                getStartedShown = true;
+                clearTimeout(fallbackTimer);
+                document.querySelector('.splash-inner').classList.add('is-ready');
+            }
+
             function hideSplash() {
                 splash.classList.add('is-hiding');
                 stopKeying();
@@ -688,32 +745,28 @@
                 function hideOnce() {
                     if (hidden) return;
                     hidden = true;
-                    clearTimeout(fallbackTimer);
                     hideSplash();
                 }
+                getStartedBtn.addEventListener('click', hideOnce);
 
-                // Safety net for "does the video ever actually start" only --
-                // NOT for the whole play-through-plus-hold sequence. It used
-                // to double as both, at a fixed 4s, which raced ahead of a
-                // ~5.9s clip plus its 3s hold and fired FIRST every single
-                // time -- hideOnce() from this path skips the hold entirely,
-                // which is exactly the bug that was reported ("not holding
-                // 3 sec"). Clearing it the moment `playing` actually fires
-                // means its duration only has to cover "start playing",
-                // never "finish playing", so it can't race the hold again no
-                // matter how long the clip or the hold end up being.
-                var fallbackTimer = setTimeout(hideOnce, FALLBACK_DURATION_MS);
+                // Safety net for "does the video ever actually start" only.
+                // Clearing it the moment `playing` actually fires means its
+                // duration only has to cover "start playing" -- if it never
+                // does, revealGetStarted() shows the button anyway rather
+                // than leaving the splash stuck with nothing on it.
+                var fallbackTimer = setTimeout(revealGetStarted, FALLBACK_DURATION_MS);
 
-                // The real trigger: the clip finished playing once, in full.
-                // No `loop` attribute -- looping would mean "hide after N ms"
-                // is a guess again, the exact thing this is meant to avoid.
-                // A short hold on the final frame after `ended` (the canvas
-                // keeps redrawing the same last frame -- see chromaKeyFrame,
-                // it doesn't check video.paused) reads as a deliberate pause
-                // on the finished mark rather than an abrupt cut.
-                var HOLD_AFTER_END_MS = 2000;
+                // The clip plays once, in full, then stops on its final
+                // frame -- no `loop`, no auto-advance. stopKeying() here
+                // (rather than leaving the rAF loop running) matters now
+                // that the splash can sit idle indefinitely waiting for a
+                // click: chromaKeyFrame() redraws every frame regardless of
+                // whether the video is still advancing, which cost nothing
+                // over a brief hold and would be needless CPU otherwise. The
+                // canvas keeps whatever it last drew.
                 video.addEventListener('ended', function () {
-                    setTimeout(hideOnce, HOLD_AFTER_END_MS);
+                    stopKeying();
+                    revealGetStarted();
                 });
                 video.addEventListener('playing', function () {
                     clearTimeout(fallbackTimer);
@@ -724,8 +777,8 @@
                 if (playPromise && typeof playPromise.catch === 'function') {
                     // Autoplay blocked (some mobile browsers, some privacy
                     // settings) -- don't wait on a video that will never
-                    // play; FALLBACK_DURATION_MS carries it instead.
-                    playPromise.catch(hideOnce);
+                    // play; reveal the button straight away.
+                    playPromise.catch(revealGetStarted);
                 }
             }
 
