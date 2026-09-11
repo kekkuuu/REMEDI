@@ -183,11 +183,27 @@
             pointer-events: none;
         }
 
+        /* Wraps the button AND the fallback link (see below) in one slot
+           that only the BUTTON sizes -- the button is always in normal
+           flow (opacity animates, but it never leaves the flow), so the
+           slot's height is stable from first paint. The fallback is
+           pulled out of flow entirely with position:absolute so it can
+           never contribute its own height to this slot; without that, it
+           sat in flow at opacity:0 same as the button does, reserving an
+           EXTRA ~70px that vanished the instant .is-ready set it to
+           display:none -- shrinking .splash-inner and visibly shoving
+           the whole block up the screen right as the button appeared.
+           That was the actual "position changes" bug, not the video/canvas
+           sizing this file fixes elsewhere. */
+        .get-started-slot {
+            position: relative;
+            margin-top: 28px;
+        }
+
         .get-started-btn {
             display: inline-flex;
             align-items: center;
             gap: 10px;
-            margin-top: 28px;
             padding: 13px 32px 13px 40px;
             font-family: 'Outfit', sans-serif;
             font-size: 14px;
@@ -218,13 +234,16 @@
            here because the script never ran has no way to tell that's what
            happened, and seeing a differently-styled button would read as
            the page being broken in a new way rather than working exactly
-           as intended. */
+           as intended. position:absolute + inset:0 makes it exactly fill
+           .get-started-slot (sized by the button) rather than add its own
+           box to the flow -- see the comment on .get-started-slot. */
         .no-js-fallback {
+            position: absolute;
+            inset: 0;
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 10px;
-            margin-top: 28px;
-            padding: 13px 32px 13px 40px;
             font-family: 'Outfit', sans-serif;
             font-size: 14px;
             font-weight: 600;
@@ -475,32 +494,39 @@
             <canvas id="splashCanvas" class="splash-logo" width="824" height="768" role="img" aria-label="REMEDI"></canvas>
             <p class="splash-subtitle">Web-Based Pharmacy Management System</p>
             <div class="splash-dots" aria-hidden="true"><span></span><span></span><span></span></div>
-            {{-- Hidden until the video finishes (or the fallback timer
-                 decides it never will) -- see revealGetStarted() below.
-                 Nothing here auto-advances to login any more; this is the
-                 only way in. --}}
-            <button type="button" id="getStartedBtn" class="get-started-btn">
-                <span>Get Started</span>
-                <span class="get-started-arrow" aria-hidden="true">&rarr;</span>
-            </button>
-            {{-- Real, plain <a href> -- not a JS-dependent button -- that
-                 reveals itself after a fixed delay via CSS alone (see
-                 .no-js-fallback / @keyframes noJsFallbackReveal above), and
-                 goes straight to the login page directly rather than
-                 through revealGetStarted()/hideSplash(). This exists for
-                 exactly one failure mode: the splash script fails to run at
-                 all -- a network-level proxy stripping or mangling the
-                 inline script, a restrictive in-app browser, anything --
-                 which otherwise leaves every element here sitting at its
-                 pre-JS opacity:0 forever, i.e. what looks like "the splash
-                 page doesn't show" when in fact NOTHING does, forever.
-                 Hidden the instant JS *does* get far enough to add
-                 is-ready, so this is never visible alongside a working
-                 page. --}}
-            <a href="{{ route('login') }}" class="no-js-fallback">
-                <span>Get Started</span>
-                <span aria-hidden="true">&rarr;</span>
-            </a>
+            {{-- Both the button and its no-JS fallback live in one slot --
+                 see .get-started-slot for why (only the button sizes it;
+                 the fallback is positioned to exactly fill it rather than
+                 adding its own box, or the two would visibly disagree
+                 about how much space this row needs). --}}
+            <div class="get-started-slot">
+                {{-- Hidden until the video finishes (or the fallback timer
+                     decides it never will) -- see revealGetStarted() below.
+                     Nothing here auto-advances to login any more; this is
+                     the only way in. --}}
+                <button type="button" id="getStartedBtn" class="get-started-btn">
+                    <span>Get Started</span>
+                    <span class="get-started-arrow" aria-hidden="true">&rarr;</span>
+                </button>
+                {{-- Real, plain <a href> -- not a JS-dependent button --
+                     that reveals itself after a fixed delay via CSS alone
+                     (see .no-js-fallback / @keyframes noJsFallbackReveal
+                     above), and goes straight to the login page directly
+                     rather than through revealGetStarted()/hideSplash().
+                     This exists for exactly one failure mode: the splash
+                     script fails to run at all -- a network-level proxy
+                     stripping or mangling the inline script, a restrictive
+                     in-app browser, anything -- which otherwise leaves
+                     every element here sitting at its pre-JS opacity:0
+                     forever, i.e. what looks like "the splash page doesn't
+                     show" when in fact NOTHING does, forever. Hidden the
+                     instant JS *does* get far enough to add is-ready, so
+                     this is never visible alongside a working page. --}}
+                <a href="{{ route('login') }}" class="no-js-fallback">
+                    <span>Get Started</span>
+                    <span aria-hidden="true">&rarr;</span>
+                </a>
+            </div>
         </div>
     </div>
 
