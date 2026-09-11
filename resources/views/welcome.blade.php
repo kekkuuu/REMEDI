@@ -52,12 +52,6 @@
 
         /* ============================= SPLASH ============================= */
 
-        /* Logo.mp4 has no alpha channel -- standard H.264 can't carry
-           transparency in a <video> element -- so it renders its own solid
-           background rather than blending into the page. Matched to that
-           exact colour (sampled from the clip: rgb(196,224,211)) rather than
-           the previous gradient, so the video's square edge disappears into
-           the splash instead of showing as a visible box. */
         #splash {
             display: flex;
             align-items: center;
@@ -65,7 +59,10 @@
             position: fixed;
             inset: 0;
             z-index: 100;
-            background: #c4e0d3;
+            background:
+                radial-gradient(circle at 30% 20%, rgba(16, 185, 129, .08), transparent 45%),
+                radial-gradient(circle at 75% 80%, rgba(16, 185, 129, .06), transparent 50%),
+                #fafcfb;
             opacity: 1;
             transition: opacity .5s ease;
         }
@@ -86,6 +83,7 @@
         }
 
         .splash-logo {
+            display: block;
             width: clamp(96px, 22vw, 148px);
             height: auto;
             opacity: 0;
@@ -270,17 +268,25 @@
 
     {{-- ═══════════════════════════ 1. SPLASH SCREEN ═══════════════════════════
          Shown only on this page's own load (there is no client-side routing
-         here, so every fresh GET / is a genuine "initial load"). Duration is
-         the single SPLASH_DURATION_MS constant in the script below. --}}
+         here, so every fresh GET / is a genuine "initial load"). Duration
+         tracks the video itself -- see readVideoDuration() below -- with
+         FALLBACK_DURATION_MS as the only hardcoded number, used purely as a
+         safety net if the video never reports its length. --}}
     <div id="splash">
         <div class="splash-inner">
-            {{-- LOGO: public/Logo.mp4 -- the animated REMEDI mark. autoplay
-                 requires muted+playsinline in every browser that allows it
-                 without a user gesture; loop covers a clip shorter than
-                 SPLASH_DURATION_MS so it never ends on a blank frame. Filename
-                 case matters on Linux (Vercel/Railway), unlike Windows/XAMPP --
-                 keep it exactly `Logo.mp4` if the file is ever replaced. --}}
-            <video class="splash-logo" src="{{ asset('Logo.mp4') }}" autoplay muted loop playsinline aria-label="REMEDI"></video>
+            {{-- LOGO: public/Logo.mp4 -- the animated REMEDI mark. Standard
+                 H.264 has no alpha channel, so the raw <video> would render
+                 its own solid background rather than sitting transparently
+                 over the splash. The <video> here is decode-only and never
+                 shown (opacity:0, 1x1, off the layout); a canvas the same
+                 size as .splash-logo draws each frame and keys the clip's
+                 own solid background colour out to transparent in real
+                 time -- see chromaKeyFrame() below. Filename case matters on
+                 Linux (Vercel/Railway), unlike Windows/XAMPP -- keep it
+                 exactly `Logo.mp4` if the file is ever replaced. --}}
+            <video id="splashVideo" src="{{ asset('Logo.mp4') }}" muted playsinline preload="auto"
+                   style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;"></video>
+            <canvas id="splashCanvas" class="splash-logo" role="img" aria-label="REMEDI"></canvas>
             <p class="splash-subtitle">Web-Based Pharmacy Management System</p>
             <div class="splash-dots" aria-hidden="true"><span></span><span></span><span></span></div>
         </div>
@@ -334,11 +340,18 @@
 
     <script>
         (function () {
-            // Change this one value to change the splash duration everywhere.
-            var SPLASH_DURATION_MS = 2000;
+            // Only used if the video itself never tells us it's done --
+            // blocked autoplay, a decode failure, a very slow network. Normal
+            // operation never touches this: the splash's real duration is
+            // however long Logo.mp4 actually plays for (its native `ended`
+            // event drives hideSplash() below), not a fixed number.
+            var FALLBACK_DURATION_MS = 4000;
 
             var splash = document.getElementById('splash');
             var loginStage = document.getElementById('login-stage');
+            var video = document.getElementById('splashVideo');
+            var canvas = document.getElementById('splashCanvas');
+            var ctx = canvas.getContext('2d', { willReadFrequently: true });
 
             // Server-rendered flag: true when this page is being shown again
             // because a login POST just failed and redirected back to `/`.
@@ -348,6 +361,52 @@
             // error in place -- see routes/web.php and
             // AuthenticatedSessionController.
             var skipSplash = @json($errors->any() || old('email') !== null);
+
+            // ---- Chroma key ----
+            // Logo.mp4 has no alpha channel (H.264 in a <video> element never
+            // does), so it plays with its own solid, consistent background
+            // baked in -- sampled directly from the file, not guessed. Every
+            // frame is drawn to this canvas and any pixel close to that exact
+            // colour is made transparent, with a short soft-edge band between
+            // KEY_LOW and KEY_HIGH so the logo's own anti-aliased edges don't
+            // come out jagged. This is what makes the mark actually sit on
+            // the splash instead of inside a visible box.
+            var BG = { r: 196, g: 224, b: 210 };
+            var KEY_LOW = 20;
+            var KEY_HIGH = 46;
+            var keying = false;
+
+            function chromaKeyFrame() {
+                if (video.videoWidth && video.videoHeight) {
+                    if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
+                    if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
+                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                    var frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    var d = frame.data;
+                    for (var i = 0; i < d.length; i += 4) {
+                        var dr = d[i] - BG.r, dg = d[i + 1] - BG.g, db = d[i + 2] - BG.b;
+                        var dist = Math.sqrt(dr * dr + dg * dg + db * db);
+                        if (dist <= KEY_LOW) {
+                            d[i + 3] = 0;
+                        } else if (dist < KEY_HIGH) {
+                            d[i + 3] = Math.round(((dist - KEY_LOW) / (KEY_HIGH - KEY_LOW)) * 255);
+                        }
+                    }
+                    ctx.putImageData(frame, 0, 0);
+                }
+                if (keying) requestAnimationFrame(chromaKeyFrame);
+            }
+
+            function startKeying() {
+                if (keying) return;
+                keying = true;
+                requestAnimationFrame(chromaKeyFrame);
+            }
+
+            function stopKeying() {
+                keying = false;
+            }
 
             function showLogin() {
                 loginStage.classList.add('is-active');
@@ -362,6 +421,7 @@
 
             function hideSplash() {
                 splash.classList.add('is-hiding');
+                stopKeying();
 
                 // Remove the splash from layout once its fade-out finishes --
                 // and ALSO on a fallback timer, so a dropped transitionend
@@ -373,6 +433,7 @@
                     if (done) return;
                     done = true;
                     splash.classList.add('is-gone');
+                    video.pause();
                     showLogin();
                 }
                 splash.addEventListener('transitionend', finish, { once: true });
@@ -383,7 +444,30 @@
                 splash.classList.add('is-gone');
                 showLogin();
             } else {
-                setTimeout(hideSplash, SPLASH_DURATION_MS);
+                var hidden = false;
+                function hideOnce() {
+                    if (hidden) return;
+                    hidden = true;
+                    clearTimeout(fallbackTimer);
+                    hideSplash();
+                }
+
+                // Safety net only -- see FALLBACK_DURATION_MS above.
+                var fallbackTimer = setTimeout(hideOnce, FALLBACK_DURATION_MS);
+
+                // The real trigger: the clip finished playing once, in full.
+                // No `loop` attribute -- looping would mean "hide after N ms"
+                // is a guess again, the exact thing this is meant to avoid.
+                video.addEventListener('ended', hideOnce);
+                video.addEventListener('playing', startKeying);
+
+                var playPromise = video.play();
+                if (playPromise && typeof playPromise.catch === 'function') {
+                    // Autoplay blocked (some mobile browsers, some privacy
+                    // settings) -- don't wait on a video that will never
+                    // play; FALLBACK_DURATION_MS carries it instead.
+                    playPromise.catch(hideOnce);
+                }
             }
 
             // Guard against a double-submit while the redirect is in flight --
