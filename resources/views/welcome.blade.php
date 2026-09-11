@@ -271,10 +271,13 @@
          the single SPLASH_DURATION_MS constant in the script below. --}}
     <div id="splash">
         <div class="splash-inner">
-            {{-- LOGO: public/logo.png -- the exact, unedited, transparent
-                 REMEDI mark already used for the sidebar/dashboard loader
-                 elsewhere in the app. Do not swap this for a redrawn asset. --}}
-            <img class="splash-logo" src="{{ asset('logo.png') }}" alt="REMEDI">
+            {{-- LOGO: public/Logo.mp4 -- the animated REMEDI mark. autoplay
+                 requires muted+playsinline in every browser that allows it
+                 without a user gesture; loop covers a clip shorter than
+                 SPLASH_DURATION_MS so it never ends on a blank frame. Filename
+                 case matters on Linux (Vercel/Railway), unlike Windows/XAMPP --
+                 keep it exactly `Logo.mp4` if the file is ever replaced. --}}
+            <video class="splash-logo" src="{{ asset('Logo.mp4') }}" autoplay muted loop playsinline aria-label="REMEDI"></video>
             <p class="splash-subtitle">Web-Based Pharmacy Management System</p>
             <div class="splash-dots" aria-hidden="true"><span></span><span></span><span></span></div>
         </div>
