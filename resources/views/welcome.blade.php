@@ -84,7 +84,7 @@
 
         .splash-logo {
             display: block;
-            width: clamp(220px, 55vw, 520px);
+            width: clamp(180px, 45vw, 420px);
             height: auto;
             opacity: 0;
             animation: logoIn .7s ease forwards;
