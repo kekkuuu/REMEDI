@@ -208,6 +208,43 @@
 
         .get-started-btn:hover { background: var(--brand-dark); }
 
+        /* A genuine <a href> to login, independent of the JS button above --
+           see the markup comment on .no-js-fallback for why this exists.
+           Its reveal is a plain CSS animation-delay, not gated on any class
+           JS would add, so it fires whether or not a single line of that
+           script ever ran. Styled to match .get-started-btn but kept a
+           separate rule block: sharing one would mean either element could
+           accidentally inherit a JS-only state. */
+        .no-js-fallback {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 28px;
+            padding: 13px 32px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: .1em;
+            text-transform: uppercase;
+            text-decoration: none;
+            color: var(--brand-dark);
+            background: #fff;
+            border: 2px solid var(--brand);
+            border-radius: 999px;
+            opacity: 0;
+            pointer-events: none;
+            animation: noJsFallbackReveal 0s linear 6s forwards;
+        }
+
+        @keyframes noJsFallbackReveal {
+            to { opacity: 1; pointer-events: auto; }
+        }
+
+        /* JS got far enough to reveal its own button -- the fallback would
+           only ever be a confusing duplicate from here on, delayed timer or
+           not. */
+        .splash-inner.is-ready .no-js-fallback { display: none; }
+
         .get-started-arrow {
             display: inline-block;
             transition: transform .25s ease;
@@ -411,8 +448,35 @@
                 <span>Get Started</span>
                 <span class="get-started-arrow" aria-hidden="true">&rarr;</span>
             </button>
+            {{-- Real, plain <a href> -- not a JS-dependent button -- that
+                 reveals itself after a fixed delay via CSS alone (see
+                 .no-js-fallback / @keyframes noJsFallbackReveal above), and
+                 goes straight to the login page directly rather than
+                 through revealGetStarted()/hideSplash(). This exists for
+                 exactly one failure mode: the splash script fails to run at
+                 all -- a network-level proxy stripping or mangling the
+                 inline script, a restrictive in-app browser, anything --
+                 which otherwise leaves every element here sitting at its
+                 pre-JS opacity:0 forever, i.e. what looks like "the splash
+                 page doesn't show" when in fact NOTHING does, forever.
+                 Hidden the instant JS *does* get far enough to add
+                 is-ready, so this is never visible alongside a working
+                 page. --}}
+            <a href="{{ route('login') }}" class="no-js-fallback">Get Started</a>
         </div>
     </div>
+
+    {{-- True no-JS fallback (JavaScript entirely disabled, not just failing
+         partway): skips the splash outright rather than leaving a visitor
+         staring at a background with nothing on it for 6 seconds waiting on
+         a CSS timer that would still work, but is a needlessly long wait
+         when there's no chance of the video path ever running anyway. --}}
+    <noscript>
+        <style>
+            #splash { display: none !important; }
+            #login-stage { display: flex !important; opacity: 1 !important; transform: none !important; }
+        </style>
+    </noscript>
 
     {{-- ═══════════════════════════ 2. LOGIN SCREEN ═══════════════════════════
          Splash goes straight here -- no separate landing/marketing page in
