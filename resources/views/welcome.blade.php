@@ -493,12 +493,15 @@
                             floodable: new Uint8Array(w * h),
                             visited: new Uint8Array(w * h),
                             queue: new Int32Array(w * h),
+                            labeled: new Uint8Array(w * h),
                         };
                     }
                     var floodable = floodBuffers.floodable;
                     var visited = floodBuffers.visited;
                     var queue = floodBuffers.queue;
+                    var labeled = floodBuffers.labeled;
                     visited.fill(0);
+                    labeled.fill(0);
 
                     var pixelCount = w * h;
                     for (var p = 0; p < pixelCount; p++) {
@@ -543,6 +546,41 @@
                             d[idx3 + 3] = Math.round(Math.max(0, (score - KEY_LOW) / (KEY_HIGH - KEY_LOW)) * 255);
                         }
                     }
+
+                    // The flood only removes background/glow that's reachable
+                    // from the canvas edges, so a handful of near-white
+                    // anti-aliasing pixels along the capsule's own highlight
+                    // -- walled off from the edges same as the capsule is,
+                    // but only 3-15px, not part of any real stroke -- survive
+                    // as visible flecks. Real marks in this logo are all
+                    // hundreds of pixels; nothing legitimate is this small.
+                    // Label connected opaque components among what's left
+                    // (reusing `queue` as a scratch buffer, one component's
+                    // indices per contiguous slice) and erase any island
+                    // under MIN_ISLAND_SIZE outright.
+                    var MIN_ISLAND_SIZE = 60;
+                    var runStart = 0;
+                    for (var p4 = 0; p4 < pixelCount; p4++) {
+                        if (visited[p4] || labeled[p4]) continue;
+                        var idx4 = p4 * 4;
+                        if (d[idx4 + 3] <= 0) { labeled[p4] = 1; continue; }
+                        var qh = runStart, qt = runStart;
+                        queue[qt++] = p4;
+                        labeled[p4] = 1;
+                        while (qh < qt) {
+                            var cp = queue[qh++];
+                            var cx = cp % w, cy = (cp / w) | 0;
+                            if (cx + 1 < w) { var np1 = cp + 1; if (!visited[np1] && !labeled[np1] && d[np1 * 4 + 3] > 0) { labeled[np1] = 1; queue[qt++] = np1; } }
+                            if (cx - 1 >= 0) { var np2 = cp - 1; if (!visited[np2] && !labeled[np2] && d[np2 * 4 + 3] > 0) { labeled[np2] = 1; queue[qt++] = np2; } }
+                            if (cy + 1 < h) { var np3 = cp + w; if (!visited[np3] && !labeled[np3] && d[np3 * 4 + 3] > 0) { labeled[np3] = 1; queue[qt++] = np3; } }
+                            if (cy - 1 >= 0) { var np4 = cp - w; if (!visited[np4] && !labeled[np4] && d[np4 * 4 + 3] > 0) { labeled[np4] = 1; queue[qt++] = np4; } }
+                        }
+                        if (qt - runStart < MIN_ISLAND_SIZE) {
+                            for (var k = runStart; k < qt; k++) { d[queue[k] * 4 + 3] = 0; }
+                        }
+                        runStart = qt;
+                    }
+
                     ctx.putImageData(frame, 0, 0);
                 }
                 if (keying) requestAnimationFrame(chromaKeyFrame);
