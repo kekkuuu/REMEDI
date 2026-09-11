@@ -456,20 +456,91 @@
                 return 0;
             }
 
+            // The clip also carries a soft WHITE glow immediately around the
+            // mark, between the pale background and the artwork itself --
+            // colourimetrically indistinguishable from the capsule's own
+            // white (both sit around rgb(250,252,252)), so no per-pixel
+            // colour rule can tell them apart. What DOES separate them is
+            // CONNECTIVITY: the glow is continuously reachable from the
+            // frame's own edges by hopping through background-or-glow-
+            // coloured pixels; the capsule's white is walled off from the
+            // edges by the dark ribbon around it and is never reached that
+            // way, even though its colour alone looks identical. So this
+            // floods inward from the four borders through anything either
+            // background-scored OR plainly near-white, and only what that
+            // flood actually reaches gets made transparent -- a standard
+            // "magic wand from the edges" background removal.
+            var NEAR_WHITE_MIN = 235;
+
+            // Reused across frames rather than reallocated each one; resized
+            // only if the video's own dimensions ever change (they don't,
+            // but canvas.width/height get touched on the first frame).
+            var floodBuffers = null;
+
             function chromaKeyFrame() {
                 if (video.videoWidth && video.videoHeight) {
                     if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
                     if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
                     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-                    var frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                    var w = canvas.width, h = canvas.height;
+                    var frame = ctx.getImageData(0, 0, w, h);
                     var d = frame.data;
-                    for (var i = 0; i < d.length; i += 4) {
-                        var score = backgroundScore(d[i], d[i + 1], d[i + 2]);
-                        if (score <= KEY_LOW) {
-                            d[i + 3] = 0;
-                        } else if (score < KEY_HIGH) {
-                            d[i + 3] = Math.round(((score - KEY_LOW) / (KEY_HIGH - KEY_LOW)) * 255);
+
+                    if (!floodBuffers || floodBuffers.w !== w || floodBuffers.h !== h) {
+                        floodBuffers = {
+                            w: w, h: h,
+                            floodable: new Uint8Array(w * h),
+                            visited: new Uint8Array(w * h),
+                            queue: new Int32Array(w * h),
+                        };
+                    }
+                    var floodable = floodBuffers.floodable;
+                    var visited = floodBuffers.visited;
+                    var queue = floodBuffers.queue;
+                    visited.fill(0);
+
+                    var pixelCount = w * h;
+                    for (var p = 0; p < pixelCount; p++) {
+                        var idx = p * 4;
+                        var r = d[idx], g = d[idx + 1], b = d[idx + 2];
+                        var isNearWhite = (r + g + b) / 3 > NEAR_WHITE_MIN;
+                        floodable[p] = (backgroundScore(r, g, b) <= KEY_HIGH || isNearWhite) ? 1 : 0;
+                    }
+
+                    var qHead = 0, qTail = 0;
+                    function tryEnqueue(x, y) {
+                        if (x < 0 || x >= w || y < 0 || y >= h) return;
+                        var p = y * w + x;
+                        if (visited[p] || !floodable[p]) return;
+                        visited[p] = 1;
+                        queue[qTail++] = p;
+                    }
+                    for (var x = 0; x < w; x++) { tryEnqueue(x, 0); tryEnqueue(x, h - 1); }
+                    for (var y = 0; y < h; y++) { tryEnqueue(0, y); tryEnqueue(w - 1, y); }
+                    while (qHead < qTail) {
+                        var p2 = queue[qHead++];
+                        var px = p2 % w, py = (p2 / w) | 0;
+                        tryEnqueue(px + 1, py); tryEnqueue(px - 1, py);
+                        tryEnqueue(px, py + 1); tryEnqueue(px, py - 1);
+                    }
+
+                    // Anything the flood reached is background (or the glow
+                    // around it) and goes fully transparent. Anything it
+                    // didn't reach -- including the capsule, walled off by
+                    // the ribbon -- keeps the soft per-pixel edge from
+                    // backgroundScore(), same as before, so genuine edge
+                    // anti-aliasing against the flat background still blends
+                    // rather than going jagged.
+                    for (var p3 = 0; p3 < pixelCount; p3++) {
+                        if (visited[p3]) {
+                            d[p3 * 4 + 3] = 0;
+                            continue;
+                        }
+                        var idx3 = p3 * 4;
+                        var score = backgroundScore(d[idx3], d[idx3 + 1], d[idx3 + 2]);
+                        if (score < KEY_HIGH) {
+                            d[idx3 + 3] = Math.round(Math.max(0, (score - KEY_LOW) / (KEY_HIGH - KEY_LOW)) * 255);
                         }
                     }
                     ctx.putImageData(frame, 0, 0);
