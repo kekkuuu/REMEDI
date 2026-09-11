@@ -178,8 +178,11 @@
         }
 
         .get-started-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
             margin-top: 28px;
-            padding: 13px 40px;
+            padding: 13px 32px 13px 40px;
             font-family: 'Outfit', sans-serif;
             font-size: 14px;
             font-weight: 600;
@@ -189,19 +192,34 @@
             background: var(--brand);
             border: none;
             border-radius: 999px;
+            box-shadow: 0 6px 18px rgba(16, 185, 129, .22);
             cursor: pointer;
             opacity: 0;
             transform: translateY(8px);
             pointer-events: none;
-            transition: opacity .4s ease, transform .4s ease, background .15s ease;
+            transition: opacity .4s ease, transform .4s ease, background .15s ease, box-shadow .25s ease;
         }
 
         .get-started-btn:hover { background: var(--brand-dark); }
+
+        .get-started-arrow {
+            display: inline-block;
+            transition: transform .25s ease;
+        }
+
+        .get-started-btn:hover .get-started-arrow { transform: translateX(4px); }
 
         .splash-inner.is-ready .get-started-btn {
             opacity: 1;
             transform: translateY(0);
             pointer-events: auto;
+        }
+
+        /* Higher specificity than the settled translateY(0) above, so the
+           lift can actually override it on hover instead of losing to it. */
+        .splash-inner.is-ready .get-started-btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 12px 26px rgba(16, 185, 129, .32);
         }
 
         .brand-name {
@@ -330,7 +348,8 @@
             .splash-logo, .splash-subtitle, .splash-dots { animation: none !important; opacity: 1 !important; transform: none !important; }
             #splash, #login-stage { transition: none; }
             .splash-dots span { animation: none; opacity: .6; }
-            .get-started-btn { transition: none; }
+            .get-started-btn, .get-started-arrow { transition: none; }
+            .splash-inner.is-ready .get-started-btn:hover { transform: none; }
             .splash-inner.is-ready .splash-dots { opacity: 0 !important; }
         }
     </style>
@@ -365,7 +384,10 @@
                  decides it never will) -- see revealGetStarted() below.
                  Nothing here auto-advances to login any more; this is the
                  only way in. --}}
-            <button type="button" id="getStartedBtn" class="get-started-btn">Get Started</button>
+            <button type="button" id="getStartedBtn" class="get-started-btn">
+                <span>Get Started</span>
+                <span class="get-started-arrow" aria-hidden="true">&rarr;</span>
+            </button>
         </div>
     </div>
 
