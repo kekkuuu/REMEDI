@@ -12,14 +12,6 @@
     <link rel="manifest" href="{{ asset('manifest.json') }}">
     <meta name="theme-color" content="#10b981">
 
-    {{-- Loaded via the video tag's own `preload="auto"` further down, this
-         just tells the browser to start that fetch NOW, in parallel with
-         everything else in <head>, rather than waiting for the parser to
-         reach the <video> element in the body -- it's near the top, so the
-         gap is small, but this is the splash's own asset and the one thing
-         actually worth racing to load first. --}}
-    <link rel="preload" as="video" href="{{ asset('Logo.mp4') }}" type="video/mp4">
-
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     {{-- Loaded async (preload-then-swap) rather than as a normal blocking
@@ -209,9 +201,9 @@
             box-shadow: 0 6px 18px rgba(16, 185, 129, .22);
             cursor: pointer;
             opacity: 0;
-            transform: translateY(8px);
+            transform: translateY(8px) scale(.7);
             pointer-events: none;
-            transition: opacity .4s ease, transform .4s ease, background .15s ease, box-shadow .25s ease;
+            transition: background .15s ease, box-shadow .25s ease, transform .2s ease;
         }
 
         .get-started-btn:hover { background: var(--brand-dark); }
@@ -223,16 +215,28 @@
 
         .get-started-btn:hover .get-started-arrow { transform: translateX(4px); }
 
-        .splash-inner.is-ready .get-started-btn {
-            opacity: 1;
-            transform: translateY(0);
-            pointer-events: auto;
+        /* Overshoots past full size then settles -- a "pop" rather than a
+           plain fade, for the one moment on this page that's actually
+           asking for a click. */
+        @keyframes getStartedPop {
+            0% { opacity: 0; transform: translateY(8px) scale(.7); }
+            60% { opacity: 1; transform: translateY(0) scale(1.08); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
         }
 
-        /* Higher specificity than the settled translateY(0) above, so the
-           lift can actually override it on hover instead of losing to it. */
+        .splash-inner.is-ready .get-started-btn {
+            opacity: 1;
+            pointer-events: auto;
+            animation: getStartedPop .5s cubic-bezier(.34, 1.56, .64, 1) forwards;
+        }
+
+        /* !important: the pop animation above fills its final transform
+           (forwards) past the point a plain declaration can override, same
+           reason the dots' fade-out and the reduced-motion overrides
+           elsewhere in this file need it -- without it the hover lift is
+           computed but never actually wins. */
         .splash-inner.is-ready .get-started-btn:hover {
-            transform: translateY(-3px);
+            transform: translateY(-3px) scale(1) !important;
             box-shadow: 0 12px 26px rgba(16, 185, 129, .32);
         }
 
@@ -363,7 +367,12 @@
             #splash, #login-stage { transition: none; }
             .splash-dots span { animation: none; opacity: .6; }
             .get-started-btn, .get-started-arrow { transition: none; }
-            .splash-inner.is-ready .get-started-btn:hover { transform: none; }
+            .splash-inner.is-ready .get-started-btn {
+                animation: none !important;
+                opacity: 1 !important;
+                transform: none !important;
+            }
+            .splash-inner.is-ready .get-started-btn:hover { transform: none !important; }
             .splash-inner.is-ready .splash-dots { opacity: 0 !important; }
         }
     </style>
