@@ -118,7 +118,7 @@
         }
 
         .splash-inner.is-playing .splash-subtitle {
-            animation: subtitleZoomOut .7s ease forwards;
+            animation: subtitleZoomOut .8s ease-out forwards;
         }
 
         /* Zooms OUT (shrinks down to rest) rather than in, matching the
