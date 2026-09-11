@@ -52,6 +52,12 @@
 
         /* ============================= SPLASH ============================= */
 
+        /* Logo.mp4 has no alpha channel -- standard H.264 can't carry
+           transparency in a <video> element -- so it renders its own solid
+           background rather than blending into the page. Matched to that
+           exact colour (sampled from the clip: rgb(196,224,211)) rather than
+           the previous gradient, so the video's square edge disappears into
+           the splash instead of showing as a visible box. */
         #splash {
             display: flex;
             align-items: center;
@@ -59,10 +65,7 @@
             position: fixed;
             inset: 0;
             z-index: 100;
-            background:
-                radial-gradient(circle at 30% 20%, rgba(16, 185, 129, .08), transparent 45%),
-                radial-gradient(circle at 75% 80%, rgba(16, 185, 129, .06), transparent 50%),
-                #fafcfb;
+            background: #c4e0d3;
             opacity: 1;
             transition: opacity .5s ease;
         }
