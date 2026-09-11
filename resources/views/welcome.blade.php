@@ -67,6 +67,11 @@
             transition: opacity .5s ease;
         }
 
+        /* Set once the Get Started button appears -- the whole splash
+           becomes a click target at that point (see the click listener on
+           #splash in the script), so the cursor says so. */
+        #splash.is-ready { cursor: pointer; }
+
         #splash.is-hiding { opacity: 0; }
 
         /* Splash is removed from layout (not just faded) once its transition
@@ -721,6 +726,7 @@
                 // here too (harmless if already present) so the button
                 // never appears alone on an otherwise-blank splash.
                 document.querySelector('.splash-inner').classList.add('is-playing', 'is-ready');
+                splash.classList.add('is-ready'); // cursor affordance -- see #splash.is-ready
             }
 
             function hideSplash() {
@@ -754,7 +760,17 @@
                     hidden = true;
                     hideSplash();
                 }
-                getStartedBtn.addEventListener('click', hideOnce);
+
+                // The button is the visible affordance, but once it's shown
+                // the whole splash is a target -- a click anywhere on it
+                // (the button included, via bubbling, so this alone covers
+                // both) proceeds. Gated on getStartedShown so a click during
+                // the video itself does nothing; the point of waiting for
+                // it is lost if a stray tap skips straight past it.
+                splash.addEventListener('click', function () {
+                    if (!getStartedShown) return;
+                    hideOnce();
+                });
 
                 // Safety net for "does the video ever actually start" only.
                 // Clearing it the moment `playing` actually fires means its
