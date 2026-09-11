@@ -103,7 +103,16 @@
             text-transform: uppercase;
             color: var(--muted);
             opacity: 0;
-            animation: fadeUp .6s ease .35s forwards;
+            transform: scale(.85);
+            animation: subtitleZoomIn .6s ease .35s forwards;
+        }
+
+        /* Matches the scale-in the logo itself used to have (since moved to
+           the video's own baked-in motion) -- the text now follows the same
+           zoom rather than just fading in place. */
+        @keyframes subtitleZoomIn {
+            from { opacity: 0; transform: scale(.85); }
+            to { opacity: 1; transform: scale(1); }
         }
 
         @keyframes fadeUp {
