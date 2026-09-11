@@ -138,34 +138,9 @@
             40% { opacity: 1; transform: scale(1); }
         }
 
-        /* ============================= LANDING ============================= */
-
-        #landing {
-            align-items: center;
-            justify-content: center;
-            padding: 32px 24px;
-            opacity: 0;
-            transform: translateY(8px);
-            transition: opacity .5s ease, transform .5s ease;
-        }
-
-        #landing.is-visible { opacity: 1; transform: translateY(0); }
-
-        .landing-card {
-            text-align: center;
-            max-width: 480px;
-            width: 100%;
-        }
-
-        .brand-mark {
-            width: clamp(56px, 12vw, 76px);
-            height: auto;
-            margin-bottom: 18px;
-        }
-
         .brand-name {
             font-family: 'Outfit', sans-serif;
-            font-size: clamp(2rem, 6vw, 2.75rem);
+            font-size: clamp(1.8rem, 6vw, 2.2rem);
             font-weight: 700;
             letter-spacing: .16em;
             color: var(--ink);
@@ -175,41 +150,14 @@
         .brand-name span { color: var(--brand); }
 
         .brand-tagline {
-            margin-top: 12px;
+            margin-top: 10px;
             font-family: 'Outfit', sans-serif;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 300;
-            letter-spacing: .3em;
+            letter-spacing: .28em;
             text-transform: uppercase;
             color: var(--muted);
         }
-
-        .landing-intro {
-            margin: 28px 0 0;
-            font-size: 15px;
-            line-height: 1.6;
-            color: var(--muted);
-        }
-
-        .btn-login {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            margin-top: 32px;
-            padding: 13px 30px;
-            font-family: inherit;
-            font-size: 15px;
-            font-weight: 600;
-            color: #fff;
-            background: var(--brand);
-            border: none;
-            border-radius: 10px;
-            cursor: pointer;
-            transition: background .15s ease, transform .15s ease, box-shadow .15s ease;
-        }
-
-        .btn-login:hover { background: var(--brand-dark); transform: translateY(-1px); box-shadow: 0 8px 20px -8px rgba(16, 185, 129, .5); }
-        .btn-login:active { transform: translateY(0); }
 
         /* ============================= LOGIN ============================= */
 
@@ -233,35 +181,10 @@
             box-shadow: 0 20px 50px -20px rgba(15, 23, 42, .18);
         }
 
-        .login-back {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            background: none;
-            border: none;
-            padding: 0;
-            margin-bottom: 22px;
-            font-family: inherit;
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--muted);
-            cursor: pointer;
-        }
-
-        .login-back:hover { color: var(--ink); }
-
         .login-brand {
             text-align: center;
             margin-bottom: 28px;
         }
-
-        .login-brand img {
-            width: 52px;
-            height: auto;
-            margin-bottom: 10px;
-        }
-
-        .login-brand .brand-name { font-size: 1.6rem; letter-spacing: .14em; }
 
         label {
             display: block;
@@ -343,7 +266,7 @@
 
         @media (prefers-reduced-motion: reduce) {
             .splash-logo, .splash-subtitle, .splash-dots { animation: none; opacity: 1; transform: none; }
-            #splash, #landing, #login-stage { transition: none; }
+            #splash, #login-stage { transition: none; }
             .splash-dots span { animation: none; opacity: .6; }
         }
     </style>
@@ -365,34 +288,18 @@
         </div>
     </div>
 
-    {{-- ═══════════════════════════ 2. LANDING PAGE ═══════════════════════════ --}}
-    <section id="landing" class="stage">
-        <div class="landing-card">
-            <img class="brand-mark" src="{{ asset('logo.png') }}" alt="REMEDI">
-            <div class="brand-name">RE<span>ME</span>DI</div>
-            <div class="brand-tagline">Pharmacy Management System</div>
-
-            <p class="landing-intro">
-                Inventory, point-of-sale, and demand forecasting for your pharmacy — in one place.
-            </p>
-
-            <button type="button" class="btn-login" id="showLoginBtn">Login</button>
-        </div>
-    </section>
-
-    {{-- ═══════════════════════════ 3. LOGIN SCREEN ═══════════════════════════
-         Posts to the app's REAL, existing login endpoint (routes/auth.php,
-         AuthenticatedSessionController::store) -- nothing about the backend
-         auth flow changes here, only how the form is presented. --}}
+    {{-- ═══════════════════════════ 2. LOGIN SCREEN ═══════════════════════════
+         Splash goes straight here -- no separate landing/marketing page in
+         between. Posts to the app's REAL, existing login endpoint
+         (routes/auth.php, AuthenticatedSessionController::store) -- nothing
+         about the backend auth flow changes here, only how the form is
+         presented. Brand block is TEXT only (no logo image) on this screen,
+         by request. --}}
     <section id="login-stage" class="stage">
         <div class="login-card">
-            <button type="button" class="login-back" id="backToLandingBtn">
-                <span aria-hidden="true">&larr;</span> Back
-            </button>
-
             <div class="login-brand">
-                <img src="{{ asset('logo.png') }}" alt="REMEDI">
                 <div class="brand-name">RE<span>ME</span>DI</div>
+                <div class="brand-tagline">Pharmacy Management System</div>
             </div>
 
             @if (session('status'))
@@ -434,32 +341,27 @@
     <script>
         (function () {
             // Change this one value to change the splash duration everywhere.
-            var SPLASH_DURATION_MS = 1500;
+            var SPLASH_DURATION_MS = 2000;
 
             var splash = document.getElementById('splash');
-            var landing = document.getElementById('landing');
             var loginStage = document.getElementById('login-stage');
-            var showLoginBtn = document.getElementById('showLoginBtn');
-            var backBtn = document.getElementById('backToLandingBtn');
 
             // Server-rendered flag: true when this page is being shown again
             // because a login POST just failed and redirected back to `/`.
-            // Replaying a 1.5s splash in front of someone who is trying to
-            // read why their password was rejected is the wrong call, so this
-            // skips straight to the login screen with the error already
-            // visible -- see routes/web.php and AuthenticatedSessionController.
+            // Replaying the splash in front of someone who is trying to read
+            // why their password was rejected is the wrong call, so this
+            // skips straight to the (already-visible) login screen with the
+            // error in place -- see routes/web.php and
+            // AuthenticatedSessionController.
             var skipSplash = @json($errors->any() || old('email') !== null);
 
-            function showStage(stage) {
-                [landing, loginStage].forEach(function (s) {
-                    s.classList.remove('is-active', 'is-visible');
-                });
-                stage.classList.add('is-active');
+            function showLogin() {
+                loginStage.classList.add('is-active');
                 // Next frame, so the transition (opacity/transform) actually
                 // runs instead of starting from its own end state.
                 requestAnimationFrame(function () {
                     requestAnimationFrame(function () {
-                        stage.classList.add('is-visible');
+                        loginStage.classList.add('is-visible');
                     });
                 });
             }
@@ -477,7 +379,7 @@
                     if (done) return;
                     done = true;
                     splash.classList.add('is-gone');
-                    showStage(landing);
+                    showLogin();
                 }
                 splash.addEventListener('transitionend', finish, { once: true });
                 setTimeout(finish, 700); // fade-out transition is .5s; this is a safety margin, not the real trigger
@@ -485,20 +387,10 @@
 
             if (skipSplash) {
                 splash.classList.add('is-gone');
-                showStage(loginStage);
+                showLogin();
             } else {
                 setTimeout(hideSplash, SPLASH_DURATION_MS);
             }
-
-            showLoginBtn.addEventListener('click', function () {
-                showStage(loginStage);
-                var emailField = document.getElementById('email');
-                if (emailField) emailField.focus({ preventScroll: true });
-            });
-
-            backBtn.addEventListener('click', function () {
-                showStage(landing);
-            });
 
             // Guard against a double-submit while the redirect is in flight --
             // same pattern layouts/guest.blade.php already uses.
