@@ -104,7 +104,7 @@
             color: var(--muted);
             opacity: 0;
             transform: scale(.85);
-            animation: subtitleZoomIn .6s ease .35s forwards;
+            animation: subtitleZoomIn .7s ease forwards;
         }
 
         /* Matches the scale-in the logo itself used to have (since moved to
