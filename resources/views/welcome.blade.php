@@ -494,14 +494,17 @@
                             visited: new Uint8Array(w * h),
                             queue: new Int32Array(w * h),
                             labeled: new Uint8Array(w * h),
+                            nearBoundary: new Uint8Array(w * h),
                         };
                     }
                     var floodable = floodBuffers.floodable;
                     var visited = floodBuffers.visited;
                     var queue = floodBuffers.queue;
                     var labeled = floodBuffers.labeled;
+                    var nearBoundary = floodBuffers.nearBoundary;
                     visited.fill(0);
                     labeled.fill(0);
+                    nearBoundary.fill(0);
 
                     var pixelCount = w * h;
                     for (var p = 0; p < pixelCount; p++) {
@@ -528,22 +531,67 @@
                         tryEnqueue(px, py + 1); tryEnqueue(px, py - 1);
                     }
 
+                    // The soft per-pixel formula below exists for genuine
+                    // anti-aliasing: the handful of pixels right on the seam
+                    // between the mark and the flat background, blended by
+                    // the video encode. It has no business running anywhere
+                    // else, but until now it ran over the WHOLE canvas --
+                    // and a cool blue-grey highlight partway down the
+                    // capsule's glass cap has almost no green push
+                    // (greenShift/avg near 0), which is colourimetrically
+                    // the same "too neutral to be background" reading
+                    // RATIO_MIN is tuned to catch, so it was scored and
+                    // partially keyed out as a diagonal soft patch with no
+                    // connection to any real edge -- the "hole" in the cap.
+                    // Restrict it to a BOUNDARY_RADIUS-px band dilated out
+                    // from the actual flood, via a capped multi-source BFS
+                    // reusing `queue` (the earlier flood's contents are done
+                    // with by this point). Anything outside that band is
+                    // topologically nowhere near the background and is left
+                    // fully opaque regardless of what its colour ratio says.
+                    var BOUNDARY_RADIUS = 3;
+                    var dqHead = 0, dqTail = 0;
+                    for (var pv = 0; pv < pixelCount; pv++) {
+                        if (visited[pv]) { nearBoundary[pv] = 1; queue[dqTail++] = pv; }
+                    }
+                    var frontierStart = 0, frontierEnd = dqTail;
+                    for (var depth = 0; depth < BOUNDARY_RADIUS; depth++) {
+                        var nextEnd = frontierEnd;
+                        for (var qi = frontierStart; qi < frontierEnd; qi++) {
+                            var cp = queue[qi];
+                            var cx = cp % w, cy = (cp / w) | 0;
+                            if (cx + 1 < w) { var np1 = cp + 1; if (!nearBoundary[np1]) { nearBoundary[np1] = 1; queue[nextEnd++] = np1; } }
+                            if (cx - 1 >= 0) { var np2 = cp - 1; if (!nearBoundary[np2]) { nearBoundary[np2] = 1; queue[nextEnd++] = np2; } }
+                            if (cy + 1 < h) { var np3 = cp + w; if (!nearBoundary[np3]) { nearBoundary[np3] = 1; queue[nextEnd++] = np3; } }
+                            if (cy - 1 >= 0) { var np4 = cp - w; if (!nearBoundary[np4]) { nearBoundary[np4] = 1; queue[nextEnd++] = np4; } }
+                        }
+                        frontierStart = frontierEnd;
+                        frontierEnd = nextEnd;
+                    }
+
                     // Anything the flood reached is background (or the glow
-                    // around it) and goes fully transparent. Anything it
-                    // didn't reach -- including the capsule, walled off by
-                    // the ribbon -- keeps the soft per-pixel edge from
-                    // backgroundScore(), same as before, so genuine edge
+                    // around it) and goes fully transparent. Anything within
+                    // the boundary band but not reached keeps the soft
+                    // per-pixel edge from backgroundScore(), so genuine edge
                     // anti-aliasing against the flat background still blends
-                    // rather than going jagged.
+                    // rather than going jagged. Everything else -- the bulk
+                    // of the artwork -- is forced fully opaque, whatever its
+                    // own colour ratio happens to read as.
                     for (var p3 = 0; p3 < pixelCount; p3++) {
                         if (visited[p3]) {
                             d[p3 * 4 + 3] = 0;
                             continue;
                         }
                         var idx3 = p3 * 4;
+                        if (!nearBoundary[p3]) {
+                            d[idx3 + 3] = 255;
+                            continue;
+                        }
                         var score = backgroundScore(d[idx3], d[idx3 + 1], d[idx3 + 2]);
                         if (score < KEY_HIGH) {
                             d[idx3 + 3] = Math.round(Math.max(0, (score - KEY_LOW) / (KEY_HIGH - KEY_LOW)) * 255);
+                        } else {
+                            d[idx3 + 3] = 255;
                         }
                     }
 
