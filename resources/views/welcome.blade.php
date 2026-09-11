@@ -12,9 +12,23 @@
     <link rel="manifest" href="{{ asset('manifest.json') }}">
     <meta name="theme-color" content="#10b981">
 
+    {{-- Loaded via the video tag's own `preload="auto"` further down, this
+         just tells the browser to start that fetch NOW, in parallel with
+         everything else in <head>, rather than waiting for the parser to
+         reach the <video> element in the body -- it's near the top, so the
+         gap is small, but this is the splash's own asset and the one thing
+         actually worth racing to load first. --}}
+    <link rel="preload" as="video" href="{{ asset('Logo.mp4') }}" type="video/mp4">
+
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;600;700&display=swap" rel="stylesheet">
+    {{-- Loaded async (preload-then-swap) rather than as a normal blocking
+         stylesheet <link> -- a normal one holds first paint until Google's
+         CSS response lands, which delays the splash's own background and
+         subtitle from appearing at all, for a font that display:swap
+         already lets the page render without waiting on anyway. --}}
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;600;700&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;500;600;700&display=swap"></noscript>
 
     <style>
         :root {
@@ -375,7 +389,7 @@
                  time -- see chromaKeyFrame() below. Filename case matters on
                  Linux (Vercel/Railway), unlike Windows/XAMPP -- keep it
                  exactly `Logo.mp4` if the file is ever replaced. --}}
-            <video id="splashVideo" src="{{ asset('Logo.mp4') }}" muted playsinline preload="auto"
+            <video id="splashVideo" src="{{ asset('Logo.mp4') }}" muted playsinline preload="auto" fetchpriority="high"
                    style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;"></video>
             <canvas id="splashCanvas" class="splash-logo" role="img" aria-label="REMEDI"></canvas>
             <p class="splash-subtitle">Web-Based Pharmacy Management System</p>
