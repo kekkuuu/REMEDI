@@ -87,6 +87,17 @@
             width: clamp(180px, 45vw, 420px);
             height: auto;
             opacity: 0;
+        }
+
+        /* Neither of these animates on page load any more -- the canvas sits
+           empty (undrawn) until the video's `playing` event fires and
+           startKeying() begins actually putting frames into it, which can
+           land well after a CSS animation timed from page load would have
+           already finished. JS adds .is-playing to .splash-inner at that
+           exact moment instead, so the logo and the subtitle genuinely start
+           together, in sync with when the video is first visible -- not
+           with when the page happened to load. */
+        .splash-inner.is-playing .splash-logo {
             animation: logoIn .7s ease forwards;
         }
 
@@ -104,6 +115,9 @@
             color: var(--muted);
             opacity: 0;
             transform: scale(.85);
+        }
+
+        .splash-inner.is-playing .splash-subtitle {
             animation: subtitleZoomIn .7s ease forwards;
         }
 
@@ -266,7 +280,11 @@
         }
 
         @media (prefers-reduced-motion: reduce) {
-            .splash-logo, .splash-subtitle, .splash-dots { animation: none; opacity: 1; transform: none; }
+            /* !important: .splash-inner.is-playing .splash-logo/.splash-subtitle
+               are more specific than a bare .splash-logo/.splash-subtitle
+               selector, so without it this would lose once JS adds that
+               class -- the exact moment reduced motion matters most. */
+            .splash-logo, .splash-subtitle, .splash-dots { animation: none !important; opacity: 1 !important; transform: none !important; }
             #splash, #login-stage { transition: none; }
             .splash-dots span { animation: none; opacity: .6; }
         }
@@ -459,6 +477,10 @@
             function startKeying() {
                 if (keying) return;
                 keying = true;
+                // Fires the logo's fade-in and the subtitle's zoom-in
+                // together, right as the first real frame is about to be
+                // drawn -- see the .is-playing rules above.
+                document.querySelector('.splash-inner').classList.add('is-playing');
                 requestAnimationFrame(chromaKeyFrame);
             }
 
