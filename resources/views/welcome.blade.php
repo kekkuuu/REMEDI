@@ -140,9 +140,9 @@
 
         .brand-name {
             font-family: 'Outfit', sans-serif;
-            font-size: clamp(1.8rem, 6vw, 2.2rem);
+            font-size: 2.75rem;
             font-weight: 700;
-            letter-spacing: .16em;
+            letter-spacing: .18em;
             color: var(--ink);
             line-height: 1;
         }
@@ -152,9 +152,9 @@
         .brand-tagline {
             margin-top: 10px;
             font-family: 'Outfit', sans-serif;
-            font-size: 12px;
+            font-size: 13px;
             font-weight: 300;
-            letter-spacing: .28em;
+            letter-spacing: .35em;
             text-transform: uppercase;
             color: var(--muted);
         }
@@ -174,11 +174,11 @@
 
         .login-card {
             background: #fff;
-            border-radius: 16px;
-            padding: 44px 40px;
+            border-radius: 14px;
+            padding: 56px 60px;
             width: 100%;
-            max-width: 400px;
-            box-shadow: 0 20px 50px -20px rgba(15, 23, 42, .18);
+            max-width: 560px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, .08);
         }
 
         .login-brand {
@@ -228,15 +228,6 @@
         .btn-submit:hover { background: var(--brand-dark); }
         .btn-submit[disabled] { opacity: .75; cursor: default; }
 
-        .login-links {
-            text-align: center;
-            margin-top: 18px;
-            font-size: 13px;
-        }
-
-        .login-links a { color: var(--brand-dark); text-decoration: none; }
-        .login-links a:hover { text-decoration: underline; }
-
         .form-status {
             background: #dcfce7;
             color: #166534;
@@ -260,7 +251,8 @@
         /* ============================= RESPONSIVE ============================= */
 
         @media (max-width: 640px) {
-            .login-card { padding: 32px 24px; }
+            .login-card { padding: 36px 24px; max-width: 92%; }
+            .brand-name { font-size: 2.1rem; }
             .brand-tagline { letter-spacing: .22em; }
         }
 
@@ -330,10 +322,6 @@
                 </div>
 
                 <button type="submit" class="btn-submit">Log in</button>
-
-                <div class="login-links">
-                    <a href="{{ route('password.request') }}">Forgot Password?</a>
-                </div>
             </form>
         </div>
     </section>
