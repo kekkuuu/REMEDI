@@ -364,17 +364,40 @@
 
             // ---- Chroma key ----
             // Logo.mp4 has no alpha channel (H.264 in a <video> element never
-            // does), so it plays with its own solid, consistent background
-            // baked in -- sampled directly from the file, not guessed. Every
-            // frame is drawn to this canvas and any pixel close to that exact
-            // colour is made transparent, with a short soft-edge band between
-            // KEY_LOW and KEY_HIGH so the logo's own anti-aliased edges don't
-            // come out jagged. This is what makes the mark actually sit on
-            // the splash instead of inside a visible box.
-            var BG = { r: 196, g: 224, b: 210 };
-            var KEY_LOW = 20;
-            var KEY_HIGH = 46;
+            // does), so it plays with its own background baked in. That
+            // background isn't one flat colour -- there's a soft vignette
+            // across the frame (measured: pale green ranging roughly
+            // rgb(196,224,210) at the corners to rgb(229,241,233) toward the
+            // centre) -- so keying on distance from a single sampled colour
+            // left a visible rectangle wherever the vignette drifted outside
+            // that one point's threshold.
+            //
+            // What actually separates every background sample from the
+            // logo's own light pixels (the capsule's near-neutral white) is
+            // the RELATIONSHIP between channels, not their absolute value:
+            // the background is consistently a little light (average channel
+            // 195-245) AND a little green-shifted (green minus the red/blue
+            // average sits at +4 to +32). The capsule's white measures near
+            // rgb(252,253,253) -- neutral, green delta ~0-1 -- so it fails
+            // the green-shift test and stays opaque; the logo's saturated
+            // greens fail the lightness test the same way. Two independent
+            // "how far outside the background's known range" penalties are
+            // summed into one score and fed through the same soft KEY_LOW/
+            // KEY_HIGH edge as before, so anti-aliased edges still blend
+            // rather than going jagged.
+            var LIGHT_MIN = 195, LIGHT_MAX = 245;
+            var GREEN_MIN = 4, GREEN_MAX = 32;
+            var KEY_LOW = 1;
+            var KEY_HIGH = 7;
             var keying = false;
+
+            function backgroundScore(r, g, b) {
+                var avg = (r + g + b) / 3;
+                var greenShift = g - (r + b) / 2;
+                var lightPenalty = avg < LIGHT_MIN ? (LIGHT_MIN - avg) : (avg > LIGHT_MAX ? (avg - LIGHT_MAX) : 0);
+                var greenPenalty = greenShift < GREEN_MIN ? (GREEN_MIN - greenShift) : (greenShift > GREEN_MAX ? (greenShift - GREEN_MAX) : 0);
+                return lightPenalty + greenPenalty;
+            }
 
             function chromaKeyFrame() {
                 if (video.videoWidth && video.videoHeight) {
@@ -385,12 +408,11 @@
                     var frame = ctx.getImageData(0, 0, canvas.width, canvas.height);
                     var d = frame.data;
                     for (var i = 0; i < d.length; i += 4) {
-                        var dr = d[i] - BG.r, dg = d[i + 1] - BG.g, db = d[i + 2] - BG.b;
-                        var dist = Math.sqrt(dr * dr + dg * dg + db * db);
-                        if (dist <= KEY_LOW) {
+                        var score = backgroundScore(d[i], d[i + 1], d[i + 2]);
+                        if (score <= KEY_LOW) {
                             d[i + 3] = 0;
-                        } else if (dist < KEY_HIGH) {
-                            d[i + 3] = Math.round(((dist - KEY_LOW) / (KEY_HIGH - KEY_LOW)) * 255);
+                        } else if (score < KEY_HIGH) {
+                            d[i + 3] = Math.round(((score - KEY_LOW) / (KEY_HIGH - KEY_LOW)) * 255);
                         }
                     }
                     ctx.putImageData(frame, 0, 0);
