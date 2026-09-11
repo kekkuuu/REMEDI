@@ -95,9 +95,9 @@
         }
 
         .splash-subtitle {
-            margin-top: 18px;
+            margin-top: 22px;
             font-family: 'Outfit', sans-serif;
-            font-size: 12px;
+            font-size: clamp(15px, 2.6vw, 19px);
             font-weight: 500;
             letter-spacing: .12em;
             text-transform: uppercase;
@@ -386,6 +386,15 @@
             // rather than going jagged.
             var LIGHT_MIN = 195, LIGHT_MAX = 245;
             var GREEN_MIN = 4, GREEN_MAX = 32;
+            // The clip fades in FROM true black over its first few frames --
+            // sampled as literal rgb(0,0,0) at t=0 -- which is a second,
+            // separate "background" profile from the steady-state pale
+            // vignette above: neutral (no green shift) and dark, rather than
+            // light and green-shifted. The logo's own dark greens are never
+            // neutral even in shadow (sampled as low as rgb(0,76,53), a
+            // green-shift of ~50), so they stay well clear of this.
+            var DARK_MAX = 30;
+            var DARK_NEUTRAL_MAX = 20;
             var KEY_LOW = 1;
             var KEY_HIGH = 7;
             var keying = false;
@@ -393,9 +402,17 @@
             function backgroundScore(r, g, b) {
                 var avg = (r + g + b) / 3;
                 var greenShift = g - (r + b) / 2;
+
                 var lightPenalty = avg < LIGHT_MIN ? (LIGHT_MIN - avg) : (avg > LIGHT_MAX ? (avg - LIGHT_MAX) : 0);
                 var greenPenalty = greenShift < GREEN_MIN ? (GREEN_MIN - greenShift) : (greenShift > GREEN_MAX ? (greenShift - GREEN_MAX) : 0);
-                return lightPenalty + greenPenalty;
+                var paleScore = lightPenalty + greenPenalty;
+
+                var darkScore = (avg > DARK_MAX ? (avg - DARK_MAX) : 0)
+                    + (Math.abs(greenShift) > DARK_NEUTRAL_MAX ? (Math.abs(greenShift) - DARK_NEUTRAL_MAX) : 0);
+
+                // Either profile matching well is enough -- a pixel only
+                // needs to look like ONE kind of background.
+                return Math.min(paleScore, darkScore);
             }
 
             function chromaKeyFrame() {
@@ -479,7 +496,14 @@
                 // The real trigger: the clip finished playing once, in full.
                 // No `loop` attribute -- looping would mean "hide after N ms"
                 // is a guess again, the exact thing this is meant to avoid.
-                video.addEventListener('ended', hideOnce);
+                // A short hold on the final frame after `ended` (the canvas
+                // keeps redrawing the same last frame -- see chromaKeyFrame,
+                // it doesn't check video.paused) reads as a deliberate pause
+                // on the finished mark rather than an abrupt cut.
+                var HOLD_AFTER_END_MS = 1000;
+                video.addEventListener('ended', function () {
+                    setTimeout(hideOnce, HOLD_AFTER_END_MS);
+                });
                 video.addEventListener('playing', startKeying);
 
                 var playPromise = video.play();
