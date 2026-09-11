@@ -140,7 +140,7 @@
 
         .brand-name {
             font-family: 'Outfit', sans-serif;
-            font-size: 2.75rem;
+            font-size: 3.4rem;
             font-weight: 700;
             letter-spacing: .18em;
             color: var(--ink);
@@ -150,9 +150,9 @@
         .brand-name span { color: var(--brand); }
 
         .brand-tagline {
-            margin-top: 10px;
+            margin-top: 14px;
             font-family: 'Outfit', sans-serif;
-            font-size: 13px;
+            font-size: 15px;
             font-weight: 300;
             letter-spacing: .35em;
             text-transform: uppercase;
@@ -174,33 +174,33 @@
 
         .login-card {
             background: #fff;
-            border-radius: 14px;
-            padding: 56px 60px;
+            border-radius: 16px;
+            padding: 72px 80px;
             width: 100%;
-            max-width: 560px;
+            max-width: 720px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, .08);
         }
 
         .login-brand {
             text-align: center;
-            margin-bottom: 28px;
+            margin-bottom: 40px;
         }
 
         label {
             display: block;
-            margin-bottom: 6px;
-            font-size: 13px;
+            margin-bottom: 8px;
+            font-size: 15px;
             font-weight: 600;
             color: #374151;
         }
 
-        .field { margin-bottom: 18px; }
+        .field { margin-bottom: 24px; }
 
         input[type="email"],
         input[type="password"] {
             width: 100%;
-            padding: 12px 14px;
-            font-size: 15px;
+            padding: 16px 18px;
+            font-size: 17px;
             font-family: inherit;
             border: 1px solid #d1d5db;
             border-radius: 8px;
@@ -212,10 +212,10 @@
 
         .btn-submit {
             width: 100%;
-            padding: 13px;
-            margin-top: 6px;
+            padding: 17px;
+            margin-top: 8px;
             font-family: inherit;
-            font-size: 15px;
+            font-size: 17px;
             font-weight: 600;
             color: #fff;
             background: var(--brand);
