@@ -511,7 +511,7 @@
                 // keeps redrawing the same last frame -- see chromaKeyFrame,
                 // it doesn't check video.paused) reads as a deliberate pause
                 // on the finished mark rather than an abrupt cut.
-                var HOLD_AFTER_END_MS = 2000;
+                var HOLD_AFTER_END_MS = 4000;
                 video.addEventListener('ended', function () {
                     setTimeout(hideOnce, HOLD_AFTER_END_MS);
                 });
