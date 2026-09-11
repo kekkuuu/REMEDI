@@ -84,15 +84,14 @@
 
         .splash-logo {
             display: block;
-            width: clamp(96px, 22vw, 148px);
+            width: clamp(220px, 55vw, 520px);
             height: auto;
             opacity: 0;
-            transform: scale(.85);
-            animation: logoIn .7s cubic-bezier(.2, .7, .3, 1) forwards;
+            animation: logoIn .7s ease forwards;
         }
 
         @keyframes logoIn {
-            to { opacity: 1; transform: scale(1); }
+            to { opacity: 1; }
         }
 
         .splash-subtitle {
