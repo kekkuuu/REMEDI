@@ -399,8 +399,16 @@
             // divide unreliably), but a pixel that dark carries no visible
             // colour anyway, so it's simply treated as background outright --
             // this is what the true rgb(0,0,0) opening frame hits.
+            // RATIO_MAX is wider than the steady-state background's own
+            // ratio (~0.04-0.10) needs, because the ratio isn't perfectly
+            // stable across the fade in practice -- likely gamma correction
+            // in the encode rather than a literal linear scale-to-black.
+            // Measured directly from real playback at the darkest part of
+            // the fade (rgb(49,66,60), the first frame sampled after true
+            // black): ratio 0.197. 0.28 covers that with margin while
+            // staying far below every logo-green sample's ratio (>=0.45).
             var AVG_FLOOR = 20;
-            var RATIO_MIN = 0.02, RATIO_MAX = 0.14;
+            var RATIO_MIN = 0.02, RATIO_MAX = 0.28;
             var RATIO_SCALE = 100; // converts the ratio gap into the same units KEY_LOW/HIGH use
             var KEY_LOW = 0.3;
             var KEY_HIGH = 1.2;
