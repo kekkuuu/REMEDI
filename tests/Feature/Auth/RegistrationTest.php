@@ -60,4 +60,41 @@ class RegistrationTest extends TestCase
         // Still the admin, not the new account.
         $this->assertAuthenticatedAs($admin);
     }
+
+    /**
+     * The Add User form is a `js-confirm` form (layouts/app.blade.php), so
+     * every real submission goes through the shared confirm-dialog handler,
+     * which posts via fetch() with these two headers -- making
+     * `$request->wantsJson()` true and `store()` return a JsonResponse
+     * rather than a redirect. The method's own return type used to promise
+     * only RedirectResponse, so PHP's strict return-type check threw a
+     * fatal TypeError on every single AJAX-driven account creation -- the
+     * user WAS created, but the response blew up building the success
+     * reply, and the confirm dialog surfaced the TypeError message as
+     * "could not create." The plain-POST test above never exercises this
+     * path, which is exactly how it went unnoticed.
+     */
+    public function test_an_admin_can_create_a_user_via_the_ajax_confirm_dialog(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $response = $this->actingAs($admin)->post('/register', [
+            'name' => 'Ajax User',
+            'email' => 'ajax@example.com',
+            'password' => 'password',
+            'password_confirmation' => 'password',
+            'role' => 'staff',
+        ], [
+            'Accept' => 'application/json',
+            'X-Requested-With' => 'XMLHttpRequest',
+        ]);
+
+        $response->assertOk()->assertJson(['success' => true]);
+
+        $this->assertDatabaseHas('users', [
+            'email' => 'ajax@example.com',
+            'role' => 'staff',
+        ]);
+        $this->assertAuthenticatedAs($admin);
+    }
 }
