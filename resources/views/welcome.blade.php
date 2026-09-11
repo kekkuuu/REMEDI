@@ -140,7 +140,7 @@
 
         .brand-name {
             font-family: 'Outfit', sans-serif;
-            font-size: 3.4rem;
+            font-size: 2.75rem;
             font-weight: 700;
             letter-spacing: .18em;
             color: var(--ink);
@@ -150,9 +150,9 @@
         .brand-name span { color: var(--brand); }
 
         .brand-tagline {
-            margin-top: 14px;
+            margin-top: 10px;
             font-family: 'Outfit', sans-serif;
-            font-size: 15px;
+            font-size: 13px;
             font-weight: 300;
             letter-spacing: .35em;
             text-transform: uppercase;
@@ -174,33 +174,33 @@
 
         .login-card {
             background: #fff;
-            border-radius: 16px;
-            padding: 72px 80px;
+            border-radius: 14px;
+            padding: 56px 60px;
             width: 100%;
-            max-width: 720px;
+            max-width: 560px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, .08);
         }
 
         .login-brand {
             text-align: center;
-            margin-bottom: 40px;
+            margin-bottom: 28px;
         }
 
         label {
             display: block;
-            margin-bottom: 8px;
-            font-size: 15px;
+            margin-bottom: 6px;
+            font-size: 13px;
             font-weight: 600;
             color: #374151;
         }
 
-        .field { margin-bottom: 24px; }
+        .field { margin-bottom: 18px; }
 
         input[type="email"],
         input[type="password"] {
             width: 100%;
-            padding: 16px 18px;
-            font-size: 17px;
+            padding: 12px 14px;
+            font-size: 15px;
             font-family: inherit;
             border: 1px solid #d1d5db;
             border-radius: 8px;
@@ -212,10 +212,10 @@
 
         .btn-submit {
             width: 100%;
-            padding: 17px;
-            margin-top: 8px;
+            padding: 13px;
+            margin-top: 6px;
             font-family: inherit;
-            font-size: 17px;
+            font-size: 15px;
             font-weight: 600;
             color: #fff;
             background: var(--brand);
@@ -291,7 +291,7 @@
         <div class="login-card">
             <div class="login-brand">
                 <div class="brand-name">RE<span>ME</span>DI</div>
-                <div class="brand-tagline">Pharmacy Management System</div>
+                <div class="brand-tagline">Inventory & Sales Management</div>
             </div>
 
             @if (session('status'))
