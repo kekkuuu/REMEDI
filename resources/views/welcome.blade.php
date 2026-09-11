@@ -384,35 +384,38 @@
             // summed into one score and fed through the same soft KEY_LOW/
             // KEY_HIGH edge as before, so anti-aliased edges still blend
             // rather than going jagged.
-            var LIGHT_MIN = 195, LIGHT_MAX = 245;
-            var GREEN_MIN = 4, GREEN_MAX = 32;
-            // The clip fades in FROM true black over its first few frames --
-            // sampled as literal rgb(0,0,0) at t=0 -- which is a second,
-            // separate "background" profile from the steady-state pale
-            // vignette above: neutral (no green shift) and dark, rather than
-            // light and green-shifted. The logo's own dark greens are never
-            // neutral even in shadow (sampled as low as rgb(0,76,53), a
-            // green-shift of ~50), so they stay well clear of this.
-            var DARK_MAX = 30;
-            var DARK_NEUTRAL_MAX = 20;
-            var KEY_LOW = 1;
-            var KEY_HIGH = 7;
+            // The clip fades in FROM true black to its pale steady-state
+            // background, and a fade-to-black is (approximately) every
+            // channel scaled down by the same factor -- so the RATIO between
+            // green and the red/blue average stays roughly constant across
+            // the whole fade, even though absolute brightness swings from 0
+            // to ~210. Keying on that ratio (rather than on brightness bands)
+            // is what catches every brightness the fade passes through,
+            // including the mid-fade grey that two separate brightness bands
+            // missed -- it scored as "too bright to be the dark profile, too
+            // dark to be the pale one" and stayed a visible box.
+            //
+            // Below AVG_FLOOR the ratio itself gets noisy (near-zero channels
+            // divide unreliably), but a pixel that dark carries no visible
+            // colour anyway, so it's simply treated as background outright --
+            // this is what the true rgb(0,0,0) opening frame hits.
+            var AVG_FLOOR = 20;
+            var RATIO_MIN = 0.02, RATIO_MAX = 0.14;
+            var RATIO_SCALE = 100; // converts the ratio gap into the same units KEY_LOW/HIGH use
+            var KEY_LOW = 0.3;
+            var KEY_HIGH = 1.2;
             var keying = false;
 
             function backgroundScore(r, g, b) {
                 var avg = (r + g + b) / 3;
+                if (avg <= AVG_FLOOR) return 0;
+
                 var greenShift = g - (r + b) / 2;
+                var ratio = greenShift / avg;
 
-                var lightPenalty = avg < LIGHT_MIN ? (LIGHT_MIN - avg) : (avg > LIGHT_MAX ? (avg - LIGHT_MAX) : 0);
-                var greenPenalty = greenShift < GREEN_MIN ? (GREEN_MIN - greenShift) : (greenShift > GREEN_MAX ? (greenShift - GREEN_MAX) : 0);
-                var paleScore = lightPenalty + greenPenalty;
-
-                var darkScore = (avg > DARK_MAX ? (avg - DARK_MAX) : 0)
-                    + (Math.abs(greenShift) > DARK_NEUTRAL_MAX ? (Math.abs(greenShift) - DARK_NEUTRAL_MAX) : 0);
-
-                // Either profile matching well is enough -- a pixel only
-                // needs to look like ONE kind of background.
-                return Math.min(paleScore, darkScore);
+                if (ratio < RATIO_MIN) return (RATIO_MIN - ratio) * RATIO_SCALE;
+                if (ratio > RATIO_MAX) return (ratio - RATIO_MAX) * RATIO_SCALE;
+                return 0;
             }
 
             function chromaKeyFrame() {
