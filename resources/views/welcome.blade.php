@@ -713,7 +713,14 @@
                 if (getStartedShown) return;
                 getStartedShown = true;
                 clearTimeout(fallbackTimer);
-                document.querySelector('.splash-inner').classList.add('is-ready');
+                // The fallback timer and a rejected play() promise both
+                // reach here WITHOUT the video's `playing` event ever
+                // having fired, which is the only place .is-playing
+                // normally gets added -- so the logo and subtitle are
+                // still sitting at their pre-animation opacity:0. Add it
+                // here too (harmless if already present) so the button
+                // never appears alone on an otherwise-blank splash.
+                document.querySelector('.splash-inner').classList.add('is-playing', 'is-ready');
             }
 
             function hideSplash() {
