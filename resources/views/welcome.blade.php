@@ -212,32 +212,54 @@
            see the markup comment on .no-js-fallback for why this exists.
            Its reveal is a plain CSS animation-delay, not gated on any class
            JS would add, so it fires whether or not a single line of that
-           script ever ran. Styled to match .get-started-btn but kept a
-           separate rule block: sharing one would mean either element could
-           accidentally inherit a JS-only state. */
+           script ever ran. Deliberately styled IDENTICAL to
+           .get-started-btn (same fill, padding, arrow) rather than looking
+           like a distinct "fallback" affordance -- a visitor who lands
+           here because the script never ran has no way to tell that's what
+           happened, and seeing a differently-styled button would read as
+           the page being broken in a new way rather than working exactly
+           as intended. */
         .no-js-fallback {
             display: inline-flex;
             align-items: center;
             gap: 10px;
             margin-top: 28px;
-            padding: 13px 32px;
+            padding: 13px 32px 13px 40px;
             font-family: 'Outfit', sans-serif;
             font-size: 14px;
             font-weight: 600;
             letter-spacing: .1em;
             text-transform: uppercase;
             text-decoration: none;
-            color: var(--brand-dark);
-            background: #fff;
-            border: 2px solid var(--brand);
+            color: #fff;
+            background: var(--brand);
+            border: none;
             border-radius: 999px;
+            box-shadow: 0 6px 18px rgba(16, 185, 129, .22);
             opacity: 0;
             pointer-events: none;
             animation: noJsFallbackReveal 0s linear 6s forwards;
         }
 
+        .no-js-fallback:hover { background: var(--brand-dark); }
+
         @keyframes noJsFallbackReveal {
             to { opacity: 1; pointer-events: auto; }
+        }
+
+        /* The dots mean "something is happening", same as the JS path's own
+           .is-ready rule above -- but that rule only fires once JS adds the
+           class, so without this the dots would keep pulsing forever right
+           next to a button that's telling the visitor to move on. Same 6s
+           mark as the fallback's own reveal, via a second animation on the
+           existing declaration (the first, fadeUp, has long finished by
+           then, so there's nothing to fight over). */
+        .splash-inner:not(.is-ready) .splash-dots {
+            animation: fadeUp .6s ease .5s forwards, dotsHideFallback 0s linear 6s forwards;
+        }
+
+        @keyframes dotsHideFallback {
+            to { opacity: 0; }
         }
 
         /* JS got far enough to reveal its own button -- the fallback would
@@ -462,7 +484,10 @@
                  Hidden the instant JS *does* get far enough to add
                  is-ready, so this is never visible alongside a working
                  page. --}}
-            <a href="{{ route('login') }}" class="no-js-fallback">Get Started</a>
+            <a href="{{ route('login') }}" class="no-js-fallback">
+                <span>Get Started</span>
+                <span aria-hidden="true">&rarr;</span>
+            </a>
         </div>
     </div>
 
