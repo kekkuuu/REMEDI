@@ -114,18 +114,17 @@
             text-transform: uppercase;
             color: var(--muted);
             opacity: 0;
-            transform: scale(.85);
+            transform: scale(1.2);
         }
 
         .splash-inner.is-playing .splash-subtitle {
-            animation: subtitleZoomIn .7s ease forwards;
+            animation: subtitleZoomOut .7s ease forwards;
         }
 
-        /* Matches the scale-in the logo itself used to have (since moved to
-           the video's own baked-in motion) -- the text now follows the same
-           zoom rather than just fading in place. */
-        @keyframes subtitleZoomIn {
-            from { opacity: 0; transform: scale(.85); }
+        /* Zooms OUT (shrinks down to rest) rather than in, matching the
+           video's own settle-down motion. */
+        @keyframes subtitleZoomOut {
+            from { opacity: 0; transform: scale(1.2); }
             to { opacity: 1; transform: scale(1); }
         }
 
