@@ -22,8 +22,16 @@ use Illuminate\Support\Facades\Route;
 // collection drops GET from this route's method list -- `/` then answers 405
 // with `allow: HEAD, POST, PUT, PATCH, DELETE, OPTIONS` -- which locks every
 // user out at the front door. config:cache and view:cache are both fine.
-Route::get('/', function () {
-    return redirect()->route('login');
+//
+// `/` used to just redirect straight to `/login`; it now serves its own
+// splash/landing/login page (resources/views/welcome.blade.php), whose
+// embedded login form posts to the SAME route('login') endpoint as before --
+// nothing about the actual auth flow changed. `guest` middleware (the same
+// alias routes/auth.php already uses on GET/POST login) keeps the behaviour
+// identical for a signed-in user: they're bounced to RouteServiceProvider::
+// HOME rather than shown the marketing page again.
+Route::middleware('guest')->get('/', function () {
+    return view('welcome');
 });
 
 // `active` rides with `auth` on the whole group, not just the role-gated part.
