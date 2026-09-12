@@ -448,16 +448,25 @@
             .topbar-loading::before { animation: none; }
         }
 
-        /* One skeleton partial, two silhouettes.
+        /* One skeleton partial, three silhouettes.
            A dashboard-shaped placeholder in front of the Sales table was worse
            than none: six KPI tiles and two charts flashed up, then the real page
            landed as a header over rows, so every tab change was two unrelated
            layouts in a row. The shape is chosen from the destination link; no
            attribute means the dashboard, which is what the dashboard's own
-           loading backdrop wants. */
+           loading backdrop wants.
+           POS got its own shape for the same reason: it's a product-tile grid
+           beside a cart panel, nothing like either a KPI dashboard or a table
+           of rows, and standing in with "list" showed nine placeholder table
+           rows for a page that has never had a table. Forecast and Sales
+           Forecasting route to "dash" -- stat tiles over charts, no big row
+           table -- which is a closer match than "list" even though neither is
+           the dashboard itself. */
         .page-skeleton .sk-shape { display: none; }
-        .page-skeleton:not([data-shape="list"]) .sk-shape-dash { display: block; }
+        .page-skeleton[data-shape="dash"] .sk-shape-dash,
+        .page-skeleton:not([data-shape]) .sk-shape-dash { display: block; }
         .page-skeleton[data-shape="list"] .sk-shape-list { display: block; }
+        .page-skeleton[data-shape="pos"] .sk-shape-pos { display: block; }
 
         .sk-head { height: 26px; width: 210px; margin-bottom: 10px; }
         .sk-head-sub { height: 13px; width: 330px; margin-bottom: 22px; }
@@ -576,6 +585,53 @@
 
         .sk-chart-title { height: 13px; width: 160px; margin-bottom: 16px; }
         .sk-chart-body { height: 220px; border-radius: 8px; }
+
+        /* POS: a product-tile grid beside a sticky cart panel -- the same
+           2fr/1fr split pos/index.blade.php's own .pos-layout uses, so the
+           real grid and cart land in the same place the placeholders were. */
+        .sk-pos-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+
+        .sk-pos-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .sk-pos-tile {
+            background: #fff;
+            border: 0.5px solid #eef2f7;
+            border-radius: 10px;
+            padding: 14px;
+            height: 108px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .sk-pos-tile-title { height: 12px; width: 85%; }
+        .sk-pos-tile-sub { height: 10px; width: 55%; }
+        .sk-pos-tile-price { height: 15px; width: 40%; }
+
+        .sk-pos-cart {
+            background: #fff;
+            border: 0.5px solid #eef2f7;
+            border-radius: 14px;
+            padding: 16px;
+            height: fit-content;
+        }
+
+        .sk-pos-cart-title { height: 16px; width: 96px; margin-bottom: 16px; }
+        .sk-pos-cart-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+        .sk-pos-cart-name { height: 12px; flex: 1 1 auto; }
+        .sk-pos-cart-qty { height: 12px; width: 28px; flex: 0 0 auto; }
+        .sk-pos-cart-total { height: 20px; margin-top: 10px; margin-bottom: 14px; }
+        .sk-pos-cart-btn { height: 44px; border-radius: 8px; }
+
+        /* Mirrors pos/index.blade.php's own breakpoint: the cart drops below
+           the grid on tablet and phone rather than squeezing to a sliver. */
+        @media (max-width: 1024px) {
+            .sk-pos-layout { grid-template-columns: 1fr; }
+        }
 
         @media (prefers-reduced-motion: reduce) {
             .sk-block { animation: none; }
@@ -4003,16 +4059,20 @@
             paint = setTimeout(function () {
                 paint = null;
 
-                /* Dress the skeleton as the page being opened. Only the
-                   dashboard and the reports are KPI tiles over charts;
-                   everything else is a header over rows, and standing in with
-                   the wrong one makes the real page visibly jump when it lands. */
+                /* Dress the skeleton as the page being opened. Three shapes:
+                   dashboard/reports/forecast/sales-forecast are stat tiles
+                   over charts, POS is a product grid beside a cart, and
+                   everything else is a header over rows -- standing in with
+                   the wrong one makes the real page visibly jump when it
+                   lands, which is exactly what showed nine placeholder
+                   table rows in front of POS's tile grid before this. */
                 var navSkeleton = contentBody.querySelector('.page-skeleton');
                 if (navSkeleton) {
                     var href = link.getAttribute('href') || '';
-                    navSkeleton.dataset.shape = /\/(dashboard|reports)(\/|\?|#|$)/.test(href)
-                        ? 'dash'
-                        : 'list';
+                    var shape = 'list';
+                    if (/\/(dashboard|reports|forecast|sales-forecast)(\/|\?|#|$)/.test(href)) shape = 'dash';
+                    else if (/\/pos(\/|\?|#|$)/.test(href)) shape = 'pos';
+                    navSkeleton.dataset.shape = shape;
                 }
 
                 /* The header pill. The dashboard has always shown one while it

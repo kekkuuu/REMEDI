@@ -1,21 +1,32 @@
 {{-- resources/views/partials/_page-skeleton.blade.php --}}
 {{--
-    The dashboard-shaped skeleton, defined ONCE and used by two callers:
+    Three silhouettes in one partial, defined ONCE and used by two callers:
 
       - layouts/app.blade.php, for in-app navigation between pages
         (`.content-body.is-navigating`), where a whole document is being
         swapped and there is no shell on screen to hold the frame; and
-      - dashboard/_loading.blade.php, where it sits behind the dimmed scrim
-        so the page has its own shape behind the floating loader instead of
-        an empty panel.
+      - dashboard/_loading.blade.php, where the dash shape sits behind the
+        dimmed scrim so the page has its own shape behind the floating
+        loader instead of an empty panel.
 
-    It is display:none by default -- each caller opts it in with its own rule.
+    It is display:none by default -- each caller opts it in with its own
+    rule, and layouts/app.blade.php picks WHICH shape via `data-shape` on
+    `.page-skeleton` itself (see the CSS and the nav-skeleton JS there):
 
-    REMEDI.md "Theme": this must keep mirroring the dashboard's real
-    proportions (greeting bar + date pill, SIX 118px KPI tiles on .kpi-grid's
-    auto-fit track, tab pills, two side-by-side 280px charts). A skeleton that
-    no longer matches is worse than none, because the page visibly jumps when
-    the real content lands. The .sk-* primitives live in layouts/app.blade.php.
+      - "dash"  -- dashboard, reports, forecast, sales forecasting: stat
+                   tiles over charts.
+      - "pos"   -- the POS page: a product-tile grid beside a cart panel.
+      - "list"  -- everything else: a header over table rows. This is the
+                   fallback, kept generic on purpose -- it says "a list is
+                   coming", not which one.
+
+    REMEDI.md "Theme": the dash shape must keep mirroring the dashboard's
+    real proportions (greeting bar + date pill, SIX 118px KPI tiles on
+    .kpi-grid's auto-fit track, tab pills, two side-by-side 280px charts).
+    A skeleton that no longer matches is worse than none, because the page
+    visibly jumps when the real content lands. The same is true of the pos
+    shape against pos/index.blade.php's .pos-layout. The .sk-* primitives
+    for all three live in layouts/app.blade.php.
 --}}
 <div class="page-skeleton" aria-hidden="true">
     {{-- KPI tiles and charts. The dashboard and the reports; also the default,
@@ -71,6 +82,35 @@
             <div class="sk-block sk-chart-body"></div>
         </div>
     </div>
+    </div>
+
+    {{-- POS: a search bar over a product-tile grid beside a sticky cart panel
+         -- matches pos/index.blade.php's own .pos-layout (2fr/1fr) rather
+         than standing in with a table of rows, which POS has never had. --}}
+    <div class="sk-shape sk-shape-pos">
+        <div class="sk-block sk-search" style="max-width:420px; margin-bottom:18px;"></div>
+        <div class="sk-pos-layout">
+            <div class="sk-pos-grid">
+                @for ($i = 0; $i < 9; $i++)
+                    <div class="sk-pos-tile">
+                        <div class="sk-block sk-pos-tile-title"></div>
+                        <div class="sk-block sk-pos-tile-sub"></div>
+                        <div class="sk-block sk-pos-tile-price"></div>
+                    </div>
+                @endfor
+            </div>
+            <div class="sk-pos-cart">
+                <div class="sk-block sk-pos-cart-title"></div>
+                @for ($i = 0; $i < 3; $i++)
+                    <div class="sk-pos-cart-row">
+                        <div class="sk-block sk-pos-cart-name"></div>
+                        <div class="sk-block sk-pos-cart-qty"></div>
+                    </div>
+                @endfor
+                <div class="sk-block sk-pos-cart-total"></div>
+                <div class="sk-block sk-pos-cart-btn"></div>
+            </div>
+        </div>
     </div>
 
     {{-- A header over rows. Inventory, Products, Sales, Users, the audit trail,
