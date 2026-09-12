@@ -16,8 +16,7 @@ use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SalesForecastController;
 use App\Http\Controllers\SuggestController;
 use App\Http\Controllers\UserController;
-use App\Models\ProductBatch;
-use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 
 // NOTE: do not run `php artisan route:cache` on this app. Caching the route
@@ -102,143 +101,16 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::delete('/batches/{batch}', [ProductController::class, 'destroyBatch'])->name('batches.destroy');
         Route::patch('/batches/{batch}/return', [ProductController::class, 'markBatchReturned'])->name('batches.return');
 
-        // TEMPORARY read-only diagnostic, second pass: the first pass found
-        // 2,637 of ~2,638 products carrying a duplicated OPENING-<sku> batch.
-        // This one pulls the shape of each duplicate pair (quantities, return
-        // state, whether either row is referenced by a real sale) so a safe
-        // cleanup rule can be picked -- sale_items.product_batch_id is
-        // ON DELETE RESTRICT, so a row any sale drew from cannot simply be
-        // deleted. Remove after use.
-        Route::get('/diagnostics/duplicate-batches-detail', function () {
-            $dupeGroups = ProductBatch::select('product_id', 'batch_number')
-                ->groupBy('product_id', 'batch_number')
-                ->havingRaw('COUNT(*) > 1')
-                ->get();
+        // TEMPORARY: runs the real batches:dedupe-opening-stock command in
+        // dry-run mode (its own default -- Artisan::call is never told
+        // --apply here) and returns its output, so production's numbers can
+        // be reconfirmed against the same command that would actually do the
+        // deleting, rather than trusting the ad-hoc diagnostic queries this
+        // replaces. GET only; nothing is written. Remove after use.
+        Route::get('/diagnostics/dedupe-dry-run', function () {
+            Artisan::call('batches:dedupe-opening-stock');
 
-            $rows = ProductBatch::query()
-                ->whereIn('product_id', $dupeGroups->pluck('product_id')->unique())
-                ->get(['id', 'product_id', 'batch_number', 'quantity', 'qty_received', 'received_date', 'expiry_date', 'returned_at', 'dr_no']);
-
-            $batchIdsWithSales = DB::table('sale_items')
-                ->select('product_batch_id')
-                ->distinct()
-                ->pluck('product_batch_id')
-                ->flip();
-
-            $groups = $rows->groupBy(fn ($r) => $r->product_id.'|'.$r->batch_number)
-                ->filter(fn ($g) => $g->count() > 1);
-
-            $summary = [
-                'groups' => $groups->count(),
-                'group_sizes' => $groups->map->count()->countBy()->all(),
-                'identical_quantity' => 0,
-                'different_quantity' => 0,
-                'any_row_has_sales' => 0,
-                'all_rows_have_sales' => 0,
-                'no_rows_have_sales' => 0,
-                'any_row_returned' => 0,
-                'all_rows_returned' => 0,
-                'no_rows_returned' => 0,
-                'identical_received_date' => 0,
-                'identical_dr_no' => 0,
-            ];
-
-            $samples = [];
-            $returnedGroups = [];
-            $receivedDates = [];
-            // Confirms (or disproves) the candidate cleanup rule: within each
-            // pair, does the OLDER-received row ever carry the sales/return
-            // history while the NEWER one is the untouched duplicate? If that
-            // ever flips, "always delete the newer row" is not safe.
-            $olderHasSalesOrReturn = 0;
-            $newerHasSalesOrReturn = 0;
-            $bothOrNeitherHaveSalesOrReturn = 0;
-
-            foreach ($groups as $key => $g) {
-                $quantities = $g->pluck('quantity')->unique();
-                $summary[$quantities->count() === 1 ? 'identical_quantity' : 'different_quantity']++;
-
-                $salesFlags = $g->map(fn ($r) => $batchIdsWithSales->has($r->id));
-                $salesCount = $salesFlags->filter()->count();
-                if ($salesCount > 0) {
-                    $summary['any_row_has_sales']++;
-                }
-                if ($salesCount === $g->count()) {
-                    $summary['all_rows_have_sales']++;
-                }
-                if ($salesCount === 0) {
-                    $summary['no_rows_have_sales']++;
-                }
-
-                $returnedCount = $g->filter(fn ($r) => $r->returned_at)->count();
-                if ($returnedCount > 0) {
-                    $summary['any_row_returned']++;
-                    $returnedGroups[] = [
-                        'product_id' => $g->first()->product_id,
-                        'batch_number' => $g->first()->batch_number,
-                        'rows' => $g->sortBy('received_date')->map(fn ($r) => [
-                            'id' => $r->id,
-                            'quantity' => $r->quantity,
-                            'received_date' => (string) $r->received_date,
-                            'returned_at' => $r->returned_at ? (string) $r->returned_at : null,
-                            'has_sales' => $batchIdsWithSales->has($r->id),
-                        ])->values(),
-                    ];
-                }
-                if ($returnedCount === $g->count()) {
-                    $summary['all_rows_returned']++;
-                }
-                if ($returnedCount === 0) {
-                    $summary['no_rows_returned']++;
-                }
-
-                foreach ($g->pluck('received_date')->map(fn ($d) => (string) $d)->unique() as $d) {
-                    $receivedDates[$d] = ($receivedDates[$d] ?? 0) + 1;
-                }
-                if ($g->pluck('received_date')->map(fn ($d) => (string) $d)->unique()->count() === 1) {
-                    $summary['identical_received_date']++;
-                }
-                if ($g->pluck('dr_no')->unique()->count() === 1) {
-                    $summary['identical_dr_no']++;
-                }
-
-                $sorted = $g->sortBy('received_date')->values();
-                $older = $sorted->first();
-                $newer = $sorted->last();
-                $olderFlag = $batchIdsWithSales->has($older->id) || $older->returned_at;
-                $newerFlag = $batchIdsWithSales->has($newer->id) || $newer->returned_at;
-                if ($olderFlag && ! $newerFlag) {
-                    $olderHasSalesOrReturn++;
-                } elseif ($newerFlag && ! $olderFlag) {
-                    $newerHasSalesOrReturn++;
-                } else {
-                    $bothOrNeitherHaveSalesOrReturn++;
-                }
-
-                if (count($samples) < 10) {
-                    $samples[] = [
-                        'product_id' => $g->first()->product_id,
-                        'batch_number' => $g->first()->batch_number,
-                        'rows' => $g->map(fn ($r) => [
-                            'id' => $r->id,
-                            'quantity' => $r->quantity,
-                            'qty_received' => $r->qty_received,
-                            'received_date' => (string) $r->received_date,
-                            'expiry_date' => (string) $r->expiry_date,
-                            'returned_at' => $r->returned_at ? (string) $r->returned_at : null,
-                            'dr_no' => $r->dr_no,
-                            'has_sales' => $batchIdsWithSales->has($r->id),
-                        ])->values(),
-                    ];
-                }
-            }
-
-            $summary['received_date_breakdown'] = $receivedDates;
-            $summary['older_row_has_sales_or_return_only'] = $olderHasSalesOrReturn;
-            $summary['newer_row_has_sales_or_return_only'] = $newerHasSalesOrReturn;
-            $summary['both_or_neither_have_sales_or_return'] = $bothOrNeitherHaveSalesOrReturn;
-
-            return response()->json(['summary' => $summary, 'returned_groups' => $returnedGroups, 'samples' => $samples]);
+            return response('<pre>'.e(Artisan::output()).'</pre>');
         });
 
         // Categories
