@@ -304,10 +304,12 @@
 
   <div class="profile-col">
     {{-- ── Identity card ──
-         Every row is a real column. The phone / department / language fields
-         were added by migration 2026_08_19_000002 and are edited in the form
-         beside this card, so what shows here is what the account holder
-         entered -- not a placeholder. A field left blank says so. --}}
+         Every row is a real column. The phone / language fields were added
+         by migration 2026_08_19_000002 and are edited in the form beside
+         this card, so what shows here is what the account holder entered
+         -- not a placeholder. A field left blank says so. (Department was
+         part of that same migration and is still a real, fillable column
+         -- it's just no longer shown or edited here.) --}}
     <div class="card profile-card">
         <div class="profile-card-top">
             <div class="profile-avatar">{{ strtoupper(Str::substr($user->name, 0, 2)) }}</div>
@@ -337,14 +339,6 @@
                 <span>
                     <span class="profile-meta-label">Phone</span>
                     <span class="profile-meta-value">{{ $user->phone ?: 'Not set' }}</span>
-                </span>
-            </div>
-
-            <div class="profile-meta-row">
-                <i class="ti ti-building-store" aria-hidden="true"></i>
-                <span>
-                    <span class="profile-meta-label">Department</span>
-                    <span class="profile-meta-value">{{ $user->department ?: 'Not set' }}</span>
                 </span>
             </div>
 
@@ -448,6 +442,12 @@
                 <input id="password" type="password" name="password" autocomplete="new-password">
                 <p class="err" data-err-for="password" hidden></p>
                 @error('password', 'updatePassword')<p class="err">{{ $message }}</p>@enderror
+                {{-- Delegated in layouts/app.blade.php's document 'input' listener,
+                     same pattern as .pw-toggle -- see the comment there. --}}
+                <div class="pw-strength" data-pw-strength-for="password" hidden>
+                    <div class="pw-strength-bar"><span></span></div>
+                    <span class="pw-strength-label"></span>
+                </div>
             </div>
 
             <div class="field" style="margin-bottom:18px;">
@@ -704,20 +704,6 @@
                     <input id="phone" type="text" name="phone" value="{{ old('phone', $user->phone) }}"
                            placeholder="+63 912 345 6789">
                     @error('phone')<p class="err">{{ $message }}</p>@enderror
-                </div>
-
-                <div class="field">
-                    <label for="department">Department</label>
-                    @if($canEditAll)
-                        <input id="department" type="text" name="department" value="{{ old('department', $user->department) }}"
-                               placeholder="Pharmacy Management">
-                        @error('department')<p class="err">{{ $message }}</p>@enderror
-                    @else
-                        <div class="field-locked">
-                            <input id="department" type="text" value="{{ $user->department ?: 'Not set' }}" disabled>
-                            <i class="ti ti-lock" aria-hidden="true"></i>
-                        </div>
-                    @endif
                 </div>
 
                 <div class="field">

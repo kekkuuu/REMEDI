@@ -2230,6 +2230,23 @@
         .pw-toggle:hover { background: #f1f5f9; color: var(--ink); }
         .pw-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
 
+        /* Strength meter under a NEW-password field -- see initPasswordStrengthMeters()
+           below. Same colour language as the inventory/expiry badges (critical red,
+           warning orange, success green) so "weak" reads the same way "expired"
+           does everywhere else. Hidden until the field actually has a value: an
+           empty field isn't weak, it's just empty. */
+        .pw-strength { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+        .pw-strength-bar { flex: 1; height: 5px; border-radius: 3px; background: #e2e8f0; overflow: hidden; }
+        .pw-strength-bar span { display: block; height: 100%; width: 0; border-radius: 3px; transition: width .2s ease, background .2s ease; }
+        .pw-strength-label { font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+
+        .pw-strength.is-weak .pw-strength-bar span { width: 33%; background: #dc2626; }
+        .pw-strength.is-weak .pw-strength-label { color: #991b1b; }
+        .pw-strength.is-normal .pw-strength-bar span { width: 66%; background: #ea580c; }
+        .pw-strength.is-normal .pw-strength-label { color: #9a3412; }
+        .pw-strength.is-strong .pw-strength-bar span { width: 100%; background: #16a34a; }
+        .pw-strength.is-strong .pw-strength-label { color: #166534; }
+
         /* Chip tints. Keyed to meaning where one exists -- money amber, alerts
            red -- so a field's colour is the same wherever it appears. */
 
@@ -4229,6 +4246,43 @@
 
             var icon = toggle.querySelector('i');
             if (icon) icon.className = 'ti ' + (shown ? 'ti-eye' : 'ti-eye-off');
+        });
+
+        /* Strength meter under a NEW-password field. Delegated the same way
+           the reveal toggle above is -- works on every form page with no
+           per-page script, including one re-rendered over AJAX -- and
+           looks for a sibling element carrying data-pw-strength-for="<the
+           input's id>" rather than assuming a fixed markup shape, so each
+           form places the meter wherever it makes sense.
+           No library: length plus a rough count of character classes
+           (lower/upper/digit/symbol) is enough for a weak/normal/strong
+           hint without shipping something like zxcvbn for one small cue. */
+        function passwordStrength(pw) {
+            if (!pw) return null;
+            var score = 0;
+            if (pw.length >= 8) score++;
+            if (pw.length >= 12) score++;
+            if (/[a-z]/.test(pw) && /[A-Z]/.test(pw)) score++;
+            if (/\d/.test(pw)) score++;
+            if (/[^A-Za-z0-9]/.test(pw)) score++;
+            if (pw.length < 8 || score <= 1) return 'weak';
+            if (score >= 4) return 'strong';
+            return 'normal';
+        }
+
+        document.addEventListener('input', function (e) {
+            var input = e.target;
+            if (input.tagName !== 'INPUT' || input.type !== 'password' || !input.id) return;
+            var meter = document.querySelector('[data-pw-strength-for="' + input.id + '"]');
+            if (!meter) return;
+
+            var strength = passwordStrength(input.value);
+            meter.hidden = !strength;
+            meter.classList.remove('is-weak', 'is-normal', 'is-strong');
+            if (!strength) return;
+            meter.classList.add('is-' + strength);
+            var label = meter.querySelector('.pw-strength-label');
+            if (label) label.textContent = strength === 'weak' ? 'Weak' : strength === 'normal' ? 'Normal' : 'Strong';
         });
 
         // Full-page form submits (filters, save, delete) also replace the

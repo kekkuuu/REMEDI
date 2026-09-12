@@ -83,6 +83,12 @@
                     <button type="button" class="pw-toggle" data-pw-toggle="password"
                             aria-label="Show password"><i class="ti ti-eye" aria-hidden="true"></i></button>
                 </div>
+                {{-- Delegated in layouts/app.blade.php's document 'input' listener,
+                     same pattern as .pw-toggle -- see the comment there. --}}
+                <div class="pw-strength" data-pw-strength-for="password" hidden>
+                    <div class="pw-strength-bar"><span></span></div>
+                    <span class="pw-strength-label"></span>
+                </div>
             </div>
 
             <div class="form-field">
