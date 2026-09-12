@@ -1559,12 +1559,17 @@ rather than a text box — unit was free text, which is how the catalogue acquir
 is the string `"20"`. The update path passes `unitOptions($product->unit)` so that legacy row stays
 editable.
 
-**Add User's email field defaults to `@remedi.com`**, since every account created here is a company
-address; an admin types only the local part, with the caret moved in front of the `@` on first focus
-so typing lands there rather than after `.com` (both in `auth/register.blade.php`'s inline script).
-`old('email')` still wins on a validation redisplay, so a real address never gets replaced back to the
-default. `RegisteredUserController::store` trims and lower-cases before validating, because the
-`lowercase` rule REJECTS a capitalised address rather than folding it — and folding before the
+**Add User's email field carries a locked `@remedi.com` suffix**, front-end only —
+`auth/register.blade.php`'s inline script refuses to let Backspace/Delete/paste/cut reach it and
+clamps the caret so clicking or selecting can't land inside it either, so an admin can only edit the
+local part in front of it. `type="text"`, not `email`: `setSelectionRange()` throws on `type="email"`
+(that type has no selection API at all), which the lock cannot work without. This is NOT a backend
+restriction — `RegisteredUserController::store` still accepts any domain (see
+`RegistrationEmailTest::test_another_domain_works`), so a no-JS submission or a test posting directly
+can send whatever address it likes; only the UI keeps typed input inside the company domain.
+`old('email')` still wins on a validation redisplay. `RegisteredUserController::store` trims and
+lower-cases before validating, because the `lowercase` rule REJECTS a capitalised address rather than
+folding it — and folding before the
 `unique` check is also what stops case slipping a duplicate past it.
 
 **Money is formatted to 2 decimals; only counts are formatted bare.** `number_format($x)` with no

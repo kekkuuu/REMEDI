@@ -44,15 +44,19 @@
                     <span class="form-chip"><i class="ti ti-mail" aria-hidden="true"></i></span>
                     <label for="email">Email</label>
                 </div>
-                {{-- Defaults to "@remedi.com" so an admin only has to type the
-                     local part -- every account created here is a company
-                     address. old('email') still wins on a validation
-                     redisplay, so a real address someone typed is never
-                     replaced back to the default. The caret is moved to
-                     BEFORE the "@" by the script below, or typing would land
-                     after ".com" instead of in front of it. --}}
-                <input type="email" id="email" name="email" value="{{ old('email', '@remedi.com') }}"
-                       placeholder="e.g. jane@remedi.com" autocomplete="off" required>
+                {{-- Fixed "@remedi.com" suffix -- every account created here is
+                     a company address, and the script below refuses to let it
+                     be typed or backspaced away; an admin can only edit the
+                     local part in front of it. type="text", not "email":
+                     setSelectionRange() throws on type="email" (that type
+                     doesn't support the selection API at all), and the fixed
+                     suffix can't be enforced without it. old('email') still
+                     wins on a validation redisplay -- this is a front-end
+                     enhancement only, so a no-JS submission (or the server
+                     tests, which post directly) can still land any address;
+                     see RegistrationEmailTest's "another domain works". --}}
+                <input type="text" id="email" name="email" value="{{ old('email', '@remedi.com') }}"
+                       inputmode="email" placeholder="e.g. jane@remedi.com" autocomplete="off" required>
             </div>
 
             <div class="form-field">
@@ -115,39 +119,98 @@
 </div>
 
 <script>
-    // The email field defaults to "@remedi.com" (see the input above); left
-    // alone, the browser puts the caret at the very end of that default value,
-    // so the first keystroke would land after ".com" rather than in front of
-    // the "@". Reposition it once, on first focus, and only while the value
-    // is still exactly the untouched default -- an address already typed (or
-    // restored via old() after a validation failure) keeps the caret wherever
-    // the browser put it.
+    // Locks "@remedi.com" as a fixed suffix on the email field: an admin can
+    // only ever edit the local part in front of it. Three layers, because no
+    // single browser event covers every way the suffix could be reached:
     //
-    // Deferred with setTimeout(0): a mouse click's own default action places
-    // the caret at the click point, and that happens AFTER the 'focus' event
-    // fires -- setting the range synchronously here just got overwritten a
-    // moment later, every time the field was focused by clicking rather than
-    // tabbing into it. Queuing the reposition as its own task runs it after
-    // the click has already done its thing.
+    //   1. keydown -- refuses Backspace/Delete before the DOM even changes,
+    //      so the common case (typing, then backspacing too far) never even
+    //      flickers.
+    //   2. input -- paste, cut, drag-and-drop and IME composition all bypass
+    //      keydown, so this re-asserts the suffix after ANY change rather
+    //      than trying to enumerate every input method that could break it.
+    //   3. click / keyup / select -- clamps the caret and any selection so
+    //      neither can sit inside the suffix, which is what stops a click
+    //      (or Home/End/arrow navigation) parking the caret at the very end
+    //      and making a single Backspace look like it should be allowed.
     //
-    // setSelectionRange() throws InvalidStateError on type="email" -- the
-    // spec only allows it on types whose value is plain text (text, search,
-    // url, tel, password). Switching to "text" for the duration of the call
-    // is the standard workaround; switching back afterward costs nothing,
-    // since nothing else reads the type in between.
+    // This is a front-end enhancement only -- the server never required a
+    // remedi.com address (see RegistrationEmailTest's "another domain
+    // works"), so a no-JS submission, or a test posting directly, can still
+    // send any address. Locking the suffix here is about what an admin can
+    // TYPE, not a new backend restriction.
     (function () {
+        var SUFFIX = '@remedi.com';
         var email = document.getElementById('email');
         if (!email) return;
 
-        email.addEventListener('focus', function onFirstFocus() {
-            setTimeout(function () {
-                if (email.value === '@remedi.com') {
-                    email.type = 'text';
-                    email.setSelectionRange(0, 0);
-                    email.type = 'email';
-                }
-            }, 0);
-            email.removeEventListener('focus', onFirstFocus);
+        // A validation redisplay can restore an address that predates this
+        // lock, or one missing the suffix entirely (old('email') with no
+        // default) -- either way, the field must never open without it.
+        if (!email.value.endsWith(SUFFIX)) {
+            email.value = email.value.split('@')[0] + SUFFIX;
+        }
+
+        function boundary() {
+            return Math.max(0, email.value.length - SUFFIX.length);
+        }
+
+        function clampCaret() {
+            var max = boundary();
+            var start = email.selectionStart, end = email.selectionEnd;
+            if (start > max || end > max) {
+                email.setSelectionRange(Math.min(start, max), Math.min(end, max));
+            }
+        }
+
+        email.addEventListener('keydown', function (e) {
+            if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+
+            var start = email.selectionStart, end = email.selectionEnd;
+            var max = boundary();
+
+            if (start === end) {
+                // Collapsed caret: Backspace removes the character before
+                // it, Delete the one after it. Only the edit that would
+                // actually reach the suffix needs refusing.
+                if (e.key === 'Backspace' && start <= max) return;
+                if (e.key === 'Delete' && start < max) return;
+                e.preventDefault();
+            } else if (end > max) {
+                // A selection reaching into the suffix -- refuse rather than
+                // letting the browser delete part of it (this is also what
+                // stops Ctrl+A, Backspace from wiping the whole field).
+                e.preventDefault();
+            }
+        });
+
+        email.addEventListener('input', function () {
+            if (email.value.endsWith(SUFFIX)) return;
+
+            // boundary() reads the CURRENT (broken) value's length, which is
+            // meaningless here -- an edit that wiped the suffix entirely
+            // (e.g. a paste replacing the whole field) can leave a value
+            // shorter than SUFFIX, making boundary() collapse to 0 and
+            // yanking the caret to the front on every correction. Clamp
+            // against the recovered local part's own length instead.
+            var local = email.value.split('@')[0];
+            var caret = Math.min(email.selectionStart, local.length);
+            email.value = local + SUFFIX;
+            email.setSelectionRange(caret, caret);
+        });
+
+        ['click', 'keyup', 'select'].forEach(function (evt) {
+            email.addEventListener(evt, clampCaret);
+        });
+
+        // Deferred with setTimeout(0): a mouse click's own default action
+        // places the caret at the click point, and that happens AFTER
+        // 'focus' fires -- clamping synchronously here just gets overwritten
+        // a moment later, every time the field is focused by clicking
+        // rather than tabbing into it. This is also what lands a fresh
+        // field's caret right before the "@" instead of at the very end.
+        email.addEventListener('focus', function () {
+            setTimeout(clampCaret, 0);
         });
     })();
 </script>
