@@ -25,7 +25,7 @@
       {{-- Carries the current filters, so the file matches the table on screen.
            Rendered from the request for a full page load; the live filtering
            below keeps it in step after that. --}}
-      <a href="{{ route('audit.export', request()->only(['search', 'action', 'role', 'date_from', 'date_to', 'all'])) }}"
+      <a href="{{ route('audit.export', request()->only(['search', 'action', 'role', 'user_id', 'date_from', 'date_to', 'all'])) }}"
          class="btn btn-primary btn-sm" id="audit-export" data-no-skeleton>
         <i class="ti ti-download" style="font-size:14px;"></i> Export CSV
       </a>
@@ -38,6 +38,21 @@
       </a>
     </div>
   </div>
+
+  {{-- Scoped-to-one-account banner. Reached from "My Profile"'s "View all
+       activity logs" link (see profile/edit.blade.php), which carries
+       user_id so this page never shows everyone's actions when a viewer
+       expected only their own. Named here rather than left implicit in the
+       address bar, and "Clear" is the one way back to the whole trail — it
+       drops user_id specifically, keeping any other filter already in
+       force (date range, action, role). --}}
+  @if($filteredUser)
+    <div style="display:flex; align-items:center; gap:8px; background:#eff6ff; border:1px solid #bfdbfe; color:#1e40af; border-radius:8px; padding:10px 14px; margin-bottom:1.5rem; font-size:13.5px;">
+      <i class="ti ti-user-circle" aria-hidden="true"></i>
+      <span>Showing activity for <strong>{{ $filteredUser->name }}</strong> only.</span>
+      <a href="{{ route('audit.index', request()->except(['user_id', 'page'])) }}" style="margin-left:auto; color:#1e40af; font-weight:500;">Clear &times;</a>
+    </div>
+  @endif
 
   {{-- Stat Cards --}}
   <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:10px; margin-bottom:1.5rem;">
@@ -66,6 +81,14 @@
        real GET form so the page still works without JS, and the Filter button
        is that fallback's submit. --}}
   <form method="GET" action="{{ route('audit.index') }}" id="audit-filters" class="audit-filters">
+    {{-- Round-trips the one-account scope through every live refresh below,
+         the same way the "all" flag round-trips the Show All state — without
+         it, typing in the search box or picking a date resubmits the form
+         and silently drops back to every user's rows. Not a control anyone
+         sets by hand; it only ever arrives via the profile page's link or
+         the banner above, both of which write it directly. --}}
+    <input type="hidden" name="user_id" value="{{ request('user_id') }}">
+
     {{-- Placeholder doesn't mention IP, same reasoning as the inventory/POS
          placeholders dropping "barcode" -- IP search still works
          (applyFilters() still matches ip_address below), it just isn't

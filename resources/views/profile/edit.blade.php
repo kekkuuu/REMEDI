@@ -799,8 +799,14 @@
             </table></div>
 
             @if(auth()->user()->isAdmin())
+                {{-- Scoped to THIS account (see AuditTrailController::applyFilters'
+                     user_id filter) -- an unscoped link opened the whole
+                     system's audit trail, not "your" activity the heading
+                     above it promises. all=1 as well: the page defaults an
+                     unscoped visit to today only, and "all activity logs"
+                     means the account's full history, not just today's. --}}
                 <p style="margin:14px 0 0;">
-                    <a href="{{ route('audit.index') }}" class="view-all">View all activity logs &rsaquo;</a>
+                    <a href="{{ route('audit.index', ['user_id' => auth()->id(), 'all' => 1]) }}" class="view-all">View all activity logs &rsaquo;</a>
                 </p>
             @endif
         @else

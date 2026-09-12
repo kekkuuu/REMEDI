@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AuditTrail;
+use App\Models\User;
 use Illuminate\Http\Request;
 
 class AuditTrailController extends Controller
@@ -40,9 +41,20 @@ class AuditTrailController extends Controller
             'search' => 'nullable|string|max:255',
             'action' => 'nullable|string|max:50',
             'role' => 'nullable|string|max:20',
+            'user_id' => 'nullable|integer',
             'date_from' => 'nullable|date',
             'date_to' => 'nullable|date|after_or_equal:date_from',
         ]);
+
+        // Exact, not a name LIKE-match against `search` -- a name is
+        // free text two different people can share, and `search` also
+        // matches details/action/ip_address, so it could never mean
+        // "only this one account" on its own. This is what "My Profile"'s
+        // "View all activity logs" link scopes to (see profile/edit.blade.php),
+        // and it composes with every other filter here, not just date/action.
+        if ($request->filled('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
 
         if ($request->filled('search')) {
             // likeTerm() escapes the user's own % and _ — see Controller.
@@ -130,7 +142,15 @@ class AuditTrailController extends Controller
             ]);
         }
 
-        return view('admin.audit.index', compact('logs', 'loginCount', 'logoutCount', 'viewCount'));
+        // Named on screen when this is a "one account" view -- so the page
+        // says whose activity it is showing rather than leaving an admin to
+        // infer it from a user_id sitting in the address bar. Only resolved
+        // for the full page load; the AJAX branch above never needs it, since
+        // this filter is set once (from "My Profile"'s link) and only ever
+        // ridden along afterward via the hidden field the live search reads.
+        $filteredUser = $request->filled('user_id') ? User::find($request->user_id) : null;
+
+        return view('admin.audit.index', compact('logs', 'loginCount', 'logoutCount', 'viewCount', 'filteredUser'));
     }
 
     public function export(Request $request)

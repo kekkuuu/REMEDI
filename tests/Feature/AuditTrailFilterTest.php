@@ -189,4 +189,82 @@ class AuditTrailFilterTest extends TestCase
         $this->assertStringContainsString('Added user account: Narrowing Probe', $rows);
         $this->assertStringNotContainsString('Someone logged in', $rows);
     }
+
+    /* ---- "My Profile"'s "View all activity logs" link (user_id) ----
+     *
+     * The link used to point straight at /audit with no scope at all, so
+     * "View all activity logs" under one account's own activity card opened
+     * the WHOLE system's trail -- every account's actions, not the one the
+     * heading above it was describing.
+     */
+
+    public function test_user_id_narrows_to_one_accounts_rows_only(): void
+    {
+        $admin = $this->admin();
+        $other = User::factory()->create(['name' => 'Someone Else']);
+
+        AuditTrail::create([
+            'user_id' => $admin->id, 'username' => $admin->name, 'role' => 'admin',
+            'action' => 'Updated', 'details' => 'The admin did this',
+        ]);
+        AuditTrail::create([
+            'user_id' => $other->id, 'username' => $other->name, 'role' => 'staff',
+            'action' => 'Updated', 'details' => 'Someone else did this',
+        ]);
+
+        $rows = $this->actingAs($admin)
+            ->getJson('/audit?all=1&user_id='.$admin->id)
+            ->assertOk()
+            ->json('html');
+
+        $this->assertStringContainsString('The admin did this', $rows);
+        $this->assertStringNotContainsString('Someone else did this', $rows);
+    }
+
+    public function test_profiles_activity_link_is_scoped_to_the_viewers_own_account(): void
+    {
+        $admin = $this->admin();
+
+        // The link only renders once the account HAS recorded activity (see
+        // profile/edit.blade.php's isNotEmpty() guard); a freshly-created
+        // test user has none, and the page falls back to "No recorded
+        // activity yet." with no link at all to assert against.
+        AuditTrail::create([
+            'user_id' => $admin->id, 'username' => $admin->name, 'role' => 'admin',
+            'action' => 'Login', 'details' => 'Signed in',
+        ]);
+
+        $html = $this->actingAs($admin)->get('/profile')->getContent();
+
+        // Blade escapes the "&" between query params to "&amp;" -- e() to
+        // compare against what actually lands in the HTML, not the raw URL.
+        $this->assertStringContainsString(
+            'href="'.e(route('audit.index', ['user_id' => $admin->id, 'all' => 1])).'"',
+            $html
+        );
+    }
+
+    public function test_the_scoped_view_names_the_account_and_offers_a_way_back(): void
+    {
+        $admin = $this->admin();
+
+        $html = $this->actingAs($admin)
+            ->get('/audit?all=1&user_id='.$admin->id)
+            ->getContent();
+
+        $this->assertStringContainsString('Showing activity for', $html);
+        $this->assertStringContainsString($admin->name, $html);
+        // The way back drops user_id but keeps the rest of the query string.
+        $this->assertStringContainsString(
+            'href="'.e(route('audit.index', ['all' => 1])).'"',
+            $html
+        );
+    }
+
+    public function test_an_unscoped_visit_shows_no_such_banner(): void
+    {
+        $html = $this->actingAs($this->admin())->get('/audit')->getContent();
+
+        $this->assertStringNotContainsString('Showing activity for', $html);
+    }
 }
