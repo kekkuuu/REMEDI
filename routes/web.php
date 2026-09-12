@@ -16,6 +16,7 @@ use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SalesForecastController;
 use App\Http\Controllers\SuggestController;
 use App\Http\Controllers\UserController;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Route;
 
@@ -109,6 +110,19 @@ Route::middleware(['auth', 'active'])->group(function () {
         // replaces. GET only; nothing is written. Remove after use.
         Route::get('/diagnostics/dedupe-dry-run', function () {
             Artisan::call('batches:dedupe-opening-stock');
+
+            return response('<pre>'.e(Artisan::output()).'</pre>');
+        });
+
+        // TEMPORARY: the real deletion, run once with explicit sign-off --
+        // the confirm value is not a secret, it exists so a stray request
+        // cannot trigger it by accident. Remove immediately after use.
+        Route::get('/diagnostics/dedupe-apply', function (Request $request) {
+            if ($request->query('confirm') !== 'yes-delete-2637-duplicates') {
+                return response('Add ?confirm=yes-delete-2637-duplicates to run this.', 400);
+            }
+
+            Artisan::call('batches:dedupe-opening-stock', ['--apply' => true]);
 
             return response('<pre>'.e(Artisan::output()).'</pre>');
         });
