@@ -22,6 +22,42 @@ class ProfileTest extends TestCase
     }
 
     /**
+     * "User ID" on the profile page is User::$staff_code ("ADM-001" /
+     * "STF-004", derived from the primary key), not the bare numeric id --
+     * and it has to agree with what User Management's own ID column shows
+     * for the same account, or the two pages disagree about what a user's
+     * ID even is.
+     */
+    public function test_the_profile_page_shows_the_staff_code_not_a_bare_id(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $staff = User::factory()->create();
+
+        $this->actingAs($admin)->get('/profile')->assertSee($admin->staff_code);
+        $this->actingAs($staff)->get('/profile')->assertSee($staff->staff_code);
+    }
+
+    public function test_admin_and_staff_get_different_code_prefixes(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $staff = User::factory()->create();
+
+        $this->assertStringStartsWith('ADM-', $admin->staff_code);
+        $this->assertStringStartsWith('STF-', $staff->staff_code);
+    }
+
+    public function test_user_management_shows_the_same_staff_code_as_the_profile_page(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $staff = User::factory()->create(['name' => 'Findable Cashier']);
+
+        $this->actingAs($admin)
+            ->get('/users')
+            ->assertSee($staff->staff_code)
+            ->assertSee($admin->staff_code);
+    }
+
+    /**
      * Staff may correct their own name and phone -- not their email.
      *
      * ProfileUpdateRequest only admits `email`, `department` and

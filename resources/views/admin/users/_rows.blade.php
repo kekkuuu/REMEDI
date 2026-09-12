@@ -53,7 +53,12 @@
     <tbody>
     @forelse($users as $user)
         <tr>
-            <td>{{ $user->id }}</td>
+            {{-- User::$staff_code ("ADM-001" / "STF-004"), not the bare
+                 primary key -- matches what My Profile shows for the same
+                 account. Sorting stays on the real `id` column (see the
+                 ?sort=id link above this table); only the DISPLAYED text
+                 changes. --}}
+            <td>{{ $user->staff_code }}</td>
             <td>
                 <div class="user-cell">
                     <span class="user-avatar" aria-hidden="true">{{ $initialsOf($user->name) }}</span>

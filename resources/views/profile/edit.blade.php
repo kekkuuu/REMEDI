@@ -319,18 +319,16 @@
         </div>
 
         <div class="profile-meta">
-            {{-- $user->staff_code was never a real column or accessor --
-                 Eloquent resolves an unknown attribute to null rather than
-                 erroring (same trap as $product->expiredBatches, see
-                 CLAUDE.md), so this row rendered BLANK on every profile,
-                 silently. User Management's own ID column reads the real
-                 `id` (see admin/users/_rows.blade.php); this now matches it,
-                 rather than the two disagreeing about what a user's ID is. --}}
+            {{-- $user->staff_code is User::getStaffCodeAttribute() --
+                 "ADM-001" / "STF-004", derived from the primary key. User
+                 Management's ID column shows the same code (see
+                 admin/users/_rows.blade.php), so the two agree on what a
+                 user's ID looks like. --}}
             <div class="profile-meta-row">
                 <i class="ti ti-id" aria-hidden="true"></i>
                 <span>
                     <span class="profile-meta-label">User ID</span>
-                    <span class="profile-meta-value">{{ $user->id }}</span>
+                    <span class="profile-meta-value">{{ $user->staff_code }}</span>
                 </span>
             </div>
 
@@ -725,14 +723,11 @@
                     </div>
                 </div>
 
-                {{-- Same fix as the identity card above: staff_code was
-                     never a real column or accessor, so this rendered
-                     blank on every profile. Reads the real `id` now,
-                     matching User Management's own ID column. --}}
+                {{-- Same code as the identity card above: User::$staff_code. --}}
                 <div class="field">
                     <label for="user-id">User ID</label>
                     <div class="field-locked">
-                        <input id="user-id" type="text" value="{{ $user->id }}" disabled>
+                        <input id="user-id" type="text" value="{{ $user->staff_code }}" disabled>
                         <i class="ti ti-lock" aria-hidden="true"></i>
                     </div>
                 </div>
