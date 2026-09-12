@@ -16,8 +16,6 @@ use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SalesForecastController;
 use App\Http\Controllers\SuggestController;
 use App\Http\Controllers\UserController;
-use App\Models\Product;
-use App\Models\ProductBatch;
 use Illuminate\Support\Facades\Route;
 
 // NOTE: do not run `php artisan route:cache` on this app. Caching the route
@@ -101,35 +99,6 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::put('/batches/{batch}', [ProductController::class, 'updateBatch'])->name('batches.update');
         Route::delete('/batches/{batch}', [ProductController::class, 'destroyBatch'])->name('batches.destroy');
         Route::patch('/batches/{batch}/return', [ProductController::class, 'markBatchReturned'])->name('batches.return');
-
-        // TEMPORARY read-only diagnostic: batch_number carries no unique
-        // constraint (see CLAUDE.md "The number is ASSIGNED, not entered"),
-        // and OPENING-<sku> rows in particular derive their number from the
-        // product's barcode rather than a real per-delivery sequence, so two
-        // separate opening-stock rows for the same product can share one.
-        // Added to size up how many products this affects in production
-        // before deciding whether/how to clean it up. Remove after use.
-        Route::get('/diagnostics/duplicate-batches', function () {
-            $dupes = ProductBatch::select('product_id', 'batch_number')
-                ->selectRaw('COUNT(*) as cnt')
-                ->groupBy('product_id', 'batch_number')
-                ->having('cnt', '>', 1)
-                ->orderByDesc('cnt')
-                ->get();
-
-            $products = Product::whereIn('id', $dupes->pluck('product_id')->unique())
-                ->pluck('name', 'id');
-
-            return response()->json([
-                'duplicate_groups' => $dupes->count(),
-                'rows' => $dupes->map(fn ($d) => [
-                    'product_id' => $d->product_id,
-                    'product_name' => $products[$d->product_id] ?? '?',
-                    'batch_number' => $d->batch_number,
-                    'count' => $d->cnt,
-                ])->values(),
-            ]);
-        });
 
         // Categories
         Route::get('/categories', [CategoryController::class, 'index'])->name('categories.index');
