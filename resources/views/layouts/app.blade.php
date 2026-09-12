@@ -3308,7 +3308,7 @@
                     <i class="ti ti-chart-bar" aria-hidden="true"></i> Reports
                 </a>
                 <a href="{{ route('forecast.index') }}" class="{{ request()->routeIs('forecast.*') ? 'active' : '' }}">
-                    <i class="ti ti-trending-up" aria-hidden="true"></i> Forecasting
+                    <i class="ti ti-trending-up" aria-hidden="true"></i> Demand Forecasting
                 </a>
                 <a href="{{ route('sales-forecast.index') }}" class="{{ request()->routeIs('sales-forecast.*') ? 'active' : '' }}">
                     <i class="ti ti-chart-line" aria-hidden="true"></i> Sales Forecasting
