@@ -15,93 +15,12 @@
         <a href="{{ route('sales-forecast.index') }}">Sales Forecasting</a>.
     </p>
 
-    {{-- Model accuracy, measured on a holdout rather than asserted.
-
-         Each product's own model is refitted without the last few months and
-         scored against them, then averaged ACROSS PRODUCTS -- not pooled across
-         every residual, which would let a handful of very high-volume products
-         set the headline. This answers "how wrong is a typical product's
-         forecast", which is the question someone reordering actually has. --}}
-    @if ($accuracy)
-    <div style="border:0.5px solid #e5e7eb; border-radius:12px; background:#fff; padding:16px; margin-bottom:18px;">
-        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
-            <span style="font-size:14px; font-weight:500; color:#111;">
-                <i class="ti ti-target-arrow" style="font-size:14px; vertical-align:-1px; margin-right:6px; color:#185FA5;"></i>
-                Model accuracy
-            </span>
-            <span style="font-size:12px; color:#6b7280;">
-                {{ number_format($accuracy['scored']) }} products &middot;
-                {{ $accuracy['holdout_months'] }}-month holdout
-            </span>
-        </div>
-
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom:14px;">
-            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
-                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">MAE</p>
-                <p style="font-size:20px; font-weight:600; margin:0;">{{ number_format($accuracy['mae'], 2) }}</p>
-                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">units out per month, typical product</p>
-            </div>
-            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
-                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">RMSE</p>
-                <p style="font-size:20px; font-weight:600; margin:0;">{{ number_format($accuracy['rmse'], 2) }}</p>
-                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">large misses weighted heavier</p>
-            </div>
-            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
-                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">MAPE</p>
-                <p style="font-size:20px; font-weight:600; margin:0;">
-                    {{ $accuracy['mape'] !== null ? number_format($accuracy['mape'], 1).'%' : '—' }}
-                </p>
-                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">
-                    undefined for {{ number_format($accuracy['mape_undefined']) }} products that sold nothing
-                </p>
-            </div>
-            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
-                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">sMAPE</p>
-                <p style="font-size:20px; font-weight:600; margin:0;">
-                    {{ $accuracy['smape'] !== null ? number_format($accuracy['smape'], 1).'%' : '—' }}
-                </p>
-                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">stays defined at zero sales</p>
-            </div>
-        </div>
-
-        {{-- Only the SARIMA-family rows from by_method are shown below -- the
-             other candidates in the retired cascade (Holt-Winters, plain
-             ARIMA, moving average, Croston SBA) are not displayed here, at
-             the user's request. --}}
-        @php $sarimaMethods = $accuracy['by_method']->filter(fn ($m) => str_contains(strtolower($m->method ?? ''), 'sarima')); @endphp
-        @if ($sarimaMethods->isNotEmpty())
-        <div class="table-scroll"><table style="width:100%; border-collapse:collapse; font-size:13px;">
-            <thead>
-                <tr style="background:#f9fafb;">
-                    <th style="padding:8px 12px; text-align:left; font-size:11px; font-weight:500; color:#6b7280; text-transform:uppercase; letter-spacing:0.04em;">Model</th>
-                    <th style="padding:8px 12px; text-align:right; font-size:11px; font-weight:500; color:#6b7280; text-transform:uppercase; letter-spacing:0.04em;">Products</th>
-                    <th style="padding:8px 12px; text-align:right; font-size:11px; font-weight:500; color:#6b7280; text-transform:uppercase; letter-spacing:0.04em;">MAE</th>
-                    <th style="padding:8px 12px; text-align:right; font-size:11px; font-weight:500; color:#6b7280; text-transform:uppercase; letter-spacing:0.04em;">RMSE</th>
-                    <th style="padding:8px 12px; text-align:right; font-size:11px; font-weight:500; color:#6b7280; text-transform:uppercase; letter-spacing:0.04em;">MAPE</th>
-                </tr>
-            </thead>
-            <tbody>
-                @foreach ($sarimaMethods as $m)
-                <tr style="border-bottom:0.5px solid #e5e7eb;">
-                    <td style="padding:9px 12px; color:#374151;">{{ str_replace('_', ' ', $m->method ?? 'unknown') }}</td>
-                    <td style="padding:9px 12px; text-align:right; color:#6b7280;">{{ number_format($m->products) }}</td>
-                    <td style="padding:9px 12px; text-align:right;">{{ number_format($m->mae, 2) }}</td>
-                    <td style="padding:9px 12px; text-align:right;">{{ number_format($m->rmse, 2) }}</td>
-                    <td style="padding:9px 12px; text-align:right;">{{ $m->mape !== null ? number_format($m->mape, 1).'%' : '—' }}</td>
-                </tr>
-                @endforeach
-            </tbody>
-        </table></div>
-        @endif
-
-        <p style="font-size:11px; color:#94a3b8; margin:10px 0 0;">
-            MAPE runs high on intermittent demand by construction &mdash; being one unit out on a month that
-            sold two is a 50% error &mdash; which is why MAE and sMAPE are shown beside it. Measured on this
-            catalogue it falls with volume: <strong>17.3%</strong> for products selling 100+ units a month,
-            against <strong>65.8%</strong> for those selling 5&ndash;20.
-        </p>
-    </div>
-    @endif
+    {{-- The "Model accuracy" card (MAE/RMSE/MAPE/sMAPE, measured on a
+         holdout -- see DemandForecastService::accuracySummary()) is hidden
+         here at the user's request; nothing about the computation changed,
+         it's a single cheap aggregate query, and $accuracy is still passed
+         to this view by DemandForecastController -- only unused now, not
+         removed there, in case this comes back. --}}
 
     {{-- Top 5 products by forecast demand, one line each.
 
