@@ -1559,8 +1559,11 @@ rather than a text box — unit was free text, which is how the catalogue acquir
 is the string `"20"`. The update path passes `unitOptions($product->unit)` so that legacy row stays
 editable.
 
-**Add User's email field is plain**, with the example in the placeholder; nothing is appended to what
-was typed. `RegisteredUserController::store` trims and lower-cases before validating, because the
+**Add User's email field defaults to `@remedi.com`**, since every account created here is a company
+address; an admin types only the local part, with the caret moved in front of the `@` on first focus
+so typing lands there rather than after `.com` (both in `auth/register.blade.php`'s inline script).
+`old('email')` still wins on a validation redisplay, so a real address never gets replaced back to the
+default. `RegisteredUserController::store` trims and lower-cases before validating, because the
 `lowercase` rule REJECTS a capitalised address rather than folding it — and folding before the
 `unique` check is also what stops case slipping a duplicate past it.
 

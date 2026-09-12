@@ -242,12 +242,18 @@
 </div>
 
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
+    {{-- No Search button: the box refreshes the list on a debounced keystroke
+         (see "Real-time product search" below), so the button only ever
+         re-ran a search that had already run -- same reasoning as
+         products/index.blade.php. The form stays a real GET form, and stays
+         working without JS: the text input is the only field that blocks
+         implicit submission (the two hidden inputs don't), so Enter still
+         submits it with no button present. --}}
     <form method="GET" id="search-form" style="display:flex; gap:8px; flex:1; min-width:280px;">
         <input type="text" name="search" id="search-input"
             data-suggest-url="{{ route('suggest.products') }}" placeholder="Search product by name or SKU..." value="{{ request('search') }}" style="flex:1; min-width:0; padding:9px 12px; border:1px solid #d1d5db; border-radius:7px;" autocomplete="off">
         <input type="hidden" name="filter" id="filter-input" value="{{ $filter }}">
         <input type="hidden" name="category_id" id="category-input" value="{{ $categoryId }}">
-        <button type="submit" class="btn btn-secondary" style="flex-shrink:0;">Search</button>
     </form>
 
     @php

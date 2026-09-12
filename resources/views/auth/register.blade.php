@@ -44,11 +44,14 @@
                     <span class="form-chip"><i class="ti ti-mail" aria-hidden="true"></i></span>
                     <label for="email">Email</label>
                 </div>
-                {{-- The whole address is typed here, and the placeholder shows
-                     the shape of one. No domain is appended for you: a field
-                     that completes what you typed has to say so, and this one
-                     is plain. --}}
-                <input type="email" id="email" name="email" value="{{ old('email') }}"
+                {{-- Defaults to "@remedi.com" so an admin only has to type the
+                     local part -- every account created here is a company
+                     address. old('email') still wins on a validation
+                     redisplay, so a real address someone typed is never
+                     replaced back to the default. The caret is moved to
+                     BEFORE the "@" by the script below, or typing would land
+                     after ".com" instead of in front of it. --}}
+                <input type="email" id="email" name="email" value="{{ old('email', '@remedi.com') }}"
                        placeholder="e.g. jane@remedi.com" autocomplete="off" required>
             </div>
 
@@ -110,4 +113,42 @@
         </div>
     </form>
 </div>
+
+<script>
+    // The email field defaults to "@remedi.com" (see the input above); left
+    // alone, the browser puts the caret at the very end of that default value,
+    // so the first keystroke would land after ".com" rather than in front of
+    // the "@". Reposition it once, on first focus, and only while the value
+    // is still exactly the untouched default -- an address already typed (or
+    // restored via old() after a validation failure) keeps the caret wherever
+    // the browser put it.
+    //
+    // Deferred with setTimeout(0): a mouse click's own default action places
+    // the caret at the click point, and that happens AFTER the 'focus' event
+    // fires -- setting the range synchronously here just got overwritten a
+    // moment later, every time the field was focused by clicking rather than
+    // tabbing into it. Queuing the reposition as its own task runs it after
+    // the click has already done its thing.
+    //
+    // setSelectionRange() throws InvalidStateError on type="email" -- the
+    // spec only allows it on types whose value is plain text (text, search,
+    // url, tel, password). Switching to "text" for the duration of the call
+    // is the standard workaround; switching back afterward costs nothing,
+    // since nothing else reads the type in between.
+    (function () {
+        var email = document.getElementById('email');
+        if (!email) return;
+
+        email.addEventListener('focus', function onFirstFocus() {
+            setTimeout(function () {
+                if (email.value === '@remedi.com') {
+                    email.type = 'text';
+                    email.setSelectionRange(0, 0);
+                    email.type = 'email';
+                }
+            }, 0);
+            email.removeEventListener('focus', onFirstFocus);
+        });
+    })();
+</script>
 @endsection
