@@ -61,10 +61,20 @@
                      written straight after a word character (Return@if) is
                      NOT compiled while its @endif is — which yields a fatal
                      "unexpected endif". --}}
+                {{-- Every return-state badge below names the BATCH it is about.
+                     A product can carry several batches in different stages at
+                     once -- one already returned, a newer one still inside its
+                     own window -- and this row shows all of them together. Without
+                     a batch number attached, "Returned" sitting next to "Need to
+                     Return" (with a live Mark Returned button beside it) reads as
+                     the same item contradicting itself, when it is really two
+                     different batches. See the Mark Returned button below, which
+                     already names its batch in the confirm dialog -- these badges
+                     did not, and that asymmetry was the bug report. --}}
                 @if($product->has_returned_batches)
                     @php
                         $returnedBatch = $product->batches->filter(fn($b) => $b->returned_at)->sortByDesc('returned_at')->first();
-                        $returnedOn = $returnedBatch ? ' · ' . $returnedBatch->returned_at->format('M d, Y') : '';
+                        $returnedOn = $returnedBatch ? ' · ' . $returnedBatch->batch_number . ' · ' . $returnedBatch->returned_at->format('M d, Y') : '';
                     @endphp
                     <span class="badge badge-return-done" title="Sent back to the supplier">Returned{{ $returnedOn }}</span>
                 @endif
@@ -76,7 +86,7 @@
                             $soonestReturn = $product->batches
                                 ->filter(fn($b) => $b->needs_return && $b->return_days !== null && $b->return_days >= 0)
                                 ->sortBy('return_days')->first();
-                            $dueSuffix = $soonestReturn ? ' · ' . $soonestReturn->return_days . 'd left' : '';
+                            $dueSuffix = $soonestReturn ? ' · ' . $soonestReturn->batch_number . ' · ' . $soonestReturn->return_days . 'd left' : '';
                         @endphp
                         <span class="badge badge-return-due" title="90-120 days left before expiry">Need to Return{{ $dueSuffix }}</span>
                     @endif
@@ -86,28 +96,35 @@
                             $worstReturn = $product->batches
                                 ->filter(fn($b) => $b->failed_return && $b->return_days !== null)
                                 ->sortBy('return_days')->first();
-                            $lateSuffix = $worstReturn ? ' · ' . abs($worstReturn->return_days) . 'd overdue' : '';
+                            $lateSuffix = $worstReturn ? ' · ' . $worstReturn->batch_number . ' · ' . abs($worstReturn->return_days) . 'd overdue' : '';
                         @endphp
                         <span class="badge badge-return-late" title="Fewer than 90 days left before expiry, or already expired">Fail to Return{{ $lateSuffix }}</span>
                     @endif
                 @elseif($product->needs_return)
                     @php
                         // Non-pharma has no supplier window, only the plain
-                        // 10-day-before-expiry rule, so report days to expiry
-                        // (or "expired") rather than a return-window figure —
-                        // "Need to Return · 65d overdue" reads as a
-                        // contradiction.
+                        // expiry-before rule (10 days flat, 30 for Baby Care /
+                        // Vitamins & Supplements -- Product::non_pharma_return_window_days),
+                        // so report days to expiry (or "expired") rather than a
+                        // return-window figure -- "Need to Return · 65d overdue"
+                        // reads as a contradiction. Filtered to the same
+                        // returned_at / quantity / window check needs_return
+                        // itself applies, so this names the actual batch that
+                        // triggered the badge rather than just the soonest to
+                        // expire on the shelf.
+                        $npWindow = $product->non_pharma_return_window_days;
                         $npBatch = $product->batches
-                            ->filter(fn($b) => $b->quantity > 0 && $b->expiry_date)
+                            ->filter(fn($b) => ! $b->returned_at && $b->quantity > 0 && $b->expiry_date
+                                && ($b->is_expired || $b->days_to_expiry <= $npWindow))
                             ->sortBy('expiry_date')->first();
                         $npSuffix = '';
                         if ($npBatch) {
-                            $npSuffix = $npBatch->is_expired
+                            $npSuffix = ' · ' . $npBatch->batch_number . ($npBatch->is_expired
                                 ? ' · expired'
-                                : ' · ' . max(0, (int) round(now()->diffInDays($npBatch->expiry_date, false))) . 'd to expiry';
+                                : ' · ' . max(0, (int) round(now()->diffInDays($npBatch->expiry_date, false))) . 'd to expiry');
                         }
                     @endphp
-                    <span class="badge badge-return-due" title="Expired or within 10 days of expiry (default expiry rule)">Need to Return{{ $npSuffix }}</span>
+                    <span class="badge badge-return-due" title="Expired or within {{ $npWindow }} days of expiry (default expiry rule)">Need to Return{{ $npSuffix }}</span>
                 @endif
                 @if(!$product->is_running_out && !$product->batches->contains(fn($b) => $b->quantity > 0 && ($b->is_expired || $b->is_expiring_soon)) && !$product->needs_return && !$product->failed_return)
                     <span class="badge badge-success">OK</span>
