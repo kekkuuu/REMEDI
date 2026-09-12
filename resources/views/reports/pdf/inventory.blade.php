@@ -2,6 +2,11 @@
 <html>
 <head>
 <meta charset="utf-8">
+{{-- Money here reads "PHP 1,234.56", not "₱1,234.56" -- see the same
+     comment in reports/pdf/sales.blade.php for why: dompdf's core
+     fonts and its one bundled TTF (DejaVu) both lack the U+20B1
+     glyph, and the real system fonts that DO have it (Arial, Segoe
+     UI) are Microsoft-licensed and can't be bundled into this repo. --}}
 <style>
     body { font-family: Helvetica, Arial, sans-serif; font-size: 10px; color: #1e293b; }
     h1 { font-size: 18px; margin: 0 0 2px; }
@@ -36,7 +41,7 @@
         <tr>
             <td>
                 <div class="label">Total Stock Value</div>
-                <div class="value">&#8369;{{ number_format($totalStockValue, 2) }}</div>
+                <div class="value">PHP {{ number_format($totalStockValue, 2) }}</div>
             </td>
             <td>
                 <div class="label">Total Products</div>
@@ -60,8 +65,8 @@
                 <th>SKU</th>
                 <th>Category</th>
                 <th class="num">Stock</th>
-                <th class="num">Unit Price (&#8369;)</th>
-                <th class="num">Stock Value (&#8369;)</th>
+                <th class="num">Unit Price (PHP)</th>
+                <th class="num">Stock Value (PHP)</th>
                 <th>Status</th>
             </tr>
         </thead>

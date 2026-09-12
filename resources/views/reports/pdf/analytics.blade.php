@@ -2,6 +2,11 @@
 <html>
 <head>
 <meta charset="utf-8">
+{{-- Money here reads "PHP 1,234.56", not "₱1,234.56" -- see the same
+     comment in reports/pdf/sales.blade.php for why: dompdf's core
+     fonts and its one bundled TTF (DejaVu) both lack the U+20B1
+     glyph, and the real system fonts that DO have it (Arial, Segoe
+     UI) are Microsoft-licensed and can't be bundled into this repo. --}}
 <style>
     body { font-family: Helvetica, Arial, sans-serif; font-size: 11px; color: #1e293b; }
     h1 { font-size: 18px; margin: 0 0 2px; }
@@ -20,7 +25,7 @@
     <h2>Top {{ $topProducts->count() }} Selling Products (by revenue)</h2>
     <table class="rows">
         <thead>
-            <tr><th>SKU</th><th>Product</th><th class="num">Units Sold</th><th class="num">Revenue (&#8369;)</th></tr>
+            <tr><th>SKU</th><th>Product</th><th class="num">Units Sold</th><th class="num">Revenue (PHP)</th></tr>
         </thead>
         <tbody>
             @foreach ($topProducts as $row)

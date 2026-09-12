@@ -2,6 +2,16 @@
 <html>
 <head>
 <meta charset="utf-8">
+{{-- Money here reads "PHP 1,234.56", not "₱1,234.56" -- deliberately,
+     matching app/Exports/*.php's "(PHP)" column headers. dompdf's core
+     Helvetica/Arial fonts have no glyph for U+20B1 and render it as a
+     literal "?"; the only TTF dompdf bundles by default (DejaVu) turns
+     out not to have the glyph either (verified by rendering both and
+     reading the actual PDF back, not just the source markup -- a font
+     that LOOKS like it should cover this is not evidence that it does).
+     A real system font (Arial, Segoe UI) does have it, but those are
+     Microsoft-licensed and can't be bundled into this repo to fix it
+     for production. Plain text sidesteps the whole font problem. --}}
 <style>
     body { font-family: Helvetica, Arial, sans-serif; font-size: 11px; color: #1e293b; }
     h1 { font-size: 18px; margin: 0 0 2px; }
@@ -25,7 +35,7 @@
         <tr>
             <td>
                 <div class="label">Total Sales</div>
-                <div class="value">&#8369;{{ number_format($totalSales, 2) }}</div>
+                <div class="value">PHP {{ number_format($totalSales, 2) }}</div>
             </td>
             <td>
                 <div class="label">Units Sold</div>
@@ -37,7 +47,7 @@
             </td>
             <td>
                 <div class="label">Average / Day</div>
-                <div class="value">&#8369;{{ number_format($activeDays > 0 ? $totalSales / $activeDays : 0, 2) }}</div>
+                <div class="value">PHP {{ number_format($activeDays > 0 ? $totalSales / $activeDays : 0, 2) }}</div>
             </td>
         </tr>
     </table>
@@ -47,9 +57,9 @@
             <tr>
                 <th>Period</th>
                 <th class="num">Units</th>
-                <th class="num">Imported (&#8369;)</th>
-                <th class="num">This Terminal (&#8369;)</th>
-                <th class="num">Total (&#8369;)</th>
+                <th class="num">Imported (PHP)</th>
+                <th class="num">This Terminal (PHP)</th>
+                <th class="num">Total (PHP)</th>
             </tr>
         </thead>
         <tbody>
