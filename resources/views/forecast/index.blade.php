@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Demand Forecasts')
+@section('title', 'Demand Forecasting')
 
 @section('content')
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
@@ -8,7 +8,7 @@
 
 <div class="card">
     <h2 style="margin-top:0; margin-bottom:18px; font-size:20px; font-weight:500;">
-        Demand Forecasts
+        Demand Forecasting
     </h2>
     <p style="font-size:13px; color:#64748b; margin:0 0 18px;">
         Per-product demand forecast, modeled from sales history. For store-wide sales and revenue trends, see

@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Demand Forecast — ' . ($product->name ?? $product_sku))
+@section('title', 'Demand Forecasting — ' . ($product->name ?? $product_sku))
 
 @section('content')
 @php
@@ -153,87 +153,11 @@
     </div>
 </div>
 
-{{-- Model accuracy, measured rather than asserted.
-
-     forecast:generate refits this product's own cascade on its history minus
-     the last few months, then scores the result against the months it was not
-     allowed to see. Scoring the model actually in use is the point -- a number
-     from some other model would describe a forecast nobody is looking at. --}}
-<div class="card" style="margin-bottom:18px;">
-    <h2 style="margin-top:0; margin-bottom:4px; font-size:20px; font-weight:500;">
-        Forecast Accuracy
-    </h2>
-    @if ($accuracy)
-        {{-- The verdict, beside the numbers rather than left to the reader.
-             Graded on MAPE where it exists and sMAPE where it does not --
-             see App\Support\ForecastGrade for why the two need different
-             thresholds. --}}
-        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:0 0 10px;">
-            <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 12px; border-radius:999px;
-                         font-size:12px; font-weight:600; color:#fff; background:{{ $grade['colour'] }};">
-                {{ $grade['label'] }}
-            </span>
-            @if ($grade['basis'])
-                <span style="font-size:12px; color:#64748b;">
-                    by {{ $grade['basis'] }} {{ number_format($grade['value'], 1) }}%
-                </span>
-            @endif
-        </div>
-        <p style="font-size:12px; color:#64748b; margin:0 0 14px;">{{ $grade['note'] }}</p>
-
-        <p style="font-size:13px; color:#64748b; margin:0 0 14px;">
-            Measured on a {{ $accuracy->holdout_months }}-month holdout
-            &mdash; the model was refitted without these months, then scored against them.
-            @if ($accuracy->method)
-                Model: <strong>{{ str_replace('_', ' ', $accuracy->method) }}</strong>.
-            @endif
-        </p>
-
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px;">
-            <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
-                <p style="font-size:13px; color:#64748b; margin:0 0 4px;">MAE</p>
-                <p style="font-size:22px; font-weight:500; margin:0;">{{ number_format($accuracy->mae, 2) }}</p>
-                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">units out, on average</p>
-            </div>
-            <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
-                <p style="font-size:13px; color:#64748b; margin:0 0 4px;">RMSE</p>
-                <p style="font-size:22px; font-weight:500; margin:0;">{{ number_format($accuracy->rmse, 2) }}</p>
-                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">
-                    @if ($accuracy->rmse > $accuracy->mae * 1.5)
-                        well above MAE &mdash; a few large misses
-                    @else
-                        close to MAE &mdash; error is evenly spread
-                    @endif
-                </p>
-            </div>
-            <div style="background:#f8fafc; border-radius:8px; padding:1rem;">
-                <p style="font-size:13px; color:#64748b; margin:0 0 4px;">MAPE</p>
-                @if ($accuracy->mape !== null)
-                    <p style="font-size:22px; font-weight:500; margin:0;">{{ number_format($accuracy->mape, 1) }}%</p>
-                    <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">
-                        over {{ $accuracy->points_scored_mape }} of {{ $accuracy->points_scored }}
-                        {{ Str::plural('month', $accuracy->points_scored) }} that sold anything
-                    </p>
-                @else
-                    {{-- Not a zero. MAPE divides by the actual, so a holdout
-                         where nothing sold has no defined percentage error. --}}
-                    <p style="font-size:22px; font-weight:500; margin:0; color:#94a3b8;">&mdash;</p>
-                    <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">
-                        undefined: nothing sold in the holdout
-                        @if ($accuracy->smape !== null)
-                            &middot; sMAPE {{ number_format($accuracy->smape, 1) }}%
-                        @endif
-                    </p>
-                @endif
-            </div>
-        </div>
-    @else
-        <p style="font-size:13px; color:#64748b; margin:0;">
-            Not scored &mdash; this product's history is too short to hold months back and still
-            fit a model. That is not a perfect score; it means no measurement was possible.
-        </p>
-    @endif
-</div>
+{{-- The "Forecast Accuracy" card ($accuracy / $grade -- MAE/RMSE/MAPE/sMAPE
+     and the Normal/Acceptable/Not acceptable verdict, per product) is hidden
+     here at the user's request, matching forecast/index.blade.php's Model
+     accuracy card. The controller still computes and passes both variables;
+     only the display is removed. --}}
 
 {{-- Seasonal pattern for this specific product — average units sold per
      calendar month, across however many years of sales_history exist for
