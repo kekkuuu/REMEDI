@@ -319,11 +319,18 @@
         </div>
 
         <div class="profile-meta">
+            {{-- $user->staff_code was never a real column or accessor --
+                 Eloquent resolves an unknown attribute to null rather than
+                 erroring (same trap as $product->expiredBatches, see
+                 CLAUDE.md), so this row rendered BLANK on every profile,
+                 silently. User Management's own ID column reads the real
+                 `id` (see admin/users/_rows.blade.php); this now matches it,
+                 rather than the two disagreeing about what a user's ID is. --}}
             <div class="profile-meta-row">
                 <i class="ti ti-id" aria-hidden="true"></i>
                 <span>
                     <span class="profile-meta-label">User ID</span>
-                    <span class="profile-meta-value">{{ $user->staff_code }}</span>
+                    <span class="profile-meta-value">{{ $user->id }}</span>
                 </span>
             </div>
 
@@ -718,10 +725,14 @@
                     </div>
                 </div>
 
+                {{-- Same fix as the identity card above: staff_code was
+                     never a real column or accessor, so this rendered
+                     blank on every profile. Reads the real `id` now,
+                     matching User Management's own ID column. --}}
                 <div class="field">
                     <label for="user-id">User ID</label>
                     <div class="field-locked">
-                        <input id="user-id" type="text" value="{{ $user->staff_code }}" disabled>
+                        <input id="user-id" type="text" value="{{ $user->id }}" disabled>
                         <i class="ti ti-lock" aria-hidden="true"></i>
                     </div>
                 </div>
