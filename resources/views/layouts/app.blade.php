@@ -467,6 +467,7 @@
         .page-skeleton:not([data-shape]) .sk-shape-dash { display: block; }
         .page-skeleton[data-shape="list"] .sk-shape-list { display: block; }
         .page-skeleton[data-shape="pos"] .sk-shape-pos { display: block; }
+        .page-skeleton[data-shape="feed"] .sk-shape-feed { display: block; }
 
         .sk-head { height: 26px; width: 210px; margin-bottom: 10px; }
         .sk-head-sub { height: 13px; width: 330px; margin-bottom: 22px; }
@@ -551,7 +552,7 @@
 
         /* Tab pills + section heading, so the page does not shift when the
            real switcher and title arrive. */
-        .sk-tabs { display: flex; gap: 10px; margin-bottom: 26px; }
+        .sk-tabs { display: flex; gap: 10px; margin-bottom: 26px; flex-wrap: wrap; }
         .sk-pill-tab { height: 41px; width: 104px; border-radius: 999px; }
         .sk-sec-title { height: 20px; width: 130px; margin-bottom: 8px; }
         .sk-sec-sub { height: 12px; width: 210px; margin-bottom: 18px; }
@@ -632,6 +633,117 @@
         @media (max-width: 1024px) {
             .sk-pos-layout { grid-template-columns: 1fr; }
         }
+
+        /* ── The "list" shape's data-* switches ──────────────────────────
+           _page-skeleton.blade.php renders the full superset (4 KPI tiles,
+           a rich toolbar, 7 tabs, 11 table columns) once; these rules hide
+           whatever a given destination page doesn't actually have, driven
+           by data-header/-kpis/-toolbar/-tabs/-cols on .page-skeleton (set
+           per route in the nav-skeleton JS below). Defaults with no
+           attribute match the plainest case -- a header, no KPIs, a
+           simple two-control toolbar, no tabs, six columns -- so a route
+           this table doesn't yet know about degrades to that rather than
+           to the fullest (busiest) rendering. */
+
+        /* Header: off for Sales, Products, Inventory (none of the three
+           renders a heading inside its own content body). */
+        .page-skeleton[data-header="0"] .sk-shape-list .sk-head,
+        .page-skeleton[data-header="0"] .sk-shape-list .sk-head-sub { display: none; }
+
+        /* KPI row: 0 by default. Users and the audit trail show 4 real
+           stat cards, Sales shows 2 -- everyone else (Products, Categories,
+           Inventory) shows none. */
+        .sk-kpis-sm {
+            display: none;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .page-skeleton[data-kpis="2"] .sk-shape-list .sk-kpis-sm,
+        .page-skeleton[data-kpis="4"] .sk-shape-list .sk-kpis-sm { display: grid; }
+        .page-skeleton[data-kpis="2"] .sk-shape-list .sk-kpi-sm:nth-child(n+3) { display: none; }
+
+        .sk-kpi-sm {
+            background: #fff;
+            border: 0.5px solid #eef2f7;
+            border-radius: 12px;
+            padding: 14px 16px;
+        }
+
+        .sk-kpi-sm-cap { height: 10px; width: 70px; margin-bottom: 10px; }
+        .sk-kpi-sm-num { height: 20px; width: 54px; }
+
+        /* Toolbar: "simple" (default) shows just the search box and one
+           button, matching Users/Products/Inventory. "rich" adds the two
+           extra fields and second button Sales (date range) and the audit
+           trail (its several selects/dates) actually have -- .sk-extra
+           marks exactly those, rather than picking them out by position,
+           which broke the first time (nth-child(n+4) matched BOTH buttons,
+           since both sit at position 4+ in the row, hiding the one button
+           "simple" is supposed to keep). */
+        .sk-toolbar .sk-extra { display: none; }
+        .page-skeleton[data-toolbar="rich"] .sk-shape-list .sk-toolbar .sk-extra { display: block; }
+
+        .sk-field { height: 40px; flex: 1 1 130px; border-radius: 8px; }
+
+        /* Card toolbar: Categories replaces the whole search row with an
+           "Add Category" trigger card, so this is an alternate ELEMENT, not
+           a variant of .sk-toolbar -- data-toolbar="card" swaps one for
+           the other rather than showing/hiding pieces of one shape. */
+        .sk-toolbar-card { display: none; }
+
+        .page-skeleton[data-toolbar="card"] .sk-shape-list .sk-toolbar { display: none; }
+        .page-skeleton[data-toolbar="card"] .sk-shape-list .sk-toolbar-card {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: #fff;
+            border: 0.5px solid #eef2f7;
+            border-radius: 14px;
+            padding: 18px 20px;
+            margin-bottom: 18px;
+        }
+
+        .sk-toolbar-card-text { flex: 1; }
+
+        /* Tabs: none by default (Users/Sales/the audit trail/Products/
+           Categories have no filter chips at all); Inventory's real 7
+           status chips (All/Low Stock/Expiring/Expired/Need to Return/
+           Fail to Return/Returned) are the one case that needs them. */
+        .sk-shape-list .sk-tabs { display: none; }
+        .page-skeleton[data-tabs="7"] .sk-shape-list .sk-tabs { display: flex; }
+
+        /* Table columns: 6 by default (Users/Sales/the audit trail all
+           land close to six real columns). Categories' sparse 3-column
+           table and Products/Inventory's dense 11-column tables are the
+           two real departures from that. */
+        .sk-shape-list .sk-td:nth-child(n+7) { display: none; }
+        .page-skeleton[data-cols="3"] .sk-shape-list .sk-td:nth-child(n+4) { display: none; }
+        .page-skeleton[data-cols="11"] .sk-shape-list .sk-td { display: block; }
+
+        /* Notifications' feed: icon, title/body, time -- three cards per
+           row, not six-to-eleven table cells, which is what made forcing
+           it through the list shape the worst mismatch of any page. */
+        .sk-feed {
+            background: #fff;
+            border: 0.5px solid #eef2f7;
+            border-radius: 14px;
+            padding: 6px 18px;
+        }
+
+        .sk-feed-row { display: flex; align-items: center; gap: 14px; padding: 14px 0; }
+        .sk-feed-row + .sk-feed-row { border-top: 1px solid #f1f5f9; }
+        .sk-feed-icon { width: 36px; height: 36px; flex-shrink: 0; }
+        .sk-feed-text { flex: 1; min-width: 0; }
+        .sk-feed-title { height: 12px; width: 65%; margin-bottom: 8px; }
+        .sk-feed-body { height: 10px; width: 85%; }
+        .sk-feed-time { width: 64px; height: 10px; flex-shrink: 0; }
+
+        /* Notifications' own 7 tabs are narrower than the dashboard's
+           104px pills -- at that width, seven of them plus gaps would run
+           to ~800px and wrap awkwardly on anything but a wide desktop. */
+        .sk-pill-tab-sm { width: 74px; height: 34px; }
 
         @media (prefers-reduced-motion: reduce) {
             .sk-block { animation: none; }
@@ -4059,20 +4171,69 @@
             paint = setTimeout(function () {
                 paint = null;
 
-                /* Dress the skeleton as the page being opened. Three shapes:
-                   dashboard/reports/forecast/sales-forecast are stat tiles
-                   over charts, POS is a product grid beside a cart, and
-                   everything else is a header over rows -- standing in with
-                   the wrong one makes the real page visibly jump when it
-                   lands, which is exactly what showed nine placeholder
-                   table rows in front of POS's tile grid before this. */
+                /* Dress the skeleton as the page being opened -- standing in
+                   with the wrong shape makes the real page visibly jump
+                   when it lands, which is what nine placeholder table rows
+                   in front of POS's tile grid looked like before "pos" was
+                   added, and what a plain 6-column table looked like in
+                   front of Notifications' card feed or Categories' 3-column
+                   list before this pass.
+
+                   Four top-level shapes (dash/pos/feed/list), and "list"
+                   is itself parametrized -- see the data-* attributes below
+                   and the matching CSS + the comment inside
+                   _page-skeleton.blade.php's sk-shape-list block -- because
+                   Inventory, Products, Sales, Users, the audit trail and
+                   Categories disagree with each other about a KPI row, tab
+                   chips, toolbar shape and column count far more than they
+                   agree with one plain "header + search + table". Checked
+                   in order; the FIRST match wins, so put a more specific
+                   route before a substring it would otherwise also match. */
                 var navSkeleton = contentBody.querySelector('.page-skeleton');
                 if (navSkeleton) {
                     var href = link.getAttribute('href') || '';
-                    var shape = 'list';
-                    if (/\/(dashboard|reports|forecast|sales-forecast)(\/|\?|#|$)/.test(href)) shape = 'dash';
-                    else if (/\/pos(\/|\?|#|$)/.test(href)) shape = 'pos';
-                    navSkeleton.dataset.shape = shape;
+                    var routeConfigs = [
+                        { test: /\/(dashboard|reports|forecast|sales-forecast)(\/|\?|#|$)/, shape: 'dash' },
+                        { test: /\/pos(\/|\?|#|$)/, shape: 'pos' },
+                        { test: /\/notifications(\/|\?|#|$)/, shape: 'feed' },
+                        // 4 real KPI cards, no tabs, a plain search+Filter+Add
+                        // toolbar, ~6-column table.
+                        { test: /\/users(\/|\?|#|$)/, shape: 'list', header: 1, kpis: 4, toolbar: 'simple', tabs: 0, cols: 6 },
+                        // No header on the real page; 2 KPI cards ("Total
+                        // sales today" / "Transactions today"); a date-range
+                        // toolbar richer than a bare search box.
+                        { test: /\/sales(\/|\?|#|$)/, shape: 'list', header: 0, kpis: 2, toolbar: 'rich', tabs: 0, cols: 6 },
+                        // 4 KPI cards (Total/Logins/Logouts/Views); the
+                        // richest toolbar in the app (action + role + two
+                        // dates + presets).
+                        { test: /\/audit(\/|\?|#|$)/, shape: 'list', header: 1, kpis: 4, toolbar: 'rich', tabs: 0, cols: 6 },
+                        // No header, no KPIs, no tabs; an 11-column table --
+                        // the widest in the app.
+                        { test: /\/products(\/|\?|#|$)/, shape: 'list', header: 0, kpis: 0, toolbar: 'simple', tabs: 0, cols: 11 },
+                        // The "toolbar" is really an Add Category trigger
+                        // card, and the table is a sparse 3 columns.
+                        { test: /\/categories(\/|\?|#|$)/, shape: 'list', header: 1, kpis: 0, toolbar: 'card', tabs: 0, cols: 3 },
+                        // No header, no KPIs; 7 real status filter chips
+                        // (All/Low Stock/Expiring/Expired/Need to Return/
+                        // Fail to Return/Returned); an 11-column table.
+                        { test: /\/inventory(\/|\?|#|$)/, shape: 'list', header: 0, kpis: 0, toolbar: 'simple', tabs: 7, cols: 11 },
+                    ];
+
+                    var config = null;
+                    for (var ci = 0; ci < routeConfigs.length; ci++) {
+                        if (routeConfigs[ci].test.test(href)) { config = routeConfigs[ci]; break; }
+                    }
+                    // A route none of these match (custom pages, anything
+                    // added later) falls back to the plainest "list" case
+                    // rather than the busiest one.
+                    config = config || { shape: 'list', header: 1, kpis: 0, toolbar: 'simple', tabs: 0, cols: 6 };
+
+                    navSkeleton.dataset.shape = config.shape;
+                    navSkeleton.dataset.header = config.header != null ? config.header : 1;
+                    navSkeleton.dataset.kpis = config.kpis != null ? config.kpis : 0;
+                    navSkeleton.dataset.toolbar = config.toolbar || 'simple';
+                    navSkeleton.dataset.tabs = config.tabs != null ? config.tabs : 0;
+                    navSkeleton.dataset.cols = config.cols != null ? config.cols : 6;
                 }
 
                 /* The header pill. The dashboard has always shown one while it
