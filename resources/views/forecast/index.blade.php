@@ -67,9 +67,14 @@
                 <option value="{{ $category->id }}" @selected($categoryId === $category->id)>{{ $category->name }}</option>
             @endforeach
         </select>
-        <button type="submit" class="btn btn-primary">
-            <i class="ti ti-search" aria-hidden="true"></i> Search
-        </button>
+        {{-- No Search button: the box refreshes on a debounced keystroke and
+             the category select on change (see the script below), so it only
+             ever re-ran a search that had already run -- same redundancy
+             already removed from Products/Inventory's search boxes. The form
+             stays a real GET form, and stays working without JS: the text
+             input is the only field that blocks implicit submission (a
+             <select> does not), so Enter still submits it with no button
+             present. --}}
         <a href="{{ route('forecast.index') }}" id="clear-link" class="btn btn-secondary" style="{{ ($search || $categoryId) ? '' : 'display:none' }}">
             <i class="ti ti-x" aria-hidden="true"></i> Clear
         </a>
