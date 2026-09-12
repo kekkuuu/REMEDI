@@ -66,8 +66,13 @@
        real GET form so the page still works without JS, and the Filter button
        is that fallback's submit. --}}
   <form method="GET" action="{{ route('audit.index') }}" id="audit-filters" class="audit-filters">
+    {{-- Placeholder doesn't mention IP, same reasoning as the inventory/POS
+         placeholders dropping "barcode" -- IP search still works
+         (applyFilters() still matches ip_address below), it just isn't
+         a column shown anywhere on this page, so advertising it in the
+         one line every visitor reads was more confusing than helpful. --}}
     <input type="search" name="search" id="audit-search" value="{{ request('search') }}"
-           placeholder="Search user, action, details or IP…" class="report-select"
+           placeholder="Search user, action or details…" class="report-select"
            autocomplete="off" data-suggest-url="{{ route('suggest.audit') }}">
 
     <select name="action" class="report-select js-audit-filter">
