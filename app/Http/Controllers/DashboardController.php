@@ -195,11 +195,12 @@ class DashboardController extends Controller
         // Non-pharma return tracking — a SEPARATE visualization from the
         // pharma 90-120 day supplier window above. Every category other
         // than Medicine/Pharmaceutical has no formal supplier return
-        // window, so it's judged purely on default expiry date: already
-        // expired (past due, should already have been pulled), or inside
-        // $b->product->non_pharma_return_window_days of expiring (needs to
-        // be pulled soon) — 30 days for Baby Care / Vitamins & Supplements,
-        // 10 for everything else. See Product::getNeedsReturnAttribute().
+        // window, so it's judged purely on default expiry date: NOT yet
+        // expired, and inside $b->product->non_pharma_return_window_days of
+        // expiring (needs to be pulled soon) — 30 days for Baby Care /
+        // Vitamins & Supplements, 10 for everything else. Once it actually
+        // expires it moves to the 'expired' bucket below, not this one —
+        // see Product::getNeedsReturnAttribute() and getFailedReturnAttribute().
         $nonPharmaBatches = $activeBatches->filter(fn ($b) => $b->product && ! $b->product->is_medicine && $b->expiry_date);
 
         // Three buckets, mutually exclusive, returned first -- the same shape
@@ -220,11 +221,14 @@ class DashboardController extends Controller
 
         // "N batches inside the return window" under the ring — so it must
         // exclude the ones already sent back, or the footer contradicts the
-        // Successfully Returned count directly above it.
+        // Successfully Returned count directly above it. It must also exclude
+        // the already-expired ones (they're counted separately above, and
+        // shown separately in $expiredBatches) — this used to OR them back
+        // in, which listed an expired batch as "inside the return window"
+        // directly under a ring that had just counted it as "Expired".
         $nonPharmaNeedToReturnBatches = $nonPharmaBatches
-            ->filter(fn ($b) => ! $b->returned_at
-                && ($b->is_expired
-                    || $b->expiry_date->diffInDays(now(), true) <= $b->product->non_pharma_return_window_days))
+            ->filter(fn ($b) => ! $b->returned_at && ! $b->is_expired
+                && $b->expiry_date->diffInDays(now(), true) <= $b->product->non_pharma_return_window_days)
             ->sortBy('expiry_date')
             ->values();
 

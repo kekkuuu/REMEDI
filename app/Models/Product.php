@@ -396,18 +396,24 @@ class Product extends Model
                 return false;
             }
 
-            // today()-anchored via days_to_expiry, matching every other
-            // expiry calculation. $this is the product itself here, so its
-            // own category resolves the window (flat 10 days, or 30 for
-            // Baby Care / Vitamins & Supplements).
-            return $b->is_expired || $b->days_to_expiry <= $this->non_pharma_return_window_days;
+            // is_expired is EXCLUDED here on purpose -- once a batch is past
+            // its own expiry date, "you can still send this back" is no
+            // longer true, whatever the window is. It falls to
+            // failed_return below instead. This used to read
+            // `$b->is_expired || days_to_expiry <= window`, which meant an
+            // already-expired batch still carried a live "Need to Return"
+            // badge AND a working Mark Returned button -- the exact
+            // asymmetry the medicine branch above was built to avoid
+            // (return_status answers "Fail to Return", not "Need to
+            // Return", the moment is_expired is true). today()-anchored via
+            // days_to_expiry, matching every other expiry calculation.
+            // $this is the product itself here, so its own category
+            // resolves the window (flat 10 days, or 30 for Baby Care /
+            // Vitamins & Supplements).
+            return ! $b->is_expired && $b->days_to_expiry <= $this->non_pharma_return_window_days;
         });
     }
 
-    // True if any in-stock batch of this (medicine) product has missed the
-    // return window (fewer than 90 days left, or already expired). This
-    // "fail to return" distinction is specific to the pharma supplier
-    // window and does not apply to other categories.
     /**
      * True when any batch of this product has been sent back to the supplier.
      *
@@ -420,15 +426,30 @@ class Product extends Model
         return $this->batches->contains(fn ($b) => $b->returned_at !== null);
     }
 
+    /**
+     * True when any in-stock batch has missed its own return window.
+     *
+     * Medicine: the 90-120 day supplier window (ProductBatch::$failed_return,
+     * itself gated on the pharma-only day bands -- see its docblock). Every
+     * other category has no formal supplier window, so "failed" simply means
+     * expired and never returned: past that point the shelf is a write-off,
+     * not something a Mark Returned click can still act on, which is exactly
+     * why is_returnable and getNeedsReturnAttribute() above both exclude an
+     * expired batch. Before this existed, an expired non-pharma batch had
+     * nowhere to go: not "Need to Return" (excluded above), not "Fail to
+     * Return" (this always answered false for non-medicine) -- it simply
+     * stopped being flagged at all the moment it expired, the opposite of
+     * what an inventory alert is for.
+     */
     public function getFailedReturnAttribute(): bool
     {
-        if (! $this->is_medicine) {
-            return false;
-        }
-
         $batches = $this->relationLoaded('batches') ? $this->batches : $this->batches()->get();
 
-        return $batches->contains(fn ($b) => $b->quantity > 0 && $b->failed_return);
+        if ($this->is_medicine) {
+            return $batches->contains(fn ($b) => $b->quantity > 0 && $b->failed_return);
+        }
+
+        return $batches->contains(fn ($b) => $b->quantity > 0 && ! $b->returned_at && $b->is_expired);
     }
 
     /**

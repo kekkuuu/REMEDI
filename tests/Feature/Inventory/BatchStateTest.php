@@ -119,6 +119,101 @@ class BatchStateTest extends TestCase
             ->assertJson(['success' => false]);
     }
 
+    // ── An expired non-pharma batch is a write-off, not "still returnable" ──
+    //
+    // is_returnable used to answer TRUE for an expired non-pharma batch (the
+    // window's whole point is "before it expires"), on the theory that this
+    // side has no formal "fail" state the way medicine does. That meant a
+    // batch already past its expiry date carried a live Mark Returned button
+    // -- an admin could click it, and the request would succeed, on stock
+    // the supplier would never actually take back. Mirrors medicine exactly:
+    // once is_expired, the batch falls out of "Need to Return" and into
+    // "Fail to Return" instead, with no button either way.
+
+    public function test_an_expired_non_pharma_batch_is_no_longer_returnable(): void
+    {
+        $batch = $this->batch(40, now()->subDay()->toDateString());
+
+        $this->assertTrue($batch->is_expired, 'precondition');
+        $this->assertFalse($batch->is_returnable);
+    }
+
+    public function test_an_expired_non_pharma_batch_is_refused_by_the_endpoint(): void
+    {
+        $batch = $this->batch(40, now()->subDay()->toDateString());
+
+        $this->actingAs($this->admin())
+            ->patch('/batches/'.$batch->id.'/return')
+            ->assertSessionHasErrors('batch');
+
+        $batch->refresh();
+        $this->assertNull($batch->returned_at);
+        $this->assertSame(40, $batch->quantity, 'expired stock is not silently written off either');
+    }
+
+    public function test_a_non_pharma_product_reports_failed_not_needing_return_once_expired(): void
+    {
+        $cat = Category::firstOrCreate(['name' => 'General Merchandise']);
+        $product = Product::create([
+            'name' => 'Item '.uniqid(), 'sku' => 'SKU-'.uniqid(), 'category_id' => $cat->id,
+            'unit' => 'PCS', 'selling_price' => '10.00', 'reorder_level' => 1,
+        ]);
+        ProductBatch::create([
+            'batch_number' => 'B'.uniqid(), 'product_id' => $product->id,
+            'quantity' => 40, 'qty_received' => 40, 'unit_cost' => 1,
+            'expiry_date' => now()->subDay()->toDateString(),
+            'received_date' => now()->subDays(200)->toDateString(),
+        ]);
+
+        $this->assertFalse($product->needs_return);
+        $this->assertTrue($product->failed_return);
+    }
+
+    public function test_a_non_pharma_product_still_reports_needing_return_before_it_expires(): void
+    {
+        // Sanity check against the fix above: a batch genuinely inside its
+        // window (not yet expired) must still be flagged, or the fix went
+        // too far and silenced the whole rule.
+        $cat = Category::firstOrCreate(['name' => 'General Merchandise']);
+        $product = Product::create([
+            'name' => 'Item '.uniqid(), 'sku' => 'SKU-'.uniqid(), 'category_id' => $cat->id,
+            'unit' => 'PCS', 'selling_price' => '10.00', 'reorder_level' => 1,
+        ]);
+        ProductBatch::create([
+            'batch_number' => 'B'.uniqid(), 'product_id' => $product->id,
+            'quantity' => 40, 'qty_received' => 40, 'unit_cost' => 1,
+            'expiry_date' => now()->addDays(3)->toDateString(),
+            'received_date' => now()->subDays(200)->toDateString(),
+        ]);
+
+        $this->assertTrue($product->needs_return);
+        $this->assertFalse($product->failed_return);
+    }
+
+    public function test_the_extended_window_category_also_fails_once_expired(): void
+    {
+        // Baby Care carries the 30-day EXTENDED_RETURN_WINDOW_DAYS window
+        // (see Product::EXTENDED_RETURN_WINDOW_CATEGORIES) rather than the
+        // flat 10 -- confirming the fix reads each product's OWN threshold,
+        // not a hardcoded one, matters more here than on the default window.
+        $cat = Category::firstOrCreate(['name' => 'Baby Care']);
+        $product = Product::create([
+            'name' => 'Item '.uniqid(), 'sku' => 'SKU-'.uniqid(), 'category_id' => $cat->id,
+            'unit' => 'PCS', 'selling_price' => '10.00', 'reorder_level' => 1,
+        ]);
+        $batch = ProductBatch::create([
+            'batch_number' => 'B'.uniqid(), 'product_id' => $product->id,
+            'quantity' => 40, 'qty_received' => 40, 'unit_cost' => 1,
+            'expiry_date' => now()->subDay()->toDateString(),
+            'received_date' => now()->subDays(200)->toDateString(),
+        ]);
+
+        $this->assertSame(30, $product->non_pharma_return_window_days, 'precondition');
+        $this->assertFalse($batch->is_returnable);
+        $this->assertFalse($product->needs_return);
+        $this->assertTrue($product->failed_return);
+    }
+
     // ── Derived state after a write ──────────────────────────────────────
 
     public function test_expiry_state_follows_an_update_on_the_same_instance(): void

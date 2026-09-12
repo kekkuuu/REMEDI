@@ -553,9 +553,16 @@ class ProductBatch extends Model
      *                 batches are a write-off to be disposed of, not returned.
      *   Everything else - no supplier window exists, so it falls back to the
      *                 same plain expiry rule Product::getNeedsReturnAttribute
-     *                 uses: expired, or within NON_PHARMA_RETURN_WINDOW_DAYS
-     *                 of expiring. There is no "fail" state on this side, so
-     *                 an expired non-pharma batch still offers the action.
+     *                 uses: NOT expired, and within the product's own
+     *                 non_pharma_return_window_days of expiring (10 days
+     *                 flat, or 30 for Baby Care / Vitamins & Supplements).
+     *                 Once actually expired it falls to
+     *                 Product::getFailedReturnAttribute() instead, same as
+     *                 medicine -- this used to treat "expired" as still
+     *                 returnable on the theory that non-pharma has no "fail"
+     *                 state, which reintroduced the exact asymmetry this
+     *                 accessor exists to prevent: a live Mark Returned button
+     *                 sitting on a batch the supplier will not take back.
      *
      * Memoized like is_expired and return_status -- the inventory list reads
      * it once per batch per row, across ~2,500 batches.
@@ -568,8 +575,8 @@ class ProductBatch extends Model
             }
 
             if ($this->product && ! $this->product->is_medicine) {
-                return $this->is_expired
-                    || $this->days_to_expiry <= $this->product->non_pharma_return_window_days;
+                return ! $this->is_expired
+                    && $this->days_to_expiry <= $this->product->non_pharma_return_window_days;
             }
 
             return $this->needs_return;

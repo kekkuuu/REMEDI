@@ -68,51 +68,66 @@
                     @endphp
                     <span class="badge badge-return-done" title="Sent back to the supplier">Returned{{ $returnedOn }}</span>
                 @endif
-                @if($product->is_medicine)
-                    @if($product->needs_return)
-                        @php
+                {{-- "Need to Return" and "Fail to Return" are no longer
+                     medicine-only branches -- both categories now have a real
+                     two-state model (Product::getNeedsReturnAttribute() /
+                     getFailedReturnAttribute()), just with different day
+                     thresholds: medicine's 90-120 day supplier band, versus
+                     non-pharma's flat expiry-before rule (10 days, or 30 for
+                     Baby Care / Vitamins & Supplements). Only the SUFFIX text
+                     differs by category; the badges themselves are shared,
+                     which is what stops an expired non-pharma batch from
+                     carrying a "Need to Return" badge with a live Mark
+                     Returned button next to it -- once expired it now falls
+                     to Fail to Return here exactly as medicine already did. --}}
+                @if($product->needs_return)
+                    @php
+                        if ($product->is_medicine) {
                             // Only batches actually inside the window, and the
                             // one closest to falling out of it.
                             $soonestReturn = $product->batches
                                 ->filter(fn($b) => $b->needs_return && $b->return_days !== null && $b->return_days >= 0)
                                 ->sortBy('return_days')->first();
                             $dueSuffix = $soonestReturn ? ' · ' . $soonestReturn->return_days . 'd left' : '';
-                        @endphp
-                        <span class="badge badge-return-due" title="90-120 days left before expiry">Need to Return{{ $dueSuffix }}</span>
-                    @endif
-                    @if($product->failed_return)
-                        @php
+                            $dueTitle = '90-120 days left before expiry';
+                        } else {
+                            // Non-pharma has no supplier window, only the plain
+                            // expiry-before rule, so report days to expiry
+                            // rather than a return-window figure. Never
+                            // "expired" here -- needs_return excludes expired
+                            // batches now, so this is always still-current.
+                            $npWindow = $product->non_pharma_return_window_days;
+                            $npBatch = $product->batches
+                                ->filter(fn($b) => ! $b->returned_at && $b->quantity > 0 && $b->expiry_date
+                                    && ! $b->is_expired && $b->days_to_expiry <= $npWindow)
+                                ->sortBy('expiry_date')->first();
+                            $dueSuffix = $npBatch
+                                ? ' · ' . max(0, (int) round(now()->diffInDays($npBatch->expiry_date, false))) . 'd to expiry'
+                                : '';
+                            $dueTitle = "Within {$npWindow} days of expiry (default expiry rule)";
+                        }
+                    @endphp
+                    <span class="badge badge-return-due" title="{{ $dueTitle }}">Need to Return{{ $dueSuffix }}</span>
+                @endif
+                @if($product->failed_return)
+                    @php
+                        if ($product->is_medicine) {
                             // The worst offender: furthest past the deadline.
                             $worstReturn = $product->batches
                                 ->filter(fn($b) => $b->failed_return && $b->return_days !== null)
                                 ->sortBy('return_days')->first();
                             $lateSuffix = $worstReturn ? ' · ' . abs($worstReturn->return_days) . 'd overdue' : '';
-                        @endphp
-                        <span class="badge badge-return-late" title="Fewer than 90 days left before expiry, or already expired">Fail to Return{{ $lateSuffix }}</span>
-                    @endif
-                @elseif($product->needs_return)
-                    @php
-                        // Non-pharma has no supplier window, only the plain
-                        // expiry-before rule (10 days flat, 30 for Baby Care /
-                        // Vitamins & Supplements -- Product::non_pharma_return_window_days),
-                        // so report days to expiry (or "expired") rather than a
-                        // return-window figure -- "Need to Return · 65d overdue"
-                        // reads as a contradiction. Filtered to the same
-                        // returned_at / quantity / window check needs_return
-                        // itself applies.
-                        $npWindow = $product->non_pharma_return_window_days;
-                        $npBatch = $product->batches
-                            ->filter(fn($b) => ! $b->returned_at && $b->quantity > 0 && $b->expiry_date
-                                && ($b->is_expired || $b->days_to_expiry <= $npWindow))
-                            ->sortBy('expiry_date')->first();
-                        $npSuffix = '';
-                        if ($npBatch) {
-                            $npSuffix = $npBatch->is_expired
-                                ? ' · expired'
-                                : ' · ' . max(0, (int) round(now()->diffInDays($npBatch->expiry_date, false))) . 'd to expiry';
+                            $lateTitle = 'Fewer than 90 days left before expiry, or already expired';
+                        } else {
+                            // Non-pharma has no "missed the window" concept --
+                            // failed here just means expired and never
+                            // returned, so there is no days-overdue figure to
+                            // report, only the fact of it.
+                            $lateSuffix = ' · expired';
+                            $lateTitle = 'Expired -- the return window has passed';
                         }
                     @endphp
-                    <span class="badge badge-return-due" title="Expired or within {{ $npWindow }} days of expiry (default expiry rule)">Need to Return{{ $npSuffix }}</span>
+                    <span class="badge badge-return-late" title="{{ $lateTitle }}">Fail to Return{{ $lateSuffix }}</span>
                 @endif
                 @if(!$product->is_running_out && !$product->batches->contains(fn($b) => $b->quantity > 0 && ($b->is_expired || $b->is_expiring_soon)) && !$product->needs_return && !$product->failed_return)
                     <span class="badge badge-success">OK</span>
