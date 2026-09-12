@@ -37,9 +37,15 @@
            max="{{ now()->toDateString() }}"
            style="padding: 9px 12px; border: 0.5px solid #d1d5db; border-radius: 7px; font-size: 15px; font-family: inherit;">
 
-    <button type="submit" class="btn btn-primary">
-        <i class="ti ti-filter" aria-hidden="true"></i> Apply
-    </button>
+    {{-- No Apply button: the search box debounces and both dates re-run on
+         change (see the script below), so it only ever re-submitted a filter
+         that had already applied -- same redundancy already removed from
+         Products/Inventory's search boxes and Users' filter panel.
+         Unlike those, this form has THREE fields that block a browser's
+         implicit Enter-to-submit (search + two dates -- the spec only grants
+         that with exactly one), so a no-JS visitor loses the ability to
+         apply a filter at all; accepted as the same tradeoff as the login
+         page's skeleton, since real usage here has JS on. --}}
     <a href="{{ route('sales.index') }}" id="reset-link" class="btn btn-secondary">
         <i class="ti ti-refresh" aria-hidden="true"></i> Reset
     </a>
