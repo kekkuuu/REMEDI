@@ -3331,7 +3331,7 @@
         </div>
 
         <div class="sidebar-footer">
-            <a href="{{ route('profile.edit') }}">
+            <a href="{{ route('profile.edit') }}" class="{{ request()->routeIs('profile.*') ? 'active' : '' }}">
                 <i class="ti ti-user-circle" aria-hidden="true"></i> My profile
             </a>
             {{-- No skeleton on logout: it tears down the session and lands on
