@@ -812,9 +812,10 @@
         {{-- Separate visualization for everything that ISN'T Medicine/Pharmaceutical.
              No 90-120 day supplier window applies here — this is purely the
              default-expiry rule from Product::getNeedsReturnAttribute()
-             (already expired, or within Product::NON_PHARMA_RETURN_WINDOW_DAYS
-             of expiring). Kept as its own card/chart, positioned next to
-             Medicine Returns for direct comparison. --}}
+             (already expired, or within $product->non_pharma_return_window_days
+             of expiring — 30 days for Baby Care / Vitamins & Supplements, 10
+             for everything else). Kept as its own card/chart, positioned next
+             to Medicine Returns for direct comparison. --}}
         <div class="card">
             <div class="demand-head">
                 <span class="label">Other Product Returns</span>

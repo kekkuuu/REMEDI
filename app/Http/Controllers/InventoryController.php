@@ -63,8 +63,9 @@ class InventoryController extends Controller
         // catalogue. Every product any of them can match must have an in-stock
         // batch expiring within 120 days -- that's the outer edge of the
         // medicine return window, and both the 90-day "expiring" horizon and
-        // the 10-day non-pharma rule sit inside it. Expired batches qualify
-        // too, hence no lower bound.
+        // the non-pharma rule (10 days flat, 30 for Baby Care / Vitamins &
+        // Supplements) sit inside it. Expired batches qualify too, hence no
+        // lower bound.
         //
         // So narrow to that superset in SQL first and let the accessors decide
         // from there. Measured on this catalogue: the "Need to Return" tab went

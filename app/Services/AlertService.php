@@ -575,7 +575,7 @@ class AlertService
     private static function returnWindowOpenedAt(ProductBatch $batch): string
     {
         $window = ($batch->product && ! $batch->product->is_medicine)
-            ? Product::NON_PHARMA_RETURN_WINDOW_DAYS
+            ? $batch->product->non_pharma_return_window_days
             : 120;
 
         return $batch->expiry_date->copy()->startOfDay()->subDays($window)->toIso8601String();

@@ -300,8 +300,11 @@ back to the event, with a timeout backstop and a `printed` flag so it fires exac
 **Supplier return windows** (`ProductBatch::getReturnStatusAttribute`) are category-dependent:
 - `Medicine / Pharmaceutical` products: 90–120 days before expiry = "Need to Return"; under 90 days
   or expired = "Fail to Return"; already flagged = "Successfully Returned".
-- Every other category falls back to a plain 10-day-before-expiry rule
-  (`Product::NON_PHARMA_RETURN_WINDOW_DAYS`) with no "fail" state.
+- Every other category falls back to a plain expiry-before rule with no "fail" state, and the
+  threshold itself is category-dependent — `Product::getNonPharmaReturnWindowDaysAttribute()`
+  returns `EXTENDED_RETURN_WINDOW_DAYS` (30) for Baby Care and Vitamins & Supplements
+  (`EXTENDED_RETURN_WINDOW_CATEGORIES` — both restricted/dated stock, same as medicine, just without
+  the formal 90-120 day window) and the flat `NON_PHARMA_RETURN_WINDOW_DAYS` (10) for everything else.
 
 Carbon 3 (required by Laravel 12) made `diffInDays()` return a *signed* value. Date-distance math in
 these accessors passes `true` as the second argument deliberately — removing it silently inverts the
@@ -1955,7 +1958,7 @@ condition became true, not the moment it was rendered:
 |---|---|
 | `expired` | `expiry_date` — the day it expired |
 | `expiring` | `expiry_date − EXPIRY_SOON_DAYS` — when it entered the 30-day horizon |
-| `need_to_return` | `expiry_date − 120` (medicine) or `− NON_PHARMA_RETURN_WINDOW_DAYS` — `returnWindowOpenedAt()`, mirroring `ProductBatch::is_returnable` |
+| `need_to_return` | `expiry_date − 120` (medicine) or `− $product->non_pharma_return_window_days` (10, or 30 for Baby Care / Vitamins & Supplements) — `returnWindowOpenedAt()`, mirroring `ProductBatch::is_returnable` |
 | `low_stock` | `max(batches.updated_at)` — when stock last moved |
 | audit rows | `created_at` |
 
@@ -2633,8 +2636,9 @@ not to return. `is_returnable` is true for medicine only while *inside* the wind
 
 `ProductBatch::$return_status` implements the **pharma 90/120 rule only** — its docblock asks each
 consumer to make the category check itself. `ProductBatch::$is_returnable` is that check, in one
-place: it applies the 90-120 day window for medicine and the plain
-`NON_PHARMA_RETURN_WINDOW_DAYS` expiry rule for everything else. **Use it for any "Mark Returned"
+place: it applies the 90-120 day window for medicine and, for everything else, the plain expiry rule
+at `$product->non_pharma_return_window_days` — 10 days flat, or 30 for Baby Care and Vitamins &
+Supplements (`Product::EXTENDED_RETURN_WINDOW_CATEGORIES`). **Use it for any "Mark Returned"
 control.** Both views used to gate the button on `$product->is_medicine` and render nothing
 otherwise, so a non-pharma product could show a "Need to Return" badge with no way to act on it
 while every "Fail to Return" row (pharma by definition) had a button — which read as the button

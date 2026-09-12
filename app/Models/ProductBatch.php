@@ -448,7 +448,7 @@ class ProductBatch extends Model
         }
 
         $window = ($this->product && ! $this->product->is_medicine)
-            ? Product::NON_PHARMA_RETURN_WINDOW_DAYS
+            ? $this->product->non_pharma_return_window_days
             : 90;
 
         // Same today()-not-now() rule as days_to_expiry: a partial day must
@@ -569,7 +569,7 @@ class ProductBatch extends Model
 
             if ($this->product && ! $this->product->is_medicine) {
                 return $this->is_expired
-                    || $this->days_to_expiry <= Product::NON_PHARMA_RETURN_WINDOW_DAYS;
+                    || $this->days_to_expiry <= $this->product->non_pharma_return_window_days;
             }
 
             return $this->needs_return;

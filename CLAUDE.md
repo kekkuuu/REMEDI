@@ -404,8 +404,15 @@ from the "Successfully Returned" figures and the Returned filter. In `DashboardC
 set. Keep that split, or zero-quantity returned stock starts counting as expired stock to pull.
 
 **Two expiry scales, and one of them is regulated.** Medicine gets a 90–120 day supplier *return*
-window (`ProductBatch::return_status` → Need/Fail/Successfully Returned); everything else gets a flat
-`Product::NON_PHARMA_RETURN_WINDOW_DAYS` (10). That is separate from expiry *severity*
+window (`ProductBatch::return_status` → Need/Fail/Successfully Returned); everything else reads
+`Product::getNonPharmaReturnWindowDaysAttribute()` — a flat `NON_PHARMA_RETURN_WINDOW_DAYS` (10) for
+most categories, but `EXTENDED_RETURN_WINDOW_DAYS` (30) for Baby Care and Vitamins & Supplements
+(`EXTENDED_RETURN_WINDOW_CATEGORIES`), both restricted/dated stock a supplier will take back further
+out than snacks or household goods. `Product::getNeedsReturnAttribute()`, `ProductBatch::$return_days`,
+`ProductBatch::$is_returnable`, `AlertService::returnWindowOpenedAt()` and `DashboardController`'s
+non-pharma tallies all read this one accessor rather than the constant directly, so a category can't
+disagree with itself across the bell, the toasts and both dashboards. This whole scale is separate
+from expiry *severity*
 (`EXPIRY_CRITICAL_DAYS` 7 / `SOON` 30 / `WATCH` 90) — by the time a batch is "expiring soon" it has
 already left the returnable window. `is_returnable` is the only accessor that applies the category
 check `return_status` asks callers to make; gate buttons on it, not on `is_medicine` + status.

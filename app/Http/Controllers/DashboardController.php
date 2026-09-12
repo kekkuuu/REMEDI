@@ -197,8 +197,9 @@ class DashboardController extends Controller
         // than Medicine/Pharmaceutical has no formal supplier return
         // window, so it's judged purely on default expiry date: already
         // expired (past due, should already have been pulled), or inside
-        // Product::NON_PHARMA_RETURN_WINDOW_DAYS of expiring (needs to be
-        // pulled soon). See Product::getNeedsReturnAttribute().
+        // $b->product->non_pharma_return_window_days of expiring (needs to
+        // be pulled soon) — 30 days for Baby Care / Vitamins & Supplements,
+        // 10 for everything else. See Product::getNeedsReturnAttribute().
         $nonPharmaBatches = $activeBatches->filter(fn ($b) => $b->product && ! $b->product->is_medicine && $b->expiry_date);
 
         // Three buckets, mutually exclusive, returned first -- the same shape
@@ -214,7 +215,7 @@ class DashboardController extends Controller
             'returned' => $nonPharmaBatches->filter(fn ($b) => $b->returned_at)->count(),
             'expired' => $nonPharmaBatches->filter(fn ($b) => ! $b->returned_at && $b->is_expired)->count(),
             'need_to_return' => $nonPharmaBatches->filter(fn ($b) => ! $b->returned_at && ! $b->is_expired
-                && $b->expiry_date->diffInDays(now(), true) <= Product::NON_PHARMA_RETURN_WINDOW_DAYS)->count(),
+                && $b->expiry_date->diffInDays(now(), true) <= $b->product->non_pharma_return_window_days)->count(),
         ];
 
         // "N batches inside the return window" under the ring — so it must
@@ -223,7 +224,7 @@ class DashboardController extends Controller
         $nonPharmaNeedToReturnBatches = $nonPharmaBatches
             ->filter(fn ($b) => ! $b->returned_at
                 && ($b->is_expired
-                    || $b->expiry_date->diffInDays(now(), true) <= Product::NON_PHARMA_RETURN_WINDOW_DAYS))
+                    || $b->expiry_date->diffInDays(now(), true) <= $b->product->non_pharma_return_window_days))
             ->sortBy('expiry_date')
             ->values();
 

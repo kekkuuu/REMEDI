@@ -320,6 +320,40 @@ class Product extends Model
     const NON_PHARMA_RETURN_WINDOW_DAYS = 10;
 
     /**
+     * Categories carrying a longer non-pharma return window than the flat
+     * default above.
+     *
+     * Baby Care and Vitamins & Supplements are both restricted, dated stock
+     * in the same way medicine is (formula and supplements are pulled by lot
+     * and expiry the same way drugs are), so a supplier will still take them
+     * back well before the 10-day line that works for snacks or household
+     * goods — but the flat window meant "Mark Returned", the bell, the
+     * toasts and both dashboard rings only ever caught them 10 days out,
+     * often too close to expiry for the return to actually go through.
+     */
+    const EXTENDED_RETURN_WINDOW_CATEGORIES = ['Baby Care', 'Vitamins & Supplements'];
+
+    /** The longer window those categories get instead of the flat default. */
+    const EXTENDED_RETURN_WINDOW_DAYS = 30;
+
+    /**
+     * The non-pharma return window THIS product is actually held to.
+     *
+     * The one place that resolves category -> window, so
+     * getNeedsReturnAttribute() below, ProductBatch::return_days,
+     * ProductBatch::is_returnable, AlertService::returnWindowOpenedAt() and
+     * DashboardController's non-pharma tallies all agree on the same number
+     * for the same product rather than each reading the flat constant
+     * directly.
+     */
+    public function getNonPharmaReturnWindowDaysAttribute(): int
+    {
+        return in_array($this->category?->name, self::EXTENDED_RETURN_WINDOW_CATEGORIES, true)
+            ? self::EXTENDED_RETURN_WINDOW_DAYS
+            : self::NON_PHARMA_RETURN_WINDOW_DAYS;
+    }
+
+    /**
      * No catalogued product is allowed to sit at zero stock.
      *
      * The supplier master file ships Stock = 0 for products that happened to
@@ -363,8 +397,10 @@ class Product extends Model
             }
 
             // today()-anchored via days_to_expiry, matching every other
-            // expiry calculation.
-            return $b->is_expired || $b->days_to_expiry <= self::NON_PHARMA_RETURN_WINDOW_DAYS;
+            // expiry calculation. $this is the product itself here, so its
+            // own category resolves the window (flat 10 days, or 30 for
+            // Baby Care / Vitamins & Supplements).
+            return $b->is_expired || $b->days_to_expiry <= $this->non_pharma_return_window_days;
         });
     }
 
