@@ -19,10 +19,14 @@
         <h4>Account Details</h4>
     </div>
 
+    {{-- data-confirm-strict: a stray click on the backdrop must not silently
+         discard the account (and the password just typed into it) -- see
+         the comment on the confirmModal mousedown handler in
+         layouts/app.blade.php. Cancel and Escape both still work. --}}
     <form method="POST" action="{{ route('register') }}"
           class="js-confirm" data-confirm-tone="neutral" data-confirm-icon="ti-user-plus"
           data-confirm-title="Create this account?" data-confirm-body="A new account will be created with the role selected above."
-          data-confirm-label="Create account">
+          data-confirm-label="Create account" data-confirm-strict="true">
         @csrf
 
         <div class="form-grid">

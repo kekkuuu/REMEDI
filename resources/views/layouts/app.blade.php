@@ -5135,7 +5135,15 @@
         cancelBtn.addEventListener('click', close);
 
         modal.addEventListener('mousedown', function (e) {
-            if (!panel.contains(e.target)) close();
+            if (panel.contains(e.target)) return;
+            // A form can opt out of backdrop-dismiss with
+            // data-confirm-strict -- Add New User does, since a stray
+            // outside click silently discarding an account (and the
+            // password just typed into it) is a worse failure mode here
+            // than on a reversible toggle or delete confirm. Escape and
+            // Cancel still work; only the click-outside shortcut is gone.
+            if (form && form.dataset.confirmStrict) return;
+            close();
         });
 
         document.addEventListener('keydown', function (e) {
