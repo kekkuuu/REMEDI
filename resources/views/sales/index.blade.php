@@ -80,6 +80,24 @@
     // today. Restored from the URL below so a reload or back/forward keeps it.
     let showingAll = new URLSearchParams(window.location.search).get('all') === '1';
 
+    // True once the visitor has actually TOUCHED a date field themselves --
+    // as opposed to the two inputs merely still holding the today-default
+    // the server pre-filled them with on page load. Without this
+    // distinction, a transaction-number search always carried whatever date
+    // happened to be sitting in those boxes: on a day the till hadn't rung
+    // anything up yet, EVERY search came back "No transactions found" no
+    // matter what was typed, which reads exactly like the search box being
+    // broken rather than like a narrow date filter doing its job. A
+    // transaction number is a targeted lookup -- SuggestController::sales()
+    // (the typeahead beside this same box) already searches with no date
+    // restriction at all -- so the live table search now matches it and
+    // ignores the still-default dates too, unless the visitor picked them
+    // on purpose.
+    let datesManuallySet = Boolean(
+        new URLSearchParams(window.location.search).get('start_date')
+        || new URLSearchParams(window.location.search).get('end_date')
+    );
+
     let searchDebounce;
     let searchController;
 
@@ -90,9 +108,17 @@
         const url = new URL(salesBaseUrl);
         const term = searchInput.value.trim();
         if (term) url.searchParams.set('search', term);
-        if (startDateInput.value) url.searchParams.set('start_date', startDateInput.value);
-        if (endDateInput.value) url.searchParams.set('end_date', endDateInput.value);
-        if (showingAll) url.searchParams.set('all', '1');
+
+        // A search with no manually-chosen date range searches ALL history,
+        // same as the typeahead beside this box -- see the comment on
+        // datesManuallySet above. Respected either way once the visitor has
+        // actually picked a date, so a deliberate "find this transaction
+        // last week" still narrows as expected.
+        if (datesManuallySet) {
+            if (startDateInput.value) url.searchParams.set('start_date', startDateInput.value);
+            if (endDateInput.value) url.searchParams.set('end_date', endDateInput.value);
+        }
+        if (showingAll || (term && ! datesManuallySet)) url.searchParams.set('all', '1');
 
         // Swap the stale rows for a skeleton so a search/filter reads as
 
@@ -145,9 +171,12 @@
     });
 
     // Date pickers fire far less often than typing, so no debounce needed
-    // — filter as soon as a date is picked or cleared.
-    startDateInput.addEventListener('change', () => runSalesSearch());
-    endDateInput.addEventListener('change', () => runSalesSearch());
+    // — filter as soon as a date is picked or cleared. Firing only on a
+    // real 'change' (never set programmatically below) is what makes this a
+    // reliable signal that the visitor chose the date themselves, as
+    // opposed to it merely holding the today-default from page load.
+    startDateInput.addEventListener('change', () => { datesManuallySet = true; runSalesSearch(); });
+    endDateInput.addEventListener('change', () => { datesManuallySet = true; runSalesSearch(); });
 
     document.getElementById('search-form').addEventListener('submit', (e) => {
         e.preventDefault();
@@ -160,6 +189,7 @@
         startDateInput.value = '';
         endDateInput.value = '';
         showingAll = false;
+        datesManuallySet = false;
         runSalesSearch();
     });
 
@@ -171,6 +201,7 @@
         startDateInput.value = '';
         endDateInput.value = '';
         showingAll = true;
+        datesManuallySet = false;
         runSalesSearch();
     });
 
@@ -197,6 +228,7 @@
         startDateInput.value = params.get('start_date') || '';
         endDateInput.value = params.get('end_date') || '';
         showingAll = params.get('all') === '1';
+        datesManuallySet = Boolean(params.get('start_date') || params.get('end_date'));
         runSalesSearch(false);
     });
 </script>
