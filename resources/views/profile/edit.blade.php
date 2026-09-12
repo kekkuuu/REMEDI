@@ -304,12 +304,13 @@
 
   <div class="profile-col">
     {{-- ── Identity card ──
-         Every row is a real column. The phone / language fields were added
-         by migration 2026_08_19_000002 and are edited in the form beside
-         this card, so what shows here is what the account holder entered
-         -- not a placeholder. A field left blank says so. (Department was
-         part of that same migration and is still a real, fillable column
-         -- it's just no longer shown or edited here.) --}}
+         Every row is a real column. The phone field was added by migration
+         2026_08_19_000002 and is edited in the form beside this card, so
+         what shows here is what the account holder entered -- not a
+         placeholder. A field left blank says so. (Department and
+         preferred_language were part of that same migration and are still
+         real, fillable columns -- they're just no longer shown or edited
+         here.) --}}
     <div class="card profile-card">
         <div class="profile-card-top">
             <div class="profile-avatar">{{ strtoupper(Str::substr($user->name, 0, 2)) }}</div>
@@ -704,23 +705,6 @@
                     <input id="phone" type="text" name="phone" value="{{ old('phone', $user->phone) }}"
                            placeholder="+63 912 345 6789">
                     @error('phone')<p class="err">{{ $message }}</p>@enderror
-                </div>
-
-                <div class="field">
-                    <label for="preferred_language">Preferred Language</label>
-                    @if($canEditAll)
-                        <select id="preferred_language" name="preferred_language">
-                            @foreach (['English', 'Filipino', 'Cebuano', 'Ilocano'] as $lang)
-                                <option value="{{ $lang }}" @selected(old('preferred_language', $user->preferred_language) === $lang)>{{ $lang }}</option>
-                            @endforeach
-                        </select>
-                        @error('preferred_language')<p class="err">{{ $message }}</p>@enderror
-                    @else
-                        <div class="field-locked">
-                            <input id="preferred_language" type="text" value="{{ $user->preferred_language }}" disabled>
-                            <i class="ti ti-lock" aria-hidden="true"></i>
-                        </div>
-                    @endif
                 </div>
 
                 {{-- Role is shown but not editable: this form belongs to the
