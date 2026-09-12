@@ -240,8 +240,13 @@
                 <option value="inactive" {{ $statusFilter === 'inactive' ? 'selected' : '' }}>Inactive</option>
             </select>
         </div>
+        {{-- No Apply button: both selects already re-run the search on
+             change (see the JS below), so it only ever re-submitted a
+             filter that had already applied. The form still has a real
+             submit control -- the search box's icon button above -- so a
+             no-JS visitor can still change role/status and click that to
+             apply them; nothing here relies on this button existing. --}}
         <div style="display:flex;gap:8px;">
-            <button type="submit" class="btn btn-primary btn-sm"><i class="ti ti-filter" aria-hidden="true"></i> Apply</button>
             @if($hasFilter || request('search'))
                 <a href="{{ route('users.index') }}" class="btn btn-secondary btn-sm">Clear</a>
             @endif
