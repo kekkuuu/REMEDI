@@ -22,11 +22,21 @@ class GenerateDemandForecast extends Command
         {--csv-path= : Path to a receiving-report CSV (only used with --source=csv)}
         {--xls-path= : Path to a receiving-report XLS (only used with --source=csv)}
         {--horizon=6 : Months ahead to forecast}
-        {--workers=0 : Parallel worker processes for model fitting (0 = auto, all cores but one; 1 = sequential)}
+        {--workers=1 : Parallel worker processes for model fitting (1 = sequential, the safe default -- see the note above handle(). 0 = auto, all cores but one; only pass that on a machine you know has the RAM for it.)}
         {--python=python3 : Python executable to use}';
 
     protected $description = 'Regenerate SARIMA demand forecasts for every product';
 
+    /**
+     * --workers defaults to 1 (sequential), not "auto". Auto reads
+     * os.cpu_count() in generate_forecasts.py -- which in a container reports
+     * the HOST's core count, not the container's actual memory allocation.
+     * That mismatch previously OOM-killed the container running this command
+     * unattended; Console\Kernel::schedule() now pins its nightly run to
+     * --workers=1 explicitly, and this default keeps a manual run just as
+     * safe without needing the flag remembered. Pass --workers=0 explicitly
+     * on a machine you know has the RAM for it.
+     */
     public function handle(): int
     {
         $source = $this->option('source');

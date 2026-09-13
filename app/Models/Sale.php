@@ -21,6 +21,10 @@ class Sale extends Model
         // writes false -- but sales taken before that keep their true value
         // so receipts and reports don't misreport them as normally paid.
         'payment_voided',
+        // One per checkout attempt, resent unchanged on a retry of that same
+        // attempt. See PosController::checkout() and the migration that adds
+        // the unique index this relies on.
+        'idempotency_key',
     ];
 
     protected $casts = [

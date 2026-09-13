@@ -172,8 +172,15 @@ php artisan forecast:generate --source=mysql --python=python
 php artisan sales-forecast:generate --source=mysql --python=python
 ```
 
-`--workers=1` forces sequential fitting when debugging a model change (default `0` = all cores but
-one). Python deps: `pip install -r resources/python/requirements.txt`.
+**Both commands default to `--workers=1` (sequential) as of 2026-09-13** -- previously `0` (auto, all
+cores but one), which reads `os.cpu_count()` in the Python script and in a container returns the
+HOST's core count, not the container's actual memory allocation. That mismatch is what OOM-killed the
+container the one time this ran unattended (`forecast:generate`'s nightly cron, hence
+`Kernel::schedule()` pinning `--workers=1` explicitly), and `sales-forecast:generate` had no scheduled
+run to learn the same lesson from -- it defaulted straight to the unsafe value and this file documented
+running it that way. Pass `--workers=0` explicitly for full parallel fitting on a machine you know has
+the RAM for it (safe locally under XAMPP; not on the ~1GB Railway container). Python deps:
+`pip install -r resources/python/requirements.txt`.
 
 ```bash
 php artisan logo:mark
@@ -319,8 +326,13 @@ local benchmark**: single-threaded, with `/dashboard` occupying it for 5–12s. 
 and then fails the 02:00 `forecast:generate` every night, silently, while the forecast pages keep
 serving whatever they last imported.
 
-Three things the entrypoint encodes, all of them rules from this file:
+Four things the entrypoint encodes, all of them rules from this file:
 
+- **It refuses to start if `APP_ENV=production` and `APP_DEBUG=true`.** That combination turns every
+  unhandled error into a page carrying a stack trace, the failing SQL, and (via Ignition's environment
+  tab) other env vars — DB credentials included — served to whoever's browser hit it. `APP_DEBUG=false`
+  being the documented value below is not a guard on its own; a variable left unset or mistyped in the
+  Railway dashboard would ship that page with nothing catching it. This is the enforcement.
 - **`config:cache` + `view:cache` only, never `php artisan optimize`** — that runs `route:cache`,
   which drops GET from `/` and locks everyone out at the login redirect.
 - **`migrate --force` only; seeding is a separate manual step.** The seeders read a ~15 MB CSV and

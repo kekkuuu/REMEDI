@@ -307,4 +307,84 @@ class CheckoutTest extends TestCase
         $this->assertSame($numbers, array_values(array_unique($numbers)));
         $this->assertSame([$prefix.'00001', $prefix.'00002', $prefix.'00003'], $numbers);
     }
+
+    /**
+     * Checkout has no request timeout and no idempotency guard was the
+     * standing critical finding: a hung response on a flaky connection left
+     * the cashier with no cancel/retry, and a reload or a second tap re-sent
+     * the same cart as a genuinely new request -- a second sale, a second
+     * FEFO deduction, a second charge. The POS page now generates one key per
+     * checkout attempt and resends it unchanged on a retry; this is the
+     * behaviour that guards against, exercised the way a real retry would
+     * hit it -- the exact same request, twice.
+     */
+    public function test_a_repeated_checkout_with_the_same_idempotency_key_does_not_create_a_second_sale(): void
+    {
+        $product = $this->product('Idempotent Item', '20.00', [
+            ['qty' => 10, 'expiry' => now()->addDays(100)->toDateString()],
+        ]);
+
+        $cashier = $this->cashier();
+        $payload = [
+            'items' => [['product_id' => $product->id, 'quantity' => 3]],
+            'amount_paid' => 60,
+            'idempotency_key' => 'test-key-'.uniqid(),
+        ];
+
+        $first = $this->actingAs($cashier)->postJson('/pos/checkout', $payload)
+            ->assertOk()
+            ->assertJson(['success' => true]);
+
+        // Same key, same cart -- exactly what the POS page sends when a
+        // network timeout leaves it unsure whether the first attempt landed.
+        $second = $this->actingAs($cashier)->postJson('/pos/checkout', $payload)
+            ->assertOk()
+            ->assertJson(['success' => true]);
+
+        $this->assertSame(
+            $first->json('transaction_no'),
+            $second->json('transaction_no'),
+            'a retried checkout must be answered with the ORIGINAL sale, not a new one'
+        );
+        $this->assertSame(1, Sale::count());
+
+        // Stock was deducted once, not twice.
+        $this->assertSame(7, (int) $product->fresh('batches')->sellable_stock);
+    }
+
+    /** The key scopes replay protection to ONE attempt -- it must never dedupe two real sales. */
+    public function test_two_different_idempotency_keys_both_produce_a_sale(): void
+    {
+        $product = $this->product('Distinct Key Item', '15.00', [
+            ['qty' => 10, 'expiry' => now()->addDays(100)->toDateString()],
+        ]);
+
+        $cashier = $this->cashier();
+
+        foreach (['key-one', 'key-two'] as $key) {
+            $this->actingAs($cashier)->postJson('/pos/checkout', [
+                'items' => [['product_id' => $product->id, 'quantity' => 1]],
+                'amount_paid' => 15,
+                'idempotency_key' => $key,
+            ])->assertOk()->assertJson(['success' => true]);
+        }
+
+        $this->assertSame(2, Sale::count());
+    }
+
+    /** A checkout with no key at all -- the no-JavaScript fallback form -- still works, unguarded. */
+    public function test_a_checkout_with_no_idempotency_key_still_succeeds(): void
+    {
+        $product = $this->product('No Key Item', '15.00', [
+            ['qty' => 10, 'expiry' => now()->addDays(100)->toDateString()],
+        ]);
+
+        $this->actingAs($this->cashier())->postJson('/pos/checkout', [
+            'items' => [['product_id' => $product->id, 'quantity' => 1]],
+            'amount_paid' => 15,
+        ])->assertOk()->assertJson(['success' => true]);
+
+        $this->assertSame(1, Sale::count());
+        $this->assertNull(Sale::latest('id')->first()->idempotency_key);
+    }
 }

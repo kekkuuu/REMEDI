@@ -22,11 +22,21 @@ class GenerateSalesForecast extends Command
         {--sales-csv= : Path to a sales_history CSV (only used with --source=csv)}
         {--price-csv= : Path to the product master CSV, for unit-price -> revenue conversion (only used with --source=csv)}
         {--horizon=6 : Months ahead to forecast}
-        {--workers=0 : Parallel worker processes for model fitting (0 = auto, all cores but one; 1 = sequential)}
+        {--workers=1 : Parallel worker processes for model fitting (1 = sequential, the safe default -- see the note above handle(). 0 = auto, all cores but one; only pass that on a machine you know has the RAM for it.)}
         {--python=python3 : Python executable to use}';
 
     protected $description = 'Regenerate unit + revenue sales forecasts for every product, from actual sales history';
 
+    /**
+     * --workers defaults to 1 (sequential), not "auto", because auto reads
+     * os.cpu_count() in generate_sales_forecast.py -- which in a container
+     * reports the HOST's core count, not the container's actual memory
+     * allocation. That mismatch is exactly what forced forecast:generate's
+     * scheduled run onto --workers=1 after it OOM-killed the container (see
+     * Console\Kernel::schedule()); this command had no scheduled counterpart
+     * to learn that from and defaulted to the same unsafe "auto" until now.
+     * Pass --workers=0 explicitly on a machine you know has the RAM for it.
+     */
     public function handle(): int
     {
         $source = $this->option('source');

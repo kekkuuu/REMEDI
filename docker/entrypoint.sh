@@ -10,6 +10,33 @@ set -e
 
 echo "==> REMEDI boot"
 
+# ── Refuse to serve a debug-enabled production container ───────────────────
+# APP_DEBUG=true turns every unhandled error into a page carrying a full
+# stack trace, the offending SQL, and (via Ignition's environment tab) other
+# env vars -- DB credentials included -- to whoever's browser hit it. Railway
+# is documented (docs/DEPLOY-RAILWAY.md) to set APP_DEBUG=false, but a
+# document is not a guard: a variable left unset, typo'd, or copied from a
+# local .env during a dashboard edit would ship exactly that page to the
+# public internet with nothing here to notice. This container refuses to
+# start rather than trust the variable was set correctly elsewhere. Only
+# guards APP_ENV=production -- local/staging containers may legitimately run
+# with debug on.
+#
+# Matches true/1/(true) -- not just the literal string "true" -- because
+# config/app.php reads this as `(bool) env('APP_DEBUG', false)` and PHP casts
+# the string "1" to true same as "true", so a variable set as APP_DEBUG=1
+# enables debug mode in Laravel just as surely and must be caught the same way.
+case "${APP_DEBUG}" in
+    true | 1 | '(true)')
+        if [ "${APP_ENV}" = "production" ]; then
+            echo "!! refusing to start: APP_ENV=production with APP_DEBUG=${APP_DEBUG}"
+            echo "!! this would serve stack traces, SQL, and environment variables to every visitor"
+            echo "!! set APP_DEBUG=false (or unset it) in the Railway service variables"
+            exit 1
+        fi
+        ;;
+esac
+
 # ── Wait for the database ──────────────────────────────────────────────────
 # Railway starts the app and MySQL together, so the first migrate can land
 # before the database accepts connections. Twelve tries at five seconds is a

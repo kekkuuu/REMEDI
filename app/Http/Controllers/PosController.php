@@ -6,37 +6,39 @@ use App\Models\AuditTrail;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleItem;
+use App\Models\SalesHistory;
+use App\Services\AlertService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
 class PosController extends Controller
 {
-public function index(Request $request)
-{
-    $query = Product::with('batches');
+    public function index(Request $request)
+    {
+        $query = Product::with('batches');
 
-    if ($request->filled('search')) {
-        // likeTerm() escapes the user's own % and _ — see Controller.
-        $like = $this->likeTerm($request->search);
-        $query->where(function ($q) use ($like) {
-            $q->where('name', 'like', $like)
-              ->orWhere('sku', 'like', $like)
-              ->orWhere('barcode', 'like', $like);
-        });
+        if ($request->filled('search')) {
+            // likeTerm() escapes the user's own % and _ — see Controller.
+            $like = $this->likeTerm($request->search);
+            $query->where(function ($q) use ($like) {
+                $q->where('name', 'like', $like)
+                    ->orWhere('sku', 'like', $like)
+                    ->orWhere('barcode', 'like', $like);
+            });
+        }
+
+        $products = $query->orderBy('name')->paginate(12)->withQueryString();
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json([
+                'html' => view('pos._grid', compact('products'))->render(),
+                'pagination' => (string) $products->links(),
+            ]);
+        }
+
+        return view('pos.index', compact('products'));
     }
-
-    $products = $query->orderBy('name')->paginate(12)->withQueryString();
-
-    if ($request->wantsJson() || $request->ajax()) {
-        return response()->json([
-            'html' => view('pos._grid', compact('products'))->render(),
-            'pagination' => (string) $products->links(),
-        ]);
-    }
-
-    return view('pos.index', compact('products'));
-}
 
     /**
      * Look up a single product by its barcode.
@@ -59,7 +61,7 @@ public function index(Request $request)
             ->orWhere('sku', $code)
             ->first();
 
-        if (!$product) {
+        if (! $product) {
             return response()->json(['found' => false], 404);
         }
 
@@ -104,7 +106,30 @@ public function index(Request $request)
             // max: the column is decimal(10,2) and MySQL is strict, so an
             // unbounded amount was a 500 at the register. See MAX_MONEY.
             'amount_paid' => 'nullable|numeric|min:0|max:'.self::MAX_MONEY,
+            // Generated once by the POS page when the payment modal opens and
+            // resent UNCHANGED on every retry of that same attempt — a network
+            // timeout, a double-tap on Checkout, a resubmission after
+            // "insufficient payment". Nullable: the no-JavaScript fallback
+            // form has no way to generate one, and a checkout with no key
+            // simply gets no replay protection, same as before this existed.
+            'idempotency_key' => 'nullable|string|max:64',
         ]);
+
+        $idempotencyKey = $validated['idempotency_key'] ?? null;
+
+        // This exact attempt already went through — either the response to it
+        // never reached the cashier (the timeout case) or this request lost a
+        // race started by its own retry. Answer with what actually happened
+        // instead of a second sale. Checkout cannot be retried blindly the
+        // way a GET can: unlike a search box re-running a query is never free
+        // here, it is a second stock deduction and a second charge.
+        if ($idempotencyKey) {
+            $existing = Sale::where('idempotency_key', $idempotencyKey)->first();
+
+            if ($existing) {
+                return $this->checkoutSuccessResponse($request, $existing);
+            }
+        }
 
         // Retry the whole checkout if two registers race to the same
         // transaction number. Sale::nextTransactionNo()'s row lock serialises
@@ -116,210 +141,237 @@ public function index(Request $request)
         // back by the time the exception surfaces, so no stock was deducted and
         // re-running is not a double sale. Bounded, because a duplicate key
         // that is NOT the sequence racing would otherwise spin forever.
-        $result = $this->withTransactionNoRetry(fn () => DB::transaction(function () use ($validated, $request) {
-            $totalAmount = 0;
-            $lineItems = [];
+        try {
+            $result = $this->withTransactionNoRetry(fn () => DB::transaction(function () use ($validated, $request, $idempotencyKey) {
+                $totalAmount = 0;
+                $lineItems = [];
 
-            // Total the request PER PRODUCT before checking anything.
-            //
-            // The check used to run per line against that line's quantity
-            // alone, so a cart naming the same product twice slipped through:
-            // 6 units in stock, lines of 5 and 5, each compared 5 <= 6 and
-            // passed. The customer was billed for all 10, FEFO could only
-            // deduct 6, and the loop below simply ran out of batches and
-            // stopped — no error. Measured: charged ₱1,000, delivered ₱600,
-            // and the receipt printed "6 × ₱100.00" above a "Total ₱1,000.00"
-            // with change calculated on the inflated figure. A ₱400 overcharge
-            // on a receipt that does not add up.
-            $requestedByProduct = [];
+                // Total the request PER PRODUCT before checking anything.
+                //
+                // The check used to run per line against that line's quantity
+                // alone, so a cart naming the same product twice slipped through:
+                // 6 units in stock, lines of 5 and 5, each compared 5 <= 6 and
+                // passed. The customer was billed for all 10, FEFO could only
+                // deduct 6, and the loop below simply ran out of batches and
+                // stopped — no error. Measured: charged ₱1,000, delivered ₱600,
+                // and the receipt printed "6 × ₱100.00" above a "Total ₱1,000.00"
+                // with change calculated on the inflated figure. A ₱400 overcharge
+                // on a receipt that does not add up.
+                $requestedByProduct = [];
 
-            foreach ($validated['items'] as $item) {
-                $id = (int) $item['product_id'];
-                $requestedByProduct[$id] = ($requestedByProduct[$id] ?? 0) + (int) $item['quantity'];
-            }
+                foreach ($validated['items'] as $item) {
+                    $id = (int) $item['product_id'];
+                    $requestedByProduct[$id] = ($requestedByProduct[$id] ?? 0) + (int) $item['quantity'];
+                }
 
-            foreach ($requestedByProduct as $productId => $totalRequested) {
-                $product = Product::findOrFail($productId);
+                foreach ($requestedByProduct as $productId => $totalRequested) {
+                    $product = Product::findOrFail($productId);
 
-                // sellable_stock, not total_stock: expired and returned batches
-                // are physically on the shelf (or gone to the supplier) but must
-                // never be dispensed. The FEFO walk below draws from the same
-                // definition, so the figure quoted here and the stock actually
-                // deducted cannot disagree.
-                $available = $product->sellable_stock;
+                    // sellable_stock, not total_stock: expired and returned batches
+                    // are physically on the shelf (or gone to the supplier) but must
+                    // never be dispensed. The FEFO walk below draws from the same
+                    // definition, so the figure quoted here and the stock actually
+                    // deducted cannot disagree.
+                    $available = $product->sellable_stock;
 
-                if ($available < $totalRequested) {
-                    return [
-                        'error' => "Not enough stock for {$product->name}. Available: {$available}, Requested: {$totalRequested}",
+                    if ($available < $totalRequested) {
+                        return [
+                            'error' => "Not enough stock for {$product->name}. Available: {$available}, Requested: {$totalRequested}",
+                        ];
+                    }
+                }
+
+                foreach ($validated['items'] as $item) {
+                    $product = Product::findOrFail($item['product_id']);
+                    $requestedQty = (int) $item['quantity'];
+
+                    // Round each line to centavos as it is computed, not just at
+                    // the end. sale_items.subtotal is decimal(10,2) so MySQL rounds
+                    // on the way in regardless — rounding here keeps the running
+                    // total equal to the sum of the stored line subtotals, which is
+                    // the invariant a receipt has to satisfy.
+                    $subtotal = round((float) $product->selling_price * $requestedQty, 2);
+                    $totalAmount = round($totalAmount + $subtotal, 2);
+
+                    $lineItems[] = [
+                        'product' => $product,
+                        'quantity' => $requestedQty,
+                        'price' => $product->selling_price,
+                        'subtotal' => $subtotal,
                     ];
                 }
-            }
 
-            foreach ($validated['items'] as $item) {
-                $product = Product::findOrFail($item['product_id']);
-                $requestedQty = (int) $item['quantity'];
+                // The customer's payment is always required -- there is no
+                // supervisor bypass. (Sales recorded before that bypass was
+                // removed still carry payment_voided = true; the column and the
+                // receipt's VOIDED line are kept so that history stays readable.)
+                $amountPaid = $validated['amount_paid'] ?? null;
 
-                // Round each line to centavos as it is computed, not just at
-                // the end. sale_items.subtotal is decimal(10,2) so MySQL rounds
-                // on the way in regardless — rounding here keeps the running
-                // total equal to the sum of the stored line subtotals, which is
-                // the invariant a receipt has to satisfy.
-                $subtotal = round((float) $product->selling_price * $requestedQty, 2);
-                $totalAmount = round($totalAmount + $subtotal, 2);
+                if ($amountPaid === null) {
+                    return [
+                        'error' => "Customer's payment is required before checkout. Enter the amount received.",
+                    ];
+                }
 
-                $lineItems[] = [
-                    'product' => $product,
-                    'quantity' => $requestedQty,
-                    'price' => $product->selling_price,
-                    'subtotal' => $subtotal,
-                ];
-            }
+                $amountPaid = round((float) $amountPaid, 2);
 
-            // The customer's payment is always required -- there is no
-            // supervisor bypass. (Sales recorded before that bypass was
-            // removed still carry payment_voided = true; the column and the
-            // receipt's VOIDED line are kept so that history stays readable.)
-            $amountPaid = $validated['amount_paid'] ?? null;
-
-            if ($amountPaid === null) {
-                return [
-                    'error' => "Customer's payment is required before checkout. Enter the amount received.",
-                ];
-            }
-
-            $amountPaid = round((float) $amountPaid, 2);
-
-            // Compare in whole centavos, never as raw floats.
-            //
-            // selling_price comes back from MySQL as a string, and "1.05" * 3
-            // is 3.1500000000000004 in binary floating point. So a customer
-            // tendering exactly ₱3.15 was refused — with the message
-            // "Insufficient payment. Amount due: 3.15, Received: 3.15", two
-            // identical numbers and no way for the cashier to work out what was
-            // wrong. 1,613 price x quantity combinations in this catalogue land
-            // on a total that cannot be paid exactly.
-            //
-            // Integer centavos rather than round()-then-compare: rounding both
-            // sides fixes this case, but comparing integers is exact by
-            // construction and cannot drift again as the arithmetic grows.
-            if ((int) round($amountPaid * 100) < (int) round($totalAmount * 100)) {
-                return [
-                    'error' => 'Insufficient payment. Amount due: ' . number_format($totalAmount, 2) . ', Received: ' . number_format($amountPaid, 2),
-                ];
-            }
-
-            $sale = Sale::create([
-                // Per-day sequence, read under a row lock. See
-                // Sale::nextTransactionNo() for why the old Sale::count()+1
-                // could hand out a number the day had already used.
-                'transaction_no' => Sale::nextTransactionNo(),
-                'user_id' => $request->user()->id,
-                'total_amount' => $totalAmount,
-                'amount_paid' => $amountPaid,
-                // Rounded like the rest: the subtraction of two floats is where
-                // a stray fraction of a centavo would otherwise land in the
-                // drawer figure the cashier reads back to the customer.
-                'change_due' => round($amountPaid - $totalAmount, 2),
-                'payment_voided' => false,
-            ]);
-
-            foreach ($lineItems as $line) {
-                $remainingQty = $line['quantity'];
-
-                // FEFO over SELLABLE batches only. Ordering by expiry ascending
-                // is right for rotation, but on its own it made the register
-                // reach for the most-expired batch first -- see
-                // ProductBatch::scopeSellable().
+                // Compare in whole centavos, never as raw floats.
                 //
-                // lockForUpdate(): without it, two registers selling the last
-                // units of the same batch both read the pre-sale quantity,
-                // both compute a deductQty that fits, and both decrement --
-                // the second UPDATE reads a fresh (already-decremented) row
-                // under the hood, so the column can go negative with neither
-                // request ever seeing $remainingQty > 0. Locking these rows
-                // makes the second transaction block until the first commits,
-                // so it reads the TRUE remaining quantity and the assertion
-                // below can actually catch it. Same pattern as
-                // Sale::nextTransactionNo() and ProductBatch::nextBatchNumber().
-                $batches = $line['product']->batches()
-                    ->sellable()
-                    ->orderBy('expiry_date', 'asc')
-                    ->lockForUpdate()
-                    ->get();
+                // selling_price comes back from MySQL as a string, and "1.05" * 3
+                // is 3.1500000000000004 in binary floating point. So a customer
+                // tendering exactly ₱3.15 was refused — with the message
+                // "Insufficient payment. Amount due: 3.15, Received: 3.15", two
+                // identical numbers and no way for the cashier to work out what was
+                // wrong. 1,613 price x quantity combinations in this catalogue land
+                // on a total that cannot be paid exactly.
+                //
+                // Integer centavos rather than round()-then-compare: rounding both
+                // sides fixes this case, but comparing integers is exact by
+                // construction and cannot drift again as the arithmetic grows.
+                if ((int) round($amountPaid * 100) < (int) round($totalAmount * 100)) {
+                    return [
+                        'error' => 'Insufficient payment. Amount due: '.number_format($totalAmount, 2).', Received: '.number_format($amountPaid, 2),
+                    ];
+                }
 
-                foreach ($batches as $batch) {
-                    if ($remainingQty <= 0) {
-                        break;
+                $sale = Sale::create([
+                    // Per-day sequence, read under a row lock. See
+                    // Sale::nextTransactionNo() for why the old Sale::count()+1
+                    // could hand out a number the day had already used.
+                    'transaction_no' => Sale::nextTransactionNo(),
+                    'user_id' => $request->user()->id,
+                    'total_amount' => $totalAmount,
+                    'amount_paid' => $amountPaid,
+                    // Rounded like the rest: the subtraction of two floats is where
+                    // a stray fraction of a centavo would otherwise land in the
+                    // drawer figure the cashier reads back to the customer.
+                    'change_due' => round($amountPaid - $totalAmount, 2),
+                    'payment_voided' => false,
+                    'idempotency_key' => $idempotencyKey,
+                ]);
+
+                foreach ($lineItems as $line) {
+                    $remainingQty = $line['quantity'];
+
+                    // FEFO over SELLABLE batches only. Ordering by expiry ascending
+                    // is right for rotation, but on its own it made the register
+                    // reach for the most-expired batch first -- see
+                    // ProductBatch::scopeSellable().
+                    //
+                    // lockForUpdate(): without it, two registers selling the last
+                    // units of the same batch both read the pre-sale quantity,
+                    // both compute a deductQty that fits, and both decrement --
+                    // the second UPDATE reads a fresh (already-decremented) row
+                    // under the hood, so the column can go negative with neither
+                    // request ever seeing $remainingQty > 0. Locking these rows
+                    // makes the second transaction block until the first commits,
+                    // so it reads the TRUE remaining quantity and the assertion
+                    // below can actually catch it. Same pattern as
+                    // Sale::nextTransactionNo() and ProductBatch::nextBatchNumber().
+                    $batches = $line['product']->batches()
+                        ->sellable()
+                        ->orderBy('expiry_date', 'asc')
+                        ->lockForUpdate()
+                        ->get();
+
+                    foreach ($batches as $batch) {
+                        if ($remainingQty <= 0) {
+                            break;
+                        }
+
+                        $deductQty = min($batch->quantity, $remainingQty);
+
+                        SaleItem::create([
+                            'sale_id' => $sale->id,
+                            'product_id' => $line['product']->id,
+                            'product_batch_id' => $batch->id,
+                            'quantity' => $deductQty,
+                            'price' => $line['price'],
+                            'subtotal' => $line['price'] * $deductQty,
+                        ]);
+
+                        $batch->decrement('quantity', $deductQty);
+                        $remainingQty -= $deductQty;
                     }
 
-                    $deductQty = min($batch->quantity, $remainingQty);
-
-                    SaleItem::create([
-                        'sale_id' => $sale->id,
-                        'product_id' => $line['product']->id,
-                        'product_batch_id' => $batch->id,
-                        'quantity' => $deductQty,
-                        'price' => $line['price'],
-                        'subtotal' => $line['price'] * $deductQty,
-                    ]);
-
-                    $batch->decrement('quantity', $deductQty);
-                    $remainingQty -= $deductQty;
+                    // The batches ran out before the line was filled. The aggregate
+                    // check above should make this unreachable, but it is the
+                    // invariant that actually matters — never bill for stock that
+                    // was not deducted — so it is asserted here rather than
+                    // assumed. It also covers the case the pre-check cannot: stock
+                    // moving between the check and this loop, e.g. a second
+                    // register selling the same product concurrently.
+                    //
+                    // Returning an error rolls the whole DB::transaction back, so
+                    // the sale, its line items and every decrement are undone
+                    // together. Previously the loop just ended and the customer was
+                    // charged the full amount for a partial delivery.
+                    if ($remainingQty > 0) {
+                        return [
+                            'error' => "Stock for {$line['product']->name} changed during checkout. "
+                                .'Available: '.($line['quantity'] - $remainingQty).', Requested: '.$line['quantity']
+                                .'. Nothing was charged — please retry.',
+                        ];
+                    }
                 }
 
-                // The batches ran out before the line was filled. The aggregate
-                // check above should make this unreachable, but it is the
-                // invariant that actually matters — never bill for stock that
-                // was not deducted — so it is asserted here rather than
-                // assumed. It also covers the case the pre-check cannot: stock
-                // moving between the check and this loop, e.g. a second
-                // register selling the same product concurrently.
-                //
-                // Returning an error rolls the whole DB::transaction back, so
-                // the sale, its line items and every decrement are undone
-                // together. Previously the loop just ended and the customer was
-                // charged the full amount for a partial delivery.
-                if ($remainingQty > 0) {
-                    return [
-                        'error' => "Stock for {$line['product']->name} changed during checkout. "
-                            .'Available: '.($line['quantity'] - $remainingQty).', Requested: '.$line['quantity']
-                            .'. Nothing was charged — please retry.',
-                    ];
-                }
+                AuditTrail::log('Created', "Processed sale {$sale->transaction_no} - Total: \u{20B1}".number_format($totalAmount, 2));
+
+                // Reports merge live POS takings into their trends, so a new sale
+                // makes those cached aggregates stale immediately.
+                SalesHistory::bumpCacheVersion();
+
+                // Checkout deducts stock, which can push a product below its
+                // reorder level. Drop the bell's cached payload so the next poll
+                // recomputes rather than showing the pre-sale count for up to
+                // AlertService::TTL_SECONDS.
+                AlertService::forget();
+
+                return ['sale' => $sale];
+            }));
+        } catch (QueryException $e) {
+            // The other side of the race the pre-check above cannot close on
+            // its own: two requests carrying the same key can both pass "does
+            // this exist yet?" before either commits. InnoDB holds the second
+            // INSERT until the first transaction resolves, so by the time
+            // this fires the winner is guaranteed to have committed already —
+            // look it up and answer with that, not a second sale. Same shape
+            // as withTransactionNoRetry()'s own duplicate-key check just
+            // above, for the OTHER unique column checkout can collide on.
+            $isIdempotencyClash = $idempotencyKey
+                && $e->getCode() === '23000'
+                && str_contains($e->getMessage(), 'idempotency_key');
+
+            if (! $isIdempotencyClash) {
+                throw $e;
             }
 
-            AuditTrail::log('Created', "Processed sale {$sale->transaction_no} - Total: \u{20B1}" . number_format($totalAmount, 2));
-
-            // Reports merge live POS takings into their trends, so a new sale
-            // makes those cached aggregates stale immediately.
-            \App\Models\SalesHistory::bumpCacheVersion();
-
-            // Checkout deducts stock, which can push a product below its
-            // reorder level. Drop the bell's cached payload so the next poll
-            // recomputes rather than showing the pre-sale count for up to
-            // AlertService::TTL_SECONDS.
-            \App\Services\AlertService::forget();
-
-            return ['sale' => $sale];
-        }));
-
-        $wantsJson = $request->wantsJson() || $request->ajax();
+            return $this->checkoutSuccessResponse($request, Sale::where('idempotency_key', $idempotencyKey)->firstOrFail());
+        }
 
         if (isset($result['error'])) {
-            if ($wantsJson) {
+            if ($request->wantsJson() || $request->ajax()) {
                 return response()->json(['success' => false, 'error' => $result['error']], 422);
             }
 
             return back()->withErrors(['items' => $result['error']]);
         }
 
-        $sale = $result['sale'];
+        return $this->checkoutSuccessResponse($request, $result['sale']);
+    }
 
+    /**
+     * The one success shape checkout ever answers with, whether this request
+     * just created the sale or is a retry being told what its earlier attempt
+     * already did.
+     */
+    private function checkoutSuccessResponse(Request $request, Sale $sale)
+    {
         // The POS page checks out over fetch() so the cashier never leaves
         // the register: it takes the rendered receipt back as JSON and shows
         // it in a modal. The redirect below is the no-JavaScript fallback,
         // and still what a plain form post gets.
-        if ($wantsJson) {
+        if ($request->wantsJson() || $request->ajax()) {
             $sale->load('items.product', 'user');
 
             return response()->json([

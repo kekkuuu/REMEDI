@@ -39,6 +39,9 @@ App service → **Variables** → **Raw editor**, and paste:
 APP_NAME=REMEDI
 APP_ENV=production
 APP_DEBUG=false
+# ^ enforced, not just documented -- docker/entrypoint.sh refuses to start
+#   the container if APP_ENV=production and this is true, rather than
+#   trusting it was set correctly here.
 APP_KEY=
 APP_URL=https://your-app.up.railway.app
 APP_TIMEZONE=Asia/Manila

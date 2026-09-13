@@ -279,6 +279,11 @@
             @csrf
             <div id="hidden-inputs"></div>
             <input type="hidden" name="amount_paid" id="amount-paid-hidden" value="">
+            {{-- One value per checkout ATTEMPT, not per request -- see the
+                 script below and PosController::checkout(). A retry of this
+                 same attempt (a timeout, a corrected payment amount) resends
+                 the same value on purpose. --}}
+            <input type="hidden" name="idempotency_key" id="idempotency-key-hidden" value="">
 
             <button type="button" class="btn btn-success" style="width:100%; margin-top:8px;" id="checkout-btn" disabled>Proceed to Payment</button>
         </form>
@@ -601,11 +606,32 @@
     const modalOverlay = document.getElementById('checkout-modal-overlay');
     const modalTotalEl = document.getElementById('modal-total');
     const checkoutForm = document.getElementById('checkout-form');
+    const idempotencyKeyHidden = document.getElementById('idempotency-key-hidden');
+
+    // Good enough entropy for a replay key -- not for anything cryptographic.
+    // randomUUID() needs a secure context (HTTPS, or localhost for local dev);
+    // the fallback covers a plain-HTTP LAN deployment where it is undefined.
+    function generateIdempotencyKey() {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+            return window.crypto.randomUUID();
+        }
+        return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+            const r = Math.random() * 16 | 0;
+            const v = c === 'x' ? r : (r & 0x3 | 0x8);
+            return v.toString(16);
+        });
+    }
 
     function openCheckoutModal() {
         if (Object.keys(cart).length === 0) return;
         modalTotalEl.innerText = cartTotal.toFixed(2);
         amountPaidInput.value = '';
+        // Generated HERE, not inside submitCheckout() -- a retry of this same
+        // attempt (a network timeout, a corrected payment amount after
+        // "insufficient payment") must resend the SAME key, or the one thing
+        // it exists to prevent -- a second sale for one cart -- happens
+        // anyway. See PosController::checkout().
+        idempotencyKeyHidden.value = generateIdempotencyKey();
         updatePaymentState();
         modalOverlay.style.display = 'flex';
         // preventScroll: the field is inside a fixed overlay, and revealing it
@@ -725,14 +751,27 @@
     // ===== Checkout =====
     // Posted over fetch() rather than a form navigation so a completed sale
     // leaves the cashier on the register with the receipt in a modal.
+    //
+    // CHECKOUT_TIMEOUT_MS: unlike a search box, a hung checkout request must
+    // not be left to spin forever with no cancel and no explanation -- the
+    // cashier cannot tell a slow network from a server that silently dropped
+    // the request, and either way the till just sits there. Aborting after a
+    // bound and saying so plainly is safe to do here specifically because the
+    // idempotency key below means a retry can never turn into a second sale.
+    const CHECKOUT_TIMEOUT_MS = 20000;
+
     function submitCheckout() {
         modalConfirmBtn.disabled = true;
         modalConfirmBtn.textContent = 'Processing...';
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), CHECKOUT_TIMEOUT_MS);
 
         fetch(checkoutForm.action, {
             method: 'POST',
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
             body: new FormData(checkoutForm),
+            signal: controller.signal,
         })
             .then(res => res.json().catch(() => null).then(data => ({ res, data })))
             .then(({ res, data }) => {
@@ -763,10 +802,19 @@
                 // so restore the button state first and write the error after,
                 // or the message is wiped the instant it's set.
                 updatePaymentState();
-                paymentStatusEl.textContent = err.message;
+                paymentStatusEl.textContent = err.name === 'AbortError'
+                    // The hidden field still carries the SAME idempotency key,
+                    // untouched by this failure -- clicking Checkout again
+                    // retries this exact attempt. If the first request actually
+                    // reached the server and went through, the server answers
+                    // the retry with that same sale instead of a second one, so
+                    // this is genuinely safe to tell the cashier to just do.
+                    ? 'No response from the server -- the connection may be slow. Safe to try again; it will not charge twice.'
+                    : err.message;
                 paymentStatusEl.style.color = '#dc2626';
             })
             .finally(() => {
+                clearTimeout(timeoutId);
                 modalConfirmBtn.textContent = 'Checkout';
             });
     }
