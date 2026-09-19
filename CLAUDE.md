@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (210 passed, 659 assertions — measured 2026-09-19) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (189 passed, 592 assertions — measured 2026-09-19) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -824,16 +824,6 @@ single day. The figures were right; the control described a filter that was not 
 range · Aug 20, 2026" option is now rendered, selected, when a custom range is driving the report. It
 carries the same empty value and is NOT disabled, so submitting untouched still lets the dates drive
 and choosing All time still clears them.
-
-**The Sales Report has Daily / Weekly / Monthly / Yearly quick ranges.** They are plain links carrying
-only `?period=`, resolved on the server by `ReportController::periodRange()` (the one definition) as
-"the current one, up to today" — Weekly is Monday to today, Monthly the 1st to today, Yearly January 1
-to today — anchored on `SalesHistory::reportableThrough()`, never on the last row of a table. Dates or
-a month set by the person beat a `period` carried beside them, the month picker reads "Weekly · Sep 14
-– Sep 19" rather than claiming "All time" (the `<select>` trap above), and an unknown period is a
-validation error, not ignored. The report page cannot be rendered by the sqlite suite (its aggregates
-are MySQL), so `SalesReportPeriodTest` pins `periodRange()` and the validation; check the page itself
-against MySQL.
 
 **The month picker and the date inputs are mutually exclusive — keep them that way.** The filter form
 submits every field it owns, so a month left selected rode along with a later date edit and won on
@@ -1645,23 +1635,6 @@ note above).
 computed accessor: `low_stock` by `sellable_stock` ascending, `expiring` by the earliest still-
 sellable batch, `expired` by the longest-expired batch. Sort on `sellable_stock`, never
 `total_stock` — a product with 300 expired units is not better stocked than one with 2 good ones.
-
-**The Inventory page (titled "Inventory Monitoring") has an Out of Stock tab and an expiry window.**
-`out_of_stock` is `total_stock <= 0` — the physical shelf, the same "nothing here" the report's badge
-and the bell's card use — so a shelf of only expired units is an Expired problem, not out of stock,
-and it is a SUBSET of Low Stock (whose count the bell links to and must keep agreeing with, so Low
-Stock was not narrowed). At zero the row badge reads "Out of Stock" instead of "Low Stock". The
-window — `expiry_month` (Y-m) or `expiry_from` / `expiry_to` — applies only on All, Expiring Soon
-and Expired (`InventoryController::EXPIRY_RANGE_FILTERS`; the other tabs are about stock levels and
-returns and ignore it). It means "holds stock expiring inside it"; **on Expiring Soon an explicit
-window REPLACES the 90/30-day horizon** (so "what expires next March" works), it never lists
-already-expired stock, and it is not clamped to today, because looking forward is the point. A
-from/to pair beats a month, a reversed pair is turned round, and unparseable input is dropped rather
-than 422'd (this feeds a live AJAX list) — the page echoes the window it actually APPLIED. The
-expiring/expired predicates are written once and used for both the filter and the sort. The expiry
-bar is always rendered and hidden on other tabs so a tab switch can reveal it without a reload; its
-boxes keep their values, so switching back restores the window. Not applied to the Inventory
-REPORT, whose status filter is a select.
 
 **User Management is search + Filter + four KPIs + a sortable table.** Three rules behind it, none
 cosmetic:

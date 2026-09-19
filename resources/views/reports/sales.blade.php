@@ -59,44 +59,6 @@
         </div>
     </div>
 
-    {{-- Quick ranges. Plain links carrying only `period`; the server resolves
-         them from today (ReportController::periodRange), so there is no
-         client-side date arithmetic to get wrong across midnight or a timezone.
-         Each shows the range it stands for, so "Weekly" is never a guess. The
-         month picker and the date inputs below remain for anything else. --}}
-    @php
-        $quickRanges = [
-            'daily' => ['Daily', 'ti-calendar-event', 'Today'],
-            'weekly' => ['Weekly', 'ti-calendar-week', 'This week, Monday to today'],
-            'monthly' => ['Monthly', 'ti-calendar-month', 'This month, 1st to today'],
-            'yearly' => ['Yearly', 'ti-calendar-stats', 'This year, January 1 to today'],
-        ];
-    @endphp
-    <div class="quick-ranges" role="group" aria-label="Quick date range">
-        @foreach($quickRanges as $key => [$label, $icon, $hint])
-            @php [$qs, $qe] = \App\Http\Controllers\ReportController::periodRange($key); @endphp
-            <a href="{{ route('reports.sales', ['period' => $key]) }}"
-               class="quick-range {{ $period === $key ? 'is-active' : '' }}"
-               title="{{ $hint }} ({{ \Carbon\Carbon::parse($qs)->format('M j') }}{{ $qs === $qe ? '' : ' – '.\Carbon\Carbon::parse($qe)->format('M j') }})"
-               @if($period === $key) aria-current="true" @endif>
-                <i class="ti {{ $icon }}" aria-hidden="true"></i> {{ $label }}
-            </a>
-        @endforeach
-    </div>
-    <style>
-        .quick-ranges { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
-        .quick-range {
-            display: inline-flex; align-items: center; gap: 6px;
-            padding: 8px 16px; border-radius: 999px;
-            border: 1px solid #d1d5db; background: #fff; color: #334155;
-            font-size: 13.5px; font-weight: 500; text-decoration: none;
-            transition: background .15s ease, border-color .15s ease, color .15s ease;
-        }
-        .quick-range:hover { background: #f1f5f9; border-color: #94a3b8; }
-        .quick-range.is-active { background: #10b981; border-color: #10b981; color: #fff; }
-        .quick-range:focus-visible { outline: 2px solid #10b981; outline-offset: 2px; }
-    </style>
-
     {{-- Filters. The month picker is the primary control (the data spans
          2024-2026); the date inputs remain for arbitrary ranges. Choosing a
          month overrides the dates server-side. --}}
@@ -122,10 +84,6 @@
                 // choosing All time must still clear them.
                 $customRange = ! $month && ! ($start === $dataStart && $end === $dataEnd);
 
-                // When a quick range drives the report the label says which, so
-                // the picker reads "Weekly · Sep 14 – Sep 19", not just a date.
-                $periodName = $period ? ucfirst($period).' · ' : 'Custom range · ';
-
                 $customLabel = $start === $end
                     ? \Carbon\Carbon::parse($start)->format('M j, Y')
                     : \Carbon\Carbon::parse($start)->format('M j').' – '.\Carbon\Carbon::parse($end)->format('M j, Y');
@@ -133,7 +91,7 @@
             <select name="month" class="report-select"
                     onchange="this.form.start_date.value=''; this.form.end_date.value=''; this.form.submit();">
                 @if($customRange)
-                    <option value="" selected>{{ $periodName }}{{ $customLabel }}</option>
+                    <option value="" selected>Custom range &middot; {{ $customLabel }}</option>
                 @endif
                 <option value="">All time ({{ \Carbon\Carbon::parse($dataStart)->format('M Y') }} &ndash; {{ \Carbon\Carbon::parse($dataEnd)->format('M Y') }})</option>
                 @foreach($months as $m)
@@ -166,7 +124,7 @@
             <button type="submit" class="btn btn-primary btn-sm">
                 <i class="ti ti-refresh" aria-hidden="true"></i> Generate
             </button>
-            @if($month || $period || request('start_date') || request('end_date'))
+            @if($month || request('start_date') || request('end_date'))
                 <a href="{{ route('reports.sales') }}" class="btn btn-secondary btn-sm">Clear</a>
             @endif
             {{-- No inline window.print(): see the script at the foot of this

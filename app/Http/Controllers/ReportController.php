@@ -100,35 +100,6 @@ class ReportController extends Controller
     }
 
     /**
-     * The quick ranges on the Sales Report: Daily, Weekly, Monthly, Yearly.
-     *
-     * Each is "the current one, up to today" rather than a rolling window --
-     * Weekly is Monday to today, Monthly the 1st to today, Yearly January 1 to
-     * today -- because that is what "this week's sales" means to someone
-     * closing it out, and because a calendar-aligned range is one they can
-     * reproduce by hand from the date pickers. Anchored on
-     * SalesHistory::reportableThrough() (today), never on the last row of a
-     * table: the imported record stops at the handoff, and a window anchored
-     * there would describe a period that ended weeks ago.
-     */
-    public const PERIODS = ['daily', 'weekly', 'monthly', 'yearly'];
-
-    /** @return array{0:string,1:string} [start, end] as Y-m-d */
-    public static function periodRange(string $period): array
-    {
-        $today = Carbon::parse(SalesHistory::reportableThrough());
-
-        $start = match ($period) {
-            'weekly' => $today->copy()->startOfWeek(Carbon::MONDAY),
-            'monthly' => $today->copy()->startOfMonth(),
-            'yearly' => $today->copy()->startOfYear(),
-            default => $today->copy(),
-        };
-
-        return [$start->toDateString(), $today->toDateString()];
-    }
-
-    /**
      * Normalise a user-supplied range into one the data can actually answer.
      *
      * clampEnd() only ever moved the END back, which is where the trouble was:
@@ -206,7 +177,6 @@ class ReportController extends Controller
             'start_date' => 'nullable|date',
             'end_date' => 'nullable|date',
             'month' => 'nullable|date_format:Y-m',
-            'period' => 'nullable|in:'.implode(',', self::PERIODS),
         ]);
 
         // Reports run off `sales_history` -- the imported sales record, which
@@ -233,22 +203,7 @@ class ReportController extends Controller
             $month = null;
         }
 
-        // The quick-range buttons (Daily / Weekly / Monthly / Yearly). They are
-        // plain links carrying only `period`, so a period can only arrive alone;
-        // if a hand-edited URL carries it beside dates or a month, the control
-        // the person actually set wins -- the same rule as month vs dates above.
-        $period = $request->get('period');
-        $quick = in_array($period, self::PERIODS, true)
-            && ! $request->filled('start_date')
-            && ! $request->filled('end_date')
-            && ! $request->filled('month')
-            ? $period
-            : null;
-
-        if ($quick) {
-            $month = null;
-            [$start, $end] = self::periodRange($quick);
-        } elseif ($month && preg_match('/^\d{4}-\d{2}$/', $month)) {
+        if ($month && preg_match('/^\d{4}-\d{2}$/', $month)) {
             $start = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
             $end = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
         } else {
@@ -322,7 +277,7 @@ class ReportController extends Controller
             'dailyBreakdown', 'months', 'month', 'totalUnits', 'activeDays',
             'dataStart', 'dataEnd', 'granularity', 'posTotal', 'historyTotal', 'posByBucket',
             'salesForPrint'
-        ) + ['period' => $quick];
+        );
     }
 
     public function inventory(Request $request)
