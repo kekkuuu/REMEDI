@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (189 passed, 592 assertions — measured 2026-09-19) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (194 passed, 603 assertions — measured 2026-09-19) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -824,6 +824,17 @@ single day. The figures were right; the control described a filter that was not 
 range · Aug 20, 2026" option is now rendered, selected, when a custom range is driving the report. It
 carries the same empty value and is NOT disabled, so submitting untouched still lets the dates drive
 and choosing All time still clears them.
+
+**The Sales Report has Daily / Weekly / Monthly / Yearly quick ranges, as a "Period" segmented control
+FIRST in the filter bar** (`.period-toggle`, sized level with `.report-select`, full width on phones).
+They are plain links carrying only `?period=`, resolved on the server by
+`ReportController::periodRange()` (the one definition) as "the current one, up to today" — Weekly is
+Monday to today, Monthly the 1st to today, Yearly January 1 to today — anchored on
+`SalesHistory::reportableThrough()`, never on the last row of a table. Dates or a month set by the
+person beat a `period` carried beside them, the month picker reads "Weekly · Sep 14 – Sep 19" rather
+than claiming "All time" (the `<select>` trap above), and an unknown period is a validation error, not
+ignored. The report page cannot be rendered by the sqlite suite (its aggregates are MySQL), so
+`SalesReportPeriodTest` pins `periodRange()` and the validation; check the page itself against MySQL.
 
 **The month picker and the date inputs are mutually exclusive — keep them that way.** The filter form
 submits every field it owns, so a month left selected rode along with a later date edit and won on

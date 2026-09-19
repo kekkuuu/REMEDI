@@ -8,6 +8,43 @@
 /* The printable report is a second, unpaginated copy of the whole dataset.
    Useful on paper, ruinous on screen — it made the page ~167 viewports tall.
    Screen uses the capped table above; this exists only for the printout. */
+/* Period: a segmented control sized to sit level with .report-select
+   (36px, same border and radius) so the four buttons and the three pickers
+   read as one row of filters. */
+.period-toggle {
+    display: inline-flex;
+    height: 36px;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    background: #fff;
+    overflow: hidden;
+}
+.period-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 14px;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: #334155;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: background .15s ease, color .15s ease;
+}
+.period-btn + .period-btn { border-left: 1px solid #d1d5db; }
+.period-btn i { font-size: 15px; color: #64748b; }
+.period-btn:hover { background: #f1f5f9; }
+.period-btn.is-active { background: var(--brand, #10b981); color: #fff; }
+.period-btn.is-active i { color: #fff; }
+.period-btn:focus-visible { outline: 2px solid var(--brand, #10b981); outline-offset: -2px; }
+@media (max-width: 767px) {
+    /* The shared .report-field goes full width on phones; let the segments
+       share it equally instead of huddling at the left. */
+    .period-toggle { display: flex; width: 100%; }
+    .period-btn { flex: 1 1 0; padding: 0 6px; }
+    .period-btn i { display: none; }
+}
 @media screen {
     #print-area { display: none; }
 }
@@ -63,6 +100,37 @@
          2024-2026); the date inputs remain for arbitrary ranges. Choosing a
          month overrides the dates server-side. --}}
     <form method="GET" action="{{ route('reports.sales') }}" class="report-filters" id="salesFilters">
+        {{-- Quick ranges, in the filter bar with the controls they stand in for.
+             Plain links carrying only `period`; the server resolves them from
+             today (ReportController::periodRange), so there is no client-side
+             date arithmetic to get wrong across midnight or a timezone. Each
+             says what it covers on hover, so "Weekly" is never a guess. The
+             month picker and the date inputs beside them remain for anything
+             else. Links, not form controls: clicking one is a navigation, and
+             it works with JavaScript off. --}}
+        @php
+            $quickRanges = [
+                'daily' => ['Daily', 'ti-calendar-event', 'Today'],
+                'weekly' => ['Weekly', 'ti-calendar-week', 'This week, Monday to today'],
+                'monthly' => ['Monthly', 'ti-calendar-month', 'This month, 1st to today'],
+                'yearly' => ['Yearly', 'ti-calendar-stats', 'This year, January 1 to today'],
+            ];
+        @endphp
+        <div class="report-field">
+            <label id="periodLabel">Period</label>
+            <div class="period-toggle" role="group" aria-labelledby="periodLabel">
+                @foreach($quickRanges as $key => [$label, $icon, $hint])
+                    @php [$qs, $qe] = \App\Http\Controllers\ReportController::periodRange($key); @endphp
+                    <a href="{{ route('reports.sales', ['period' => $key]) }}"
+                       class="period-btn {{ $period === $key ? 'is-active' : '' }}"
+                       title="{{ $hint }} ({{ \Carbon\Carbon::parse($qs)->format('M j') }}{{ $qs === $qe ? '' : ' – '.\Carbon\Carbon::parse($qe)->format('M j') }})"
+                       @if($period === $key) aria-current="true" @endif>
+                        <i class="ti {{ $icon }}" aria-hidden="true"></i><span>{{ $label }}</span>
+                    </a>
+                @endforeach
+            </div>
+        </div>
+
         <div class="report-field">
             <label>Month</label>
             {{-- Choosing a month clears the date inputs before submitting. The
@@ -84,6 +152,10 @@
                 // choosing All time must still clear them.
                 $customRange = ! $month && ! ($start === $dataStart && $end === $dataEnd);
 
+                // When a quick range drives the report the label says which, so
+                // the picker reads "Weekly · Sep 14 – Sep 19", not just a date.
+                $periodName = $period ? ucfirst($period).' · ' : 'Custom range · ';
+
                 $customLabel = $start === $end
                     ? \Carbon\Carbon::parse($start)->format('M j, Y')
                     : \Carbon\Carbon::parse($start)->format('M j').' – '.\Carbon\Carbon::parse($end)->format('M j, Y');
@@ -91,7 +163,7 @@
             <select name="month" class="report-select"
                     onchange="this.form.start_date.value=''; this.form.end_date.value=''; this.form.submit();">
                 @if($customRange)
-                    <option value="" selected>Custom range &middot; {{ $customLabel }}</option>
+                    <option value="" selected>{{ $periodName }}{{ $customLabel }}</option>
                 @endif
                 <option value="">All time ({{ \Carbon\Carbon::parse($dataStart)->format('M Y') }} &ndash; {{ \Carbon\Carbon::parse($dataEnd)->format('M Y') }})</option>
                 @foreach($months as $m)
@@ -124,7 +196,7 @@
             <button type="submit" class="btn btn-primary btn-sm">
                 <i class="ti ti-refresh" aria-hidden="true"></i> Generate
             </button>
-            @if($month || request('start_date') || request('end_date'))
+            @if($month || $period || request('start_date') || request('end_date'))
                 <a href="{{ route('reports.sales') }}" class="btn btn-secondary btn-sm">Clear</a>
             @endif
             {{-- No inline window.print(): see the script at the foot of this
