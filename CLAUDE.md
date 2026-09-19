@@ -339,6 +339,18 @@ Four things the entrypoint encodes, all of them rules from this file:
   insert ~122k history rows, and a second run collides on `(product_sku, sale_date)`.
 - It waits for the database (12 × 5s) before migrating, since Railway starts app and MySQL together.
 
+**The Vercel function's region must sit next to the DATABASE, and `vercel.json` pins it (`fra1`).**
+Sessions and the cache both live in the database there (`SESSION_DRIVER` / `CACHE_DRIVER=database`),
+so a page is ~25–30 round trips, and the function defaulted to `iad1` (Washington DC) while the
+Railway MySQL is in **Europe**. Measured 2026-09-19 with the same code and data: logged-in pages took
+3–4s and the dashboard body 6.6s on `iad1`, **4.5–8s on `sfo1`** (worse — it moved the function
+further from the DB), and **0.7–1.5s / 2.0s on `fra1`**, level with Railway. Evidence for "Europe":
+Manila → the DB proxy is a 230 ms round trip (`SELECT 1`, timed straight against the public proxy),
+and each step west→east of the function cost ~80 ms per query. Railway does not expose a service's
+region through its CLI, so if the database ever moves, re-derive it the same way (time `SELECT 1`
+from two places, then try a Vercel region and time real pages) rather than guessing — the first guess
+here was US West and it was wrong.
+
 Migration `2026_09_02_000001_create_sessions_and_cache_tables` exists for this deploy and no-ops
 locally. **A container filesystem is rebuilt on every deploy and is not shared between instances**,
 so `CACHE_DRIVER=file` there means every deploy signs everyone out and two instances disagree about
