@@ -4,12 +4,16 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 
 class ProductBatch extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
+
+    /** Archived, not deleted -- see Product::DELETED_AT. */
+    public const DELETED_AT = 'archived_at';
 
     protected $fillable = [
         'product_id',
@@ -85,7 +89,7 @@ class ProductBatch extends Model
     // The user who marked this batch as returned to the supplier
     public function returnedBy()
     {
-        return $this->belongsTo(User::class, 'returned_by');
+        return $this->belongsTo(User::class, 'returned_by')->withTrashed();
     }
 
     /**

@@ -133,7 +133,11 @@ class DedupeOpeningStockBatches extends Command
 
         DB::transaction(function () use ($toDelete) {
             foreach (array_chunk(array_map(fn ($b) => $b->id, $toDelete), 500) as $chunk) {
-                ProductBatch::whereIn('id', $chunk)->delete();
+                // forceDelete, not the archive a plain delete() now is: these are
+                // duplicate rows an import wrote by mistake, not records anyone
+                // wants kept -- the command exists to make them go away, and
+                // only ever picks rows with no sales and no return behind them.
+                ProductBatch::whereIn('id', $chunk)->forceDelete();
             }
         });
 

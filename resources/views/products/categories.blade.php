@@ -113,17 +113,22 @@
 
                 <td>
                     <div class="cat-actions">
+                        {{-- Archive, not delete. Still refused while the category
+                             holds products (they would be left filed under a
+                             category nobody can pick), but nothing is removed and
+                             the category comes back from the list below. --}}
                         <form method="POST" action="{{ route('categories.destroy', $cat) }}"
                               class="js-confirm"
-                              data-confirm-title="Delete this category?"
-                              data-confirm-body="Delete the category &quot;{{ $cat->name }}&quot;? Only categories with no products can be removed."
-                              data-confirm-label="Delete"
-                              data-confirm-icon="ti-trash"
+                              data-confirm-title="Archive this category?"
+                              data-confirm-body="Archive the category &quot;{{ $cat->name }}&quot;? It is hidden from the pickers and the sidebar, and can be restored from the Archived list. Only categories with no products can be archived."
+                              data-confirm-label="Archive"
+                              data-confirm-icon="ti-archive"
+                              data-confirm-tone="neutral"
                               data-on-success="remove-row">
                             @csrf
                             @method('DELETE')
-                            <button type="submit" class="btn btn-danger-outline btn-sm">
-                                <i class="ti ti-trash" aria-hidden="true"></i> Delete
+                            <button type="submit" class="btn btn-secondary btn-sm">
+                                <i class="ti ti-archive" aria-hidden="true"></i> Archive
                             </button>
                         </form>
                     </div>
@@ -133,6 +138,40 @@
         </tbody>
     </table></div>
 </div>
+
+@if($archivedCategories->isNotEmpty())
+<div class="form-card" style="margin-top:20px;">
+    <h3 style="margin:0 0 4px; font-size:15px; font-weight:600;">
+        <i class="ti ti-archive" aria-hidden="true"></i> Archived categories
+    </h3>
+    <p class="cat-add-note" style="margin-bottom:12px;">Hidden from the pickers and the sidebar. Restore one to use it again.</p>
+    <div class="table-scroll"><table class="remedi-table">
+        <tbody>
+        @foreach($archivedCategories as $cat)
+            <tr>
+                <td>{{ $cat->name }}</td>
+                <td style="text-align:right;">
+                    <form method="POST" action="{{ route('categories.restore', $cat) }}"
+                          class="js-confirm"
+                          data-confirm-title="Restore this category?"
+                          data-confirm-body="Restore the category &quot;{{ $cat->name }}&quot;? It goes back on the pickers and the sidebar."
+                          data-confirm-label="Restore"
+                          data-confirm-icon="ti-archive-off"
+                          data-confirm-tone="neutral"
+                          data-on-success="reload">
+                        @csrf
+                        @method('PATCH')
+                        <button type="submit" class="btn btn-primary btn-sm">
+                            <i class="ti ti-archive-off" aria-hidden="true"></i> Restore
+                        </button>
+                    </form>
+                </td>
+            </tr>
+        @endforeach
+        </tbody>
+    </table></div>
+</div>
+@endif
 
 <style>
     .cat-add-note { margin: 0; font-size: 13.5px; color: var(--ink-soft); max-width: 62ch; }

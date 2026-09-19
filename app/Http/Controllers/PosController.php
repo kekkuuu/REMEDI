@@ -11,6 +11,7 @@ use App\Services\AlertService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class PosController extends Controller
 {
@@ -101,7 +102,9 @@ class PosController extends Controller
     {
         $validated = $request->validate([
             'items' => 'required|array|min:1',
-            'items.*.product_id' => 'required|exists:products,id',
+            // Not just any product row: an archived one is not sellable, and the
+            // soft-delete scope would otherwise turn it into a 404 mid-checkout.
+            'items.*.product_id' => ['required', Rule::exists('products', 'id')->whereNull('archived_at')],
             'items.*.quantity' => 'required|integer|min:1|max:'.self::MAX_COUNT,
             // max: the column is decimal(10,2) and MySQL is strict, so an
             // unbounded amount was a 500 at the register. See MAX_MONEY.

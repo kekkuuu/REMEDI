@@ -216,10 +216,26 @@
 
         <span class="spacer"></span>
 
-        <a href="{{ route('register') }}" class="btn btn-primary btn-lg">
-            <i class="ti ti-user-plus" aria-hidden="true"></i> Add User
-        </a>
+        @if($archived)
+            <a href="{{ route('users.index') }}" class="btn btn-secondary btn-lg">
+                <i class="ti ti-arrow-back-up" aria-hidden="true"></i> Active users
+            </a>
+        @else
+            <a href="{{ route('users.index', ['archived' => 1]) }}" class="btn btn-secondary btn-lg">
+                <i class="ti ti-archive" aria-hidden="true"></i> Archived{{ $archivedCount ? ' ('.$archivedCount.')' : '' }}
+            </a>
+            <a href="{{ route('register') }}" class="btn btn-primary btn-lg">
+                <i class="ti ti-user-plus" aria-hidden="true"></i> Add User
+            </a>
+        @endif
     </div>
+
+    @if($archived)
+        <p style="margin:0 0 12px; padding:10px 14px; background:#fffbeb; border:1px solid #fde68a; color:#92400e; border-radius:8px; font-size:13px;">
+            <i class="ti ti-archive" aria-hidden="true"></i>
+            Archived accounts cannot sign in. Their sales history is kept, and Restore puts an account back on the list.
+        </p>
+    @endif
 
     {{-- Rendered open when a filter is in force, so the controls that are
          narrowing the table are visible beside it. --}}
@@ -257,6 +273,10 @@
          link, so one place decides what a submit carries. --}}
     <input type="hidden" name="sort" value="{{ request('sort') }}">
     <input type="hidden" name="dir" value="{{ request('dir') }}">
+    {{-- Which list this is: a search or filter inside Archived must stay there. --}}
+    @if($archived)
+        <input type="hidden" name="archived" value="1">
+    @endif
 </form>
 
 {{-- Counted across ALL accounts, never the filtered slice — see
@@ -375,6 +395,7 @@
         if (status) url.searchParams.set('status', status);
         if (sort) url.searchParams.set('sort', sort);
         if (dir) url.searchParams.set('dir', dir);
+        if (form.elements.archived) url.searchParams.set('archived', '1');
 
         var restoreScroll = REMEDI.holdScroll();
         REMEDI.showListSkeleton(wrapper, { rows: 6 });

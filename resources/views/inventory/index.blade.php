@@ -101,6 +101,40 @@
     .filter-low_stock        { background: #fef9c3; color: #854d0e; border-color: #fef9c3; }
     .filter-low_stock.active { background: #ca8a04; color: #fff; border-color: #ca8a04; --glow: 202 138 4; }
 
+    /* Out of Stock — graphite, the same colour the bell, the toasts and the
+       inventory report give "nothing on the shelf" (deliberately off the
+       amber-to-red ramp: an absence, not a louder warning). */
+    .filter-out_of_stock        { background: #e2e8f0; color: #334155; border-color: #e2e8f0; }
+    .filter-out_of_stock.active { background: #334155; color: #fff; border-color: #334155; --glow: 51 65 85; }
+    .badge-out { background: #e2e8f0; color: #334155; }
+
+    /* Expiry window: a month or a from/to pair, offered on All / Expiring
+       Soon / Expired, where "when" is the question. */
+    .expiry-range {
+        display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px;
+        margin: 0 0 16px; padding: 12px 14px;
+        background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px;
+    }
+    .expiry-range[hidden] { display: none; }
+    .expiry-range .er-title {
+        display: flex; align-items: center; gap: 6px;
+        font-size: 13px; font-weight: 600; color: #9a3412; align-self: center;
+    }
+    .expiry-range .er-field { display: flex; flex-direction: column; gap: 3px; }
+    .expiry-range label { font-size: 11.5px; font-weight: 500; color: #9a3412; text-transform: uppercase; letter-spacing: .04em; }
+    .expiry-range input[type="date"], .expiry-range input[type="month"] {
+        padding: 7px 10px; border: 1px solid #fdba74; border-radius: 7px;
+        font-size: 13.5px; font-family: inherit; background: #fff; color: #1e293b;
+    }
+    .expiry-range .er-presets { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+    .expiry-range .er-preset {
+        padding: 6px 12px; border-radius: 999px; border: 1px solid #fdba74;
+        background: #fff; color: #9a3412; font-size: 12.5px; font-weight: 500; cursor: pointer;
+    }
+    .expiry-range .er-preset:hover { background: #ffedd5; }
+    .expiry-range .er-preset:focus-visible { outline: 2px solid #ea580c; outline-offset: 2px; }
+    .expiry-range .er-clear { font-size: 12.5px; color: #9a3412; align-self: center; }
+
     /* Expiring Soon — orange (.badge-expiry-soon) */
     .filter-expiring         { background: #ffedd5; color: #9a3412; border-color: #ffedd5; }
     .filter-expiring.active  { background: #ea580c; color: #fff; border-color: #ea580c; --glow: 234 88 12; }
@@ -162,7 +196,7 @@
      bell alerts link here with days=30, their "pull these now" window. Say
      which one is on screen, or arriving from an alert that promised 28 and
      landing on a list is unexplained. --}}
-@if($filter === 'expiring' && $expiringDays === \App\Models\ProductBatch::EXPIRY_SOON_DAYS)
+@if($filter === 'expiring' && ! $hasExpiryRange && $expiringDays === \App\Models\ProductBatch::EXPIRY_SOON_DAYS)
     <div class="category-banner">
         <i class="ti ti-clock-exclamation" aria-hidden="true"></i>
         Showing batches expiring within {{ $expiringDays }} days
@@ -257,17 +291,60 @@
     </form>
 
     @php
-        $filterParams = array_filter(['search' => request('search'), 'category_id' => $categoryId]);
+        // The expiry window rides along on the tab links, so a middle-click or
+        // a no-JS visit keeps it. It is echoed from what the server APPLIED.
+        $filterParams = array_filter([
+            'search' => request('search'),
+            'category_id' => $categoryId,
+            'expiry_month' => $expiryMonth,
+            'expiry_from' => $expiryMonth ? null : $expiryFrom,
+            'expiry_to' => $expiryMonth ? null : $expiryTo,
+        ]);
     @endphp
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
         <a href="{{ route('inventory.index', ['filter' => 'all'] + $filterParams) }}" data-filter="all" class="filter-btn filter-all {{ $filter === 'all' ? 'active' : '' }}">All</a>
         <a href="{{ route('inventory.index', ['filter' => 'low_stock'] + $filterParams) }}" data-filter="low_stock" class="filter-btn filter-low_stock {{ $filter === 'low_stock' ? 'active' : '' }}">Low Stock</a>
+        <a href="{{ route('inventory.index', ['filter' => 'out_of_stock'] + $filterParams) }}" data-filter="out_of_stock" class="filter-btn filter-out_of_stock {{ $filter === 'out_of_stock' ? 'active' : '' }}">Out of Stock</a>
         <a href="{{ route('inventory.index', ['filter' => 'expiring'] + $filterParams) }}" data-filter="expiring" class="filter-btn filter-expiring {{ $filter === 'expiring' ? 'active' : '' }}">Expiring Soon</a>
         <a href="{{ route('inventory.index', ['filter' => 'expired'] + $filterParams) }}" data-filter="expired" class="filter-btn filter-expired {{ $filter === 'expired' ? 'active' : '' }}">Expired</a>
         <a href="{{ route('inventory.index', ['filter' => 'need_to_return'] + $filterParams) }}" data-filter="need_to_return" class="filter-btn filter-need_to_return {{ $filter === 'need_to_return' ? 'active' : '' }}">Need to Return</a>
         <a href="{{ route('inventory.index', ['filter' => 'fail_to_return'] + $filterParams) }}" data-filter="fail_to_return" class="filter-btn filter-fail_to_return {{ $filter === 'fail_to_return' ? 'active' : '' }}">Fail to Return</a>
         <a href="{{ route('inventory.index', ['filter' => 'returned'] + $filterParams) }}" data-filter="returned" class="filter-btn filter-returned {{ $filter === 'returned' ? 'active' : '' }}">Returned</a>
     </div>
+</div>
+
+{{-- Expiry window. Applies to All, Expiring Soon and Expired only; the other
+     tabs are about stock levels and returns. Rendered always (hidden on the
+     others) so switching tabs by AJAX can reveal it without a reload. The
+     inputs hold what the server APPLIED, and a month and a from/to pair are
+     mutually exclusive -- choosing one clears the other, and the server drops
+     the month when dates are present. --}}
+@php
+    $rangeTabs = ['all', 'expiring', 'expired'];
+    $presetThisMonth = [now()->startOfMonth()->toDateString(), now()->endOfMonth()->toDateString()];
+    $presetNextMonth = [now()->addMonthNoOverflow()->startOfMonth()->toDateString(), now()->addMonthNoOverflow()->endOfMonth()->toDateString()];
+    $presetNext30 = [today()->toDateString(), today()->addDays(30)->toDateString()];
+@endphp
+<div class="expiry-range" id="expiry-range" @unless(in_array($filter, $rangeTabs, true)) hidden @endunless>
+    <span class="er-title"><i class="ti ti-calendar-time" aria-hidden="true"></i> Expiry date</span>
+    <div class="er-field">
+        <label for="expiry-month">Month</label>
+        <input type="month" id="expiry-month" value="{{ $expiryMonth }}">
+    </div>
+    <div class="er-field">
+        <label for="expiry-from">From</label>
+        <input type="date" id="expiry-from" value="{{ $expiryMonth ? '' : $expiryFrom }}">
+    </div>
+    <div class="er-field">
+        <label for="expiry-to">To</label>
+        <input type="date" id="expiry-to" value="{{ $expiryMonth ? '' : $expiryTo }}">
+    </div>
+    <div class="er-presets" role="group" aria-label="Quick expiry ranges">
+        <button type="button" class="er-preset" data-from="{{ $presetNext30[0] }}" data-to="{{ $presetNext30[1] }}">Next 30 days</button>
+        <button type="button" class="er-preset" data-from="{{ $presetThisMonth[0] }}" data-to="{{ $presetThisMonth[1] }}">This month</button>
+        <button type="button" class="er-preset" data-from="{{ $presetNextMonth[0] }}" data-to="{{ $presetNextMonth[1] }}">Next month</button>
+    </div>
+    <a href="#" class="er-clear" id="expiry-clear" @unless($hasExpiryRange) hidden @endunless>Clear dates &times;</a>
 </div>
 
 <div class="card">
@@ -282,6 +359,14 @@
     const searchInput = document.getElementById('search-input');
     const filterInput = document.getElementById('filter-input');
     const categoryInput = document.getElementById('category-input');
+    const expiryBar = document.getElementById('expiry-range');
+    const expiryMonth = document.getElementById('expiry-month');
+    const expiryFrom = document.getElementById('expiry-from');
+    const expiryTo = document.getElementById('expiry-to');
+    const expiryClear = document.getElementById('expiry-clear');
+    // The tabs an expiry window means something on -- keep in step with
+    // InventoryController::EXPIRY_RANGE_FILTERS.
+    const EXPIRY_TABS = ['all', 'expiring', 'expired'];
     const resultsWrapper = document.getElementById('results-wrapper');
     const inventoryBaseUrl = "{{ route('inventory.index') }}";
 
@@ -297,6 +382,21 @@
         if (term) url.searchParams.set('search', term);
         url.searchParams.set('filter', filterInput.value);
         if (categoryInput.value) url.searchParams.set('category_id', categoryInput.value);
+
+        // The expiry window rides along only on the tabs it applies to; on the
+        // others it is dropped from the URL (and the bar hidden), but the boxes
+        // keep their values so switching back restores it.
+        const onExpiryTab = EXPIRY_TABS.includes(filterInput.value);
+        expiryBar.hidden = !onExpiryTab;
+        if (onExpiryTab) {
+            if (expiryFrom.value || expiryTo.value) {
+                if (expiryFrom.value) url.searchParams.set('expiry_from', expiryFrom.value);
+                if (expiryTo.value) url.searchParams.set('expiry_to', expiryTo.value);
+            } else if (expiryMonth.value) {
+                url.searchParams.set('expiry_month', expiryMonth.value);
+            }
+        }
+        expiryClear.hidden = !(expiryFrom.value || expiryTo.value || expiryMonth.value);
 
         // Swap the stale rows for a skeleton so a search/filter reads as
 
@@ -333,7 +433,7 @@
     });
 
     // Choosing a suggestion runs the same search the field would.
-    searchInput.addEventListener('suggest:live', () => { runProductSearch(); });
+    searchInput.addEventListener('suggest:live', () => { runInventorySearch(); });
 
     document.getElementById('search-form').addEventListener('submit', (e) => {
         e.preventDefault();
@@ -372,10 +472,40 @@
         });
     });
 
+    // ===== Expiry window =====
+    // A month and a from/to pair are alternatives: choosing one clears the
+    // other, exactly as the Sales Report's month picker and date inputs do, so
+    // what is on screen is always the one control that is driving the list.
+    expiryMonth.addEventListener('change', () => {
+        expiryFrom.value = '';
+        expiryTo.value = '';
+        runInventorySearch();
+    });
+    [expiryFrom, expiryTo].forEach((el) => el.addEventListener('change', () => {
+        expiryMonth.value = '';
+        runInventorySearch();
+    }));
+    document.querySelectorAll('.er-preset').forEach((btn) => btn.addEventListener('click', () => {
+        expiryMonth.value = '';
+        expiryFrom.value = btn.dataset.from;
+        expiryTo.value = btn.dataset.to;
+        runInventorySearch();
+    }));
+    expiryClear.addEventListener('click', (e) => {
+        e.preventDefault();
+        expiryMonth.value = '';
+        expiryFrom.value = '';
+        expiryTo.value = '';
+        runInventorySearch();
+    });
+
     window.addEventListener('popstate', () => {
         const params = new URLSearchParams(window.location.search);
         searchInput.value = params.get('search') || '';
         filterInput.value = params.get('filter') || 'all';
+        expiryMonth.value = params.get('expiry_month') || '';
+        expiryFrom.value = params.get('expiry_from') || '';
+        expiryTo.value = params.get('expiry_to') || '';
         categoryInput.value = params.get('category_id') || '';
         // Back/forward must move the highlight too, or the tabs keep insisting
         // you are on the filter you just navigated away from.

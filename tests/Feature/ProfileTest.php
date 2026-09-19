@@ -125,7 +125,7 @@ class ProfileTest extends TestCase
         $this->assertNotNull($user->refresh()->email_verified_at);
     }
 
-    public function test_user_can_delete_their_account(): void
+    public function test_user_can_archive_their_own_account(): void
     {
         $user = User::factory()->create();
 
@@ -140,7 +140,11 @@ class ProfileTest extends TestCase
             ->assertRedirect('/');
 
         $this->assertGuest();
-        $this->assertNull($user->fresh());
+        // Archived, not deleted: gone from the app, still in the table. (fresh()
+        // ignores the soft-delete scope, so it would find the row -- ask the
+        // scoped query what the app itself would see.)
+        $this->assertNull(User::find($user->id));
+        $this->assertNotNull(User::withTrashed()->find($user->id)->archived_at);
     }
 
     public function test_correct_password_must_be_provided_to_delete_account(): void
@@ -176,7 +180,7 @@ class ProfileTest extends TestCase
      * ProfileController::destroy() therefore logs out BEFORE deleting; this
      * test fails if anyone puts that back the other way round.
      */
-    public function test_deleting_your_own_account_does_not_resurrect_it(): void
+    public function test_archiving_your_own_account_does_not_resurrect_it(): void
     {
         $user = User::factory()->create(['remember_token' => 'a-remembered-session']);
         $id = $user->id;
@@ -186,7 +190,10 @@ class ProfileTest extends TestCase
             ->assertRedirect('/');
 
         $this->assertGuest();
-        $this->assertNull(User::find($id), 'The account was re-inserted after being deleted.');
-        $this->assertDatabaseMissing('users', ['id' => $id]);
+        $this->assertNull(User::find($id), 'The account came back after being archived.');
+        $this->assertNotNull(
+            User::withTrashed()->find($id)->archived_at,
+            'The archive stamp was lost -- the logout save() must not undo it.'
+        );
     }
 }

@@ -72,6 +72,8 @@
                 'create' => ['bg'=>'#E1F5EE','color'=>'#085041','icon'=>'ti-plus'],
                 'update' => ['bg'=>'#FAEEDA','color'=>'#633806','icon'=>'ti-edit'],
                 'delete' => ['bg'=>'#FCEBEB','color'=>'#791F1F','icon'=>'ti-trash'],
+                'archived' => ['bg'=>'#FAEEDA','color'=>'#633806','icon'=>'ti-archive'],
+                'restored' => ['bg'=>'#E1F5EE','color'=>'#085041','icon'=>'ti-archive-off'],
               ];
               $key = strtolower($log->action);
               $style = $actionStyles[$key] ?? ['bg'=>'#F1EFE8','color'=>'#5F5E5A','icon'=>'ti-activity'];

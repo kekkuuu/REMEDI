@@ -93,21 +93,28 @@ class DestructiveGuardsTest extends TestCase
      * in turn, so deleting an account destroyed every transaction it had rung
      * up -- while reporting success and leaving the deducted stock deducted.
      * Two accounts went that way on this install; 25 sale ids are missing.
+     *
+     * Delete is now Archive, which removes nothing, so the old refusal ("has
+     * sales, cannot be deleted") is gone and this asserts the thing it was
+     * protecting instead: the account leaves the list, but the sale and its
+     * cashier survive intact.
      */
-    public function test_a_cashier_with_sales_cannot_be_deleted(): void
+    public function test_archiving_a_cashier_with_sales_keeps_the_sale_and_names_its_cashier(): void
     {
         $admin = $this->admin();
-        $cashier = User::factory()->create(['role' => 'staff']);
+        $cashier = User::factory()->create(['role' => 'staff', 'name' => 'Former Cashier']);
         $product = $this->product();
-        $this->sell($cashier, $product, $this->batch($product), 'TXN-GUARD-1');
+        $sale = $this->sell($cashier, $product, $this->batch($product), 'TXN-GUARD-1');
 
-        $this->actingAs($admin)->delete('/users/'.$cashier->id)->assertSessionHasErrors('user');
+        $this->actingAs($admin)->delete('/users/'.$cashier->id)->assertSessionHasNoErrors();
 
-        $this->assertTrue(User::whereKey($cashier->id)->exists(), 'the account must survive');
-        $this->assertSame(1, Sale::count(), 'and so must the sale');
+        $this->assertFalse(User::whereKey($cashier->id)->exists(), 'the account leaves the list');
+        $this->assertNotNull(User::withTrashed()->find($cashier->id)?->archived_at, 'but the row stays, stamped');
+        $this->assertSame(1, Sale::count(), 'the sale survives');
+        $this->assertSame('Former Cashier', Sale::find($sale->id)->user->name, 'and still names who rang it up');
     }
 
-    public function test_an_admin_cannot_delete_their_own_account(): void
+    public function test_an_admin_cannot_archive_their_own_account(): void
     {
         $admin = $this->admin();
 
@@ -131,7 +138,7 @@ class DestructiveGuardsTest extends TestCase
     }
 
     /** profile.destroy is the stock Breeze route, live even though its card is hidden. */
-    public function test_the_last_admin_cannot_delete_their_own_profile(): void
+    public function test_the_last_admin_cannot_archive_their_own_profile(): void
     {
         $admin = $this->admin();
 
@@ -159,45 +166,51 @@ class DestructiveGuardsTest extends TestCase
         $this->assertSame(Category::MEDICINE, $medicine->fresh()->name);
     }
 
-    public function test_a_category_holding_products_cannot_be_deleted(): void
+    public function test_a_category_holding_products_cannot_be_archived(): void
     {
         $category = Category::firstOrCreate(['name' => 'Household']);
         $this->product('Attached', 'SKU-ATTACHED')->update(['category_id' => $category->id]);
 
         $this->actingAs($this->admin())->delete('/categories/'.$category->id)->assertSessionHasErrors();
 
-        $this->assertTrue(Category::whereKey($category->id)->exists());
+        $this->assertTrue(Category::whereKey($category->id)->exists(), 'still listed, not archived');
         $this->assertTrue(Product::where('sku', 'SKU-ATTACHED')->exists());
     }
 
     // ── Stock the sales record depends on ────────────────────────────────
 
     /**
-     * product_batch_id is ON DELETE RESTRICT: letting the constraint fire
-     * returns a 500 with raw SQL in the body, so the controller has to refuse
-     * first and say why.
+     * product_batch_id is ON DELETE RESTRICT: a real delete of a batch a sale
+     * drew on used to hit the constraint (a 500 with raw SQL), so the
+     * controller had to refuse first. Archiving cannot hit it -- the row
+     * stays -- so a sold-from batch may now be archived, and the sale line that
+     * points at it must still resolve.
      */
-    public function test_a_batch_a_sale_refers_to_cannot_be_deleted(): void
+    public function test_a_batch_a_sale_refers_to_can_be_archived_and_the_sale_still_resolves_it(): void
     {
         $admin = $this->admin();
         $product = $this->product();
         $batch = $this->batch($product);
-        $this->sell($admin, $product, $batch, 'TXN-GUARD-2');
+        $sale = $this->sell($admin, $product, $batch, 'TXN-GUARD-2');
 
-        $this->actingAs($admin)->delete('/batches/'.$batch->id)->assertSessionHasErrors('batch');
+        $this->actingAs($admin)->delete('/batches/'.$batch->id)->assertSessionHasNoErrors();
 
-        $this->assertTrue(ProductBatch::whereKey($batch->id)->exists());
+        $this->assertFalse(ProductBatch::whereKey($batch->id)->exists(), 'off the shelf');
+        $this->assertNotNull(ProductBatch::withTrashed()->find($batch->id)->archived_at);
+        $this->assertSame($batch->id, $sale->items()->first()->batch->id, 'the sale line still finds its batch');
     }
 
-    public function test_a_product_that_has_been_sold_cannot_be_deleted(): void
+    public function test_a_product_that_has_been_sold_can_be_archived_and_the_sale_still_names_it(): void
     {
         $admin = $this->admin();
-        $product = $this->product();
-        $this->sell($admin, $product, $this->batch($product), 'TXN-GUARD-3');
+        $product = $this->product('Sold Item', 'SKU-SOLD-1');
+        $sale = $this->sell($admin, $product, $this->batch($product), 'TXN-GUARD-3');
 
-        $this->actingAs($admin)->delete('/products/'.$product->id)->assertSessionHasErrors();
+        $this->actingAs($admin)->delete('/products/'.$product->id)->assertSessionHasNoErrors();
 
-        $this->assertTrue(Product::whereKey($product->id)->exists());
+        $this->assertFalse(Product::whereKey($product->id)->exists(), 'off the catalogue');
+        $this->assertSame('Sold Item', $sale->items()->first()->product->name, 'but the sale line still names it');
+        $this->assertSame(1, SaleItem::count());
     }
 
     // ── The key with no foreign key ──────────────────────────────────────

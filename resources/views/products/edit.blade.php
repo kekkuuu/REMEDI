@@ -288,16 +288,21 @@
                             <button type="submit" class="btn btn-success" style="padding:4px 8px;">Mark Returned</button>
                         </form>
                     @endif
+                    {{-- Archive, not remove: the batch leaves the shelf, the
+                         alerts and the stock totals, but the row stays, so a past
+                         sale that drew on it still resolves. It can be restored
+                         from "Archived batches" below. --}}
                     <form method="POST" action="{{ route('batches.destroy', $batch) }}" style="margin:0;"
                           class="js-confirm"
-                          data-confirm-title="Remove this batch?"
-                          data-confirm-body="Batch {{ $batch->batch_number }} and its {{ $batch->quantity }} remaining units will be removed from stock. This cannot be undone."
-                          data-confirm-label="Remove"
-                          data-confirm-icon="ti-trash"
+                          data-confirm-title="Archive this batch?"
+                          data-confirm-body="Batch {{ $batch->batch_number }} and its {{ $batch->quantity }} remaining units will come off the shelf, the alerts and the stock totals. Past sales that used it are kept, and you can restore it from Archived batches."
+                          data-confirm-label="Archive"
+                          data-confirm-icon="ti-archive"
+                          data-confirm-tone="neutral"
                           data-on-success="remove-row">
                         @csrf
                         @method('DELETE')
-                        <button type="submit" class="btn btn-danger" style="padding:4px 8px;">Remove</button>
+                        <button type="submit" class="btn btn-warning" style="padding:4px 8px;">Archive</button>
                     </form>
                     </div>
                 </td>
@@ -307,6 +312,42 @@
         @endforelse
         </tbody>
     </table></div>
+
+    @if($archivedBatches->isNotEmpty())
+        <h4 style="margin:22px 0 6px; font-size:14px; font-weight:600;">
+            <i class="ti ti-archive" aria-hidden="true"></i> Archived batches
+        </h4>
+        <p style="margin:0 0 10px; font-size:13px; color:#64748b;">Off the shelf and out of the stock totals. Restore one to put it back.</p>
+        <div class="table-scroll"><table class="remedi-table">
+            <thead>
+                <tr><th>Batch No.</th><th>Qty</th><th>Expiry</th><th>Archived</th><th></th></tr>
+            </thead>
+            <tbody>
+            @foreach($archivedBatches as $batch)
+                <tr>
+                    <td>{{ $batch->batch_number }}</td>
+                    <td>{{ $batch->quantity }}</td>
+                    <td>{{ $batch->expiry_date?->format('M d, Y') ?? '—' }}</td>
+                    <td>{{ $batch->archived_at->format('M d, Y') }}</td>
+                    <td>
+                        <form method="POST" action="{{ route('batches.restore', $batch) }}" style="margin:0;"
+                              class="js-confirm"
+                              data-confirm-title="Restore this batch?"
+                              data-confirm-body="Batch {{ $batch->batch_number }} goes back on the shelf with its {{ $batch->quantity }} units."
+                              data-confirm-label="Restore"
+                              data-confirm-icon="ti-archive-off"
+                              data-confirm-tone="neutral"
+                              data-on-success="reload">
+                            @csrf
+                            @method('PATCH')
+                            <button type="submit" class="btn btn-success" style="padding:4px 8px;">Restore</button>
+                        </form>
+                    </td>
+                </tr>
+            @endforeach
+            </tbody>
+        </table></div>
+    @endif
         </div>
 </div>
 

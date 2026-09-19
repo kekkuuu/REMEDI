@@ -53,14 +53,30 @@
              submits natively even with no submit button present. --}}
     </form>
     <div>
-        <a href="{{ route('categories.index') }}" class="btn btn-primary btn-lg">
-            <i class="ti ti-category" aria-hidden="true"></i> Manage Categories
-        </a>
-        <a href="{{ route('products.create') }}" class="btn btn-primary btn-lg">
-            <i class="ti ti-plus" aria-hidden="true"></i> Add Product
-        </a>
+        @if($archived)
+            <a href="{{ route('products.index') }}" class="btn btn-secondary btn-lg">
+                <i class="ti ti-arrow-back-up" aria-hidden="true"></i> Active products
+            </a>
+        @else
+            <a href="{{ route('products.index', ['archived' => 1]) }}" class="btn btn-secondary btn-lg">
+                <i class="ti ti-archive" aria-hidden="true"></i> Archived{{ $archivedCount ? ' ('.$archivedCount.')' : '' }}
+            </a>
+            <a href="{{ route('categories.index') }}" class="btn btn-primary btn-lg">
+                <i class="ti ti-category" aria-hidden="true"></i> Manage Categories
+            </a>
+            <a href="{{ route('products.create') }}" class="btn btn-primary btn-lg">
+                <i class="ti ti-plus" aria-hidden="true"></i> Add Product
+            </a>
+        @endif
     </div>
 </div>
+
+@if($archived)
+    <p style="margin:0 0 12px; padding:10px 14px; background:#fffbeb; border:1px solid #fde68a; color:#92400e; border-radius:8px; font-size:13px;">
+        <i class="ti ti-archive" aria-hidden="true"></i>
+        Archived products are off the till, the inventory and the alerts. Their sales history is kept, and Restore puts one back.
+    </p>
+@endif
 
 <div class="card">
     <div id="results-wrapper">
@@ -74,6 +90,9 @@ const input = document.getElementById('search-input');
 const categorySelect = document.getElementById('category-select');
 const wrapper = document.getElementById('results-wrapper');
 const baseUrl = "{{ route('products.index') }}";
+// Which list this page is showing. It rides along on every live search, or
+// typing in the Archived list would silently switch back to active products.
+const showingArchived = {{ $archived ? 'true' : 'false' }};
 
 let debounceTimer;
 let currentController;
@@ -88,6 +107,7 @@ function runSearch(pushState = true) {
 
     if (term) url.searchParams.set('search', term);
     if (categoryId) url.searchParams.set('category_id', categoryId);
+    if (showingArchived) url.searchParams.set('archived', '1');
 
     // Swap the stale rows for a skeleton so a search/filter reads as
 

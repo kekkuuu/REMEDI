@@ -85,7 +85,12 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::get('/users/{user}/edit', [UserController::class, 'edit'])->name('users.edit');
         Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
         Route::patch('/users/{user}/toggle', [UserController::class, 'toggleActive'])->name('users.toggle');
+        // DELETE archives -- nothing is removed (see UserController::destroy).
+        // The verb and route names are kept; what they DO is what changed.
+        // Restore routes opt back in to trashed records with ->withTrashed(),
+        // since route-model binding hides archived rows by default.
         Route::delete('/users/{user}', [UserController::class, 'destroy'])->name('users.destroy');
+        Route::patch('/users/{user}/restore', [UserController::class, 'restore'])->withTrashed()->name('users.restore');
 
         // Products & batches
         // except('show'): there is no product DETAIL page -- the edit screen is
@@ -97,7 +102,9 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::resource('products', ProductController::class)->except(['show']);
         Route::post('/products/{product}/batches', [ProductController::class, 'addBatch'])->name('products.batches.store');
         Route::put('/batches/{batch}', [ProductController::class, 'updateBatch'])->name('batches.update');
+        Route::patch('/products/{product}/restore', [ProductController::class, 'restore'])->withTrashed()->name('products.restore');
         Route::delete('/batches/{batch}', [ProductController::class, 'destroyBatch'])->name('batches.destroy');
+        Route::patch('/batches/{batch}/restore', [ProductController::class, 'restoreBatch'])->withTrashed()->name('batches.restore');
         Route::patch('/batches/{batch}/return', [ProductController::class, 'markBatchReturned'])->name('batches.return');
 
         // Categories
@@ -105,6 +112,7 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::post('/categories', [CategoryController::class, 'store'])->name('categories.store');
         Route::put('/categories/{category}', [CategoryController::class, 'update'])->name('categories.update');
         Route::delete('/categories/{category}', [CategoryController::class, 'destroy'])->name('categories.destroy');
+        Route::patch('/categories/{category}/restore', [CategoryController::class, 'restore'])->withTrashed()->name('categories.restore');
 
         // Reports
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');

@@ -4,11 +4,22 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Collection;
 
 class Product extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes;
+
+    /**
+     * "Delete" archives. The row stays, `archived_at` is stamped, and Eloquent's
+     * soft-delete scope hides it from every query that does not ask for it --
+     * which is what keeps an archived product off the till, the inventory, the
+     * alerts and the forecast lists without each of those needing its own
+     * filter. History that names the product (sale lines, receipts) reads it
+     * back through `withTrashed()` relations. See the archive migration.
+     */
+    public const DELETED_AT = 'archived_at';
 
     protected $fillable = [
         'name',
@@ -20,9 +31,11 @@ class Product extends Model
         'reorder_level',
     ];
 
+    // withTrashed: a product archived BEFORE its category was still points at
+    // it, and must keep showing the category's name rather than a blank.
     public function category()
     {
-        return $this->belongsTo(Category::class);
+        return $this->belongsTo(Category::class)->withTrashed();
     }
 
     public function batches()

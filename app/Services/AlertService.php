@@ -461,11 +461,17 @@ class AlertService
                     // Deleting an account read as "Account updated", which is
                     // the one account change you would most want named plainly.
                     $isAccount && $row->action === 'Deleted' => ['system', 'ti-user-minus', 'is-system', 'User account deleted'],
+                    // Delete became Archive. Both stay named: older rows say
+                    // Deleted, new ones say Archived.
+                    $isAccount && $row->action === 'Archived' => ['system', 'ti-user-minus', 'is-system', 'User account archived'],
+                    $isAccount && $row->action === 'Restored' => ['system', 'ti-user-check', 'is-system', 'User account restored'],
                     $isAccount && str_starts_with($row->details, 'Account deactivated') => ['system', 'ti-user-off', 'is-system', 'Account deactivated'],
                     $isAccount && str_starts_with($row->details, 'Account activated') => ['system', 'ti-user-check', 'is-system', 'Account activated'],
                     $isAccount => ['system', 'ti-user-cog', 'is-system', 'User account updated'],
                     $isReport => ['updates', 'ti-file-text', 'is-update', 'New report generated'],
                     $row->action === 'Deleted' => ['updates', 'ti-trash', 'is-update', 'Record deleted'],
+                    $row->action === 'Archived' => ['updates', 'ti-archive', 'is-update', 'Record archived'],
+                    $row->action === 'Restored' => ['updates', 'ti-archive-off', 'is-update', 'Record restored'],
                     $row->action === 'Created' => ['updates', 'ti-plus', 'is-update', 'Record added'],
                     default => ['updates', 'ti-pencil', 'is-update', 'Record updated'],
                 };

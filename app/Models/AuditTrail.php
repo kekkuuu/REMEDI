@@ -44,13 +44,16 @@ class AuditTrail extends Model
      * Rendering the control from this constant is what stops it drifting again.
      * Add an action here when you start writing it.
      */
-    public const ACTIONS = ['Login', 'Logout', 'Viewed', 'Created', 'Updated', 'Deleted'];
+    // 'Deleted' stays on the list: nothing writes it any more (Delete became
+    // Archive), but every row written before that still carries it, and the
+    // filter has to be able to find them.
+    public const ACTIONS = ['Login', 'Logout', 'Viewed', 'Created', 'Updated', 'Archived', 'Restored', 'Deleted'];
 
     /**
      * The superseded spellings, so an old bookmark or a stale link still finds
      * its rows instead of quietly answering "nothing ever happened".
      */
-    public const ACTION_ALIASES = ['Create' => 'Created', 'Update' => 'Updated', 'Delete' => 'Deleted'];
+    public const ACTION_ALIASES = ['Create' => 'Created', 'Update' => 'Updated', 'Delete' => 'Deleted', 'Archive' => 'Archived', 'Restore' => 'Restored'];
 
     /** Resolve a requested action to the spelling actually stored. */
     public static function canonicalAction(?string $action): ?string
@@ -64,7 +67,7 @@ class AuditTrail extends Model
 
     public function user()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class)->withTrashed();
     }
 
     // Helper to quickly log an action from anywhere in the app

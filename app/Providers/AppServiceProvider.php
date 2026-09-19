@@ -50,9 +50,14 @@ class AppServiceProvider extends ServiceProvider
         // This does NOT cover POS checkout: it deducts stock with decrement(),
         // which bypasses model events by design, so PosController::checkout
         // calls AlertService::forget() itself.
+        //
+        // `deleted` fires for an ARCHIVE (a soft delete) too, and `restored`
+        // is its mirror image: an archived product vanishes from every alert
+        // count and a restored one comes straight back into them.
         foreach ([ProductBatch::class, Product::class] as $model) {
             $model::saved(fn () => AlertService::forget());
             $model::deleted(fn () => AlertService::forget());
+            $model::restored(fn () => AlertService::forget());
         }
 
         // The sidebar's category list is `withCount('products')`, so a PRODUCT
@@ -65,7 +70,7 @@ class AppServiceProvider extends ServiceProvider
         // Hooked here rather than in ProductController so it covers every write
         // path — the controller, `import:receiving-reports`, the seeders and
         // tinker — the same reasoning as the AlertService hooks above.
-        foreach (['saved', 'deleted'] as $event) {
+        foreach (['saved', 'deleted', 'restored'] as $event) {
             Product::{$event}(fn () => Cache::forget('sidebar_categories'));
         }
 
@@ -80,17 +85,20 @@ class AppServiceProvider extends ServiceProvider
         // form: August 2026 actually moved by ₱20,884.92 while the dashboard,
         // the reports and the forecast page all kept showing the old total.
         //
-        // Deletion counts too. sales_history joins products on `sku` with no
-        // foreign key, so removing a product silently drops its rows from every
-        // revenue join — and the sale_items guard on destroy() does not cover a
-        // product that has history but no POS line items.
+        // A real (force) delete counts too. sales_history joins products on
+        // `sku` with no foreign key, so removing the row silently drops its
+        // history from every revenue join. Archiving does NOT: the row stays,
+        // the raw joins never see the soft-delete scope, and an archived
+        // product's revenue keeps counting -- which is the point of archiving
+        // -- so `deleted` (which fires for an archive) is deliberately not
+        // hooked here and a routine archive costs no cache rebuild.
         Product::saved(function (Product $product) {
             if ($product->wasChanged('selling_price')) {
                 self::forgetRevenueCaches();
             }
         });
 
-        Product::deleted(fn () => self::forgetRevenueCaches());
+        Product::forceDeleted(fn () => self::forgetRevenueCaches());
 
         // The sidebar (layouts.app, rendered on every authenticated page)
         // shows a category sub-link under "Inventory". Categories rarely

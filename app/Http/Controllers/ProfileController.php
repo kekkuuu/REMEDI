@@ -91,16 +91,9 @@ class ProfileController extends Controller
 
         $user = $request->user();
 
-        $salesCount = $user->sales()->count();
-
-        if ($salesCount > 0) {
-            return back()->withErrors([
-                'password' => 'Your account has '.number_format($salesCount).' '
-                    .str('sale')->plural($salesCount).' recorded and cannot be deleted — those '
-                    .'transactions are part of the sales record. Ask an administrator to '
-                    .'deactivate the account instead.',
-            ], 'userDeletion');
-        }
+        // No "has sales, cannot delete" refusal any more: this archives the
+        // account (see UserController::destroy), which keeps every sale and its
+        // cashier intact, so there is nothing for that guard to protect.
 
         // Count OTHER admins who could still sign in. A deactivated admin is no
         // use here: they cannot log in, so leaving one behind is the same as
@@ -112,7 +105,7 @@ class ProfileController extends Controller
 
         if ($user->isAdmin() && $otherActiveAdmins === 0) {
             return back()->withErrors([
-                'password' => 'This is the only active administrator account. Deleting it would '
+                'password' => 'This is the only active administrator account. Archiving it would '
                     .'leave no one able to manage users, products or reports. Promote another '
                     .'account to Admin first.',
             ], 'userDeletion');
@@ -120,13 +113,12 @@ class ProfileController extends Controller
 
         $name = $user->name;
 
-        // Log and delete together. The audit row has to be written while the
+        // Log and archive together. The audit row has to be written while the
         // user is still authenticated, or AuditTrail::log() resolves nobody and
-        // records "System"; but it must not survive a delete that fails. A
-        // transaction gives both — and audit_trails.user_id is ON DELETE SET
-        // NULL, so the row keeps its denormalised username afterwards.
+        // records "System"; but it must not survive an archive that fails. A
+        // transaction gives both, and the row keeps its denormalised username.
         DB::transaction(function () use ($user, $name) {
-            AuditTrail::log('Deleted', "Deleted own user account: {$name}");
+            AuditTrail::log('Archived', "Archived own user account: {$name}");
 
             // Log out BEFORE deleting, and inside the transaction.
             //

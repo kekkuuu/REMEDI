@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (147 passed, 432 assertions — measured 2026-09-03) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (210 passed, 659 assertions — measured 2026-09-19) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -364,11 +364,45 @@ missing, so the login page rendered the literal string `auth.deactivated` to the
 couldn't interpret it. App lang files **merge** with the framework's, so that file defines only this
 key — don't copy `failed`/`password`/`throttle` in beside it.
 
-**A cashier with sales cannot be deleted.** `sales.user_id` was `ON DELETE CASCADE` (and
-`sale_items.sale_id` cascades too), so deleting an account silently destroyed every transaction they
-had rung up — while reporting success and leaving the deducted stock deducted. Migration
-`2026_08_24_000001` makes it RESTRICT; `UserController::destroy` checks `sales()->count()` and points
-the admin at Deactivate. Retire accounts with `is_active`, never by deleting.
+**Nothing that used to have a Delete button is deleted any more — it is ARCHIVED.** Products,
+batches, categories and user accounts carry a nullable `archived_at` (migration
+`2026_09_19_000001`), and the four models use `SoftDeletes` with `DELETED_AT = 'archived_at'`, so the
+old `DELETE` verbs and route names (`users.destroy`, `products.destroy`, `batches.destroy`,
+`categories.destroy`) are unchanged but now stamp the column instead of removing the row. Each has a
+`PATCH …/restore` twin (`->withTrashed()` on the route, because route-model binding hides archived
+rows) and an "Archived" list: `?archived=1` on Products and Users, a section under the Categories
+table, and an "Archived batches" block on the product edit page. Audit rows are `Archived` /
+`Restored` (`AuditTrail::ACTIONS`; `Deleted` stays on the list because rows written before this still
+carry it). **Why it matters: the whole family of "cannot be deleted because history refers to it"
+refusals is gone, because archiving cannot orphan anything.** The old guards existed because a real
+delete cascaded (`sales.user_id`, `products.category_id`) or hit RESTRICT (`sale_items`), and the
+message always had to send the admin somewhere else. Now: an account with sales can be archived (it
+loses sign-in, keeps its sales — `Sale::user()` reads it `withTrashed()`), a sold product can be
+archived (`SaleItem::product()` / `batch()` are `withTrashed()`), and a product with 2,555 rows of
+`sales_history` can be archived without a peso leaving any report. The refusals that REMAIN are the
+ones about hiding the wrong thing: you cannot archive yourself, a category still holding active
+products, or restore a product into an archived category (restore the category first).
+Deactivate stays as the reversible in-place way to suspend an account that should remain on the list.
+
+**Where the soft-delete scope does and does not apply — this is the part to get right when adding a
+query.** Eloquent queries (`Product::`, `ProductBatch::`, `Category::`, `User::`, relations,
+`whereHas`) exclude archived rows automatically, which is what takes an archived product off the
+till, the inventory, the alerts and the forecast lists without a filter per surface. **Raw query-builder
+queries (`DB::table(...)`, `join('products', ...)`) do not see the scope, and that is deliberate for
+HISTORY**: every revenue aggregate joins `sales_history` to `products` on `sku` by raw join, so an
+archived product keeps pricing its own past. Anything raw that describes the CURRENT catalogue must
+filter by hand — `ReportController`'s slow-moving query does (`whereNull('products.archived_at')` and
+the same on the batch join), and both forecast Python scripts exclude archived SKUs from their
+training SQL so a discontinued product stops being forecast and stops feeding the store-wide totals.
+Archiving a product **cascades to its batches with the same timestamp**, and restore hands back only
+the batches carrying that timestamp (one archived on its own earlier stays archived). The SKU stays
+reserved by the archived row — `unique:products,sku` still sees it — which is what stops a new
+product inheriting a dead one's history and forecast. Validation that names a row must ask for an
+ACTIVE one (`Rule::exists(...)->whereNull('archived_at')` on category and checkout product ids).
+**A migration must not query these models through Eloquent** — the scope filters on a column that
+does not exist yet on a fresh database; the two old data migrations that did now use
+`withoutGlobalScopes()`. `DedupeOpeningStockBatches` uses `forceDelete()` on purpose: those are
+duplicate rows an import wrote by mistake, not records anyone wants kept.
 
 **Role scoping belongs on every route that reads the data, not just the pages.** `Sale::isVisibleTo()`
 is the one rule — staff see only their own transactions, admins see all — and **three** routes expose
@@ -380,11 +414,13 @@ there, put the scope *outside* the search closure or the `OR` escapes it. The `/
 not fetched by any view, which is precisely why that gap survived: still registered, still reachable
 with a session. Call `isVisibleTo()` from any new route that renders a sale.
 
-**Two routes delete a user — `users.destroy` and `profile.destroy` — and both must enforce the same
-three rules:** no account with sales, never the last *active* admin (the admin pages are
-`role:admin`, so that lockout is unrecoverable through the UI), and log to the audit trail on
-success. `profile.destroy` is the stock Breeze route; its card is hidden on the profile page but the
-route is live, and it had none of these. Any new deletion path needs all three.
+**Two routes archive a user — `users.destroy` and `profile.destroy` — and both must enforce the same
+two rules:** never the last *active* admin (the admin pages are `role:admin`, so that lockout is
+unrecoverable through the UI; for `users.destroy` the actor can never be the target, which is what
+guarantees a survivor) and log `Archived` to the audit trail on success. `profile.destroy` is the
+stock Breeze route; its card is hidden on the profile page but the route is live. It logs out BEFORE
+archiving, inside the transaction, so `SessionGuard::logout()`'s `cycleRememberToken()` save cannot
+undo the stamp. Any new account-removal path needs both.
 
 Shared: dashboard, POS, inventory, sales list, suggest,
 `/alerts` and `/notifications`. `role:admin`: products/batches/categories CRUD, reports, both
@@ -789,6 +825,16 @@ range · Aug 20, 2026" option is now rendered, selected, when a custom range is 
 carries the same empty value and is NOT disabled, so submitting untouched still lets the dates drive
 and choosing All time still clears them.
 
+**The Sales Report has Daily / Weekly / Monthly / Yearly quick ranges.** They are plain links carrying
+only `?period=`, resolved on the server by `ReportController::periodRange()` (the one definition) as
+"the current one, up to today" — Weekly is Monday to today, Monthly the 1st to today, Yearly January 1
+to today — anchored on `SalesHistory::reportableThrough()`, never on the last row of a table. Dates or
+a month set by the person beat a `period` carried beside them, the month picker reads "Weekly · Sep 14
+– Sep 19" rather than claiming "All time" (the `<select>` trap above), and an unknown period is a
+validation error, not ignored. The report page cannot be rendered by the sqlite suite (its aggregates
+are MySQL), so `SalesReportPeriodTest` pins `periodRange()` and the validation; check the page itself
+against MySQL.
+
 **The month picker and the date inputs are mutually exclusive — keep them that way.** The filter form
 submits every field it owns, so a month left selected rode along with a later date edit and won on
 the server unconditionally: setting the start date to the 21st snapped it back to the 1st and the
@@ -935,24 +981,23 @@ everything joined to it — ₱909,358.82 of lifetime revenue vanished from ever
 and its 6 forecast rows became unjoinable. `ProductController::update` re-points **all four** tables in
 the same transaction, audits the move (the entry names the per-table counts), and clears the revenue
 caches (the `Product::saved` hook only watches `selling_price`). The list lives in
-`ProductController::SKU_KEYED_TABLES` — add to that constant, never to the loop, and `destroy()`
-picks it up too. Verified over HTTP on YAKULT 5S: 218 receipt rows and 1 history row moved with the
+`ProductController::SKU_KEYED_TABLES` — add to that constant, never to the loop. (`destroy()` no
+longer touches these tables: it archives.) Verified over HTTP on YAKULT 5S: 218 receipt rows and 1 history row moved with the
 rename, no orphans left behind.
 
-`destroy()` deliberately does **not** refuse on `inventory_receipts` the way it does on
-`sales_history`: receipts are purchase history carrying no revenue, and guarding on them would block
-essentially every deletion. It deletes them alongside the product instead, in a transaction, and
-says how many in the audit entry.
-
-**`destroy()` refuses on `sales_history` as well as `sale_items`.** `sale_items` has a real RESTRICT
-so it was already safe; `sales_history.product_sku` has no FK, and that covered **2,555** products the
-old guard missed against 29 it caught. Deleting one silently removed its revenue from every report —
-₱7.74M on the worst case.
+**`destroy()` archives, so it neither refuses on history nor cleans up after itself.** It used to
+refuse on `sale_items` (a real RESTRICT), refuse on `sales_history` (no FK — the guard covered 29
+products while **2,555** carried history, and deleting one silently removed ₱7.74M of revenue on the
+worst case) and hand-delete rows from the other four SKU-keyed tables. None of that applies to a
+row that stays: the history keeps pointing at a product that still exists, and stays in every
+revenue report. Only a `forceDelete()` would need that work again — nothing in the app calls one
+except the dedupe command above.
 
 **A price edit rewrites historical revenue.** `sales_history` stores units only, so every revenue
 figure is `quantity_sold * products.selling_price` — changing a price changes every past month.
 `AppServiceProvider` clears the `SalesHistory` + `SalesForecastService` caches on `Product::saved`
-when `wasChanged('selling_price')`, and on `Product::deleted` (history joins on `sku`, no FK). Keep
+when `wasChanged('selling_price')`, and on `Product::forceDeleted` (history joins on `sku`, no FK) —
+not on an archive, which changes no revenue. Keep
 the `wasChanged` gate: `forgetCaches()` retires ~3.5s aggregates, so ungated it would make every
 routine product edit pay for a rebuild. **Verify these hooks over HTTP.** `tinker --execute` gave
 contradictory results across identical runs while the HTTP path was stable and correct, so a tinker
@@ -1600,6 +1645,23 @@ note above).
 computed accessor: `low_stock` by `sellable_stock` ascending, `expiring` by the earliest still-
 sellable batch, `expired` by the longest-expired batch. Sort on `sellable_stock`, never
 `total_stock` — a product with 300 expired units is not better stocked than one with 2 good ones.
+
+**The Inventory page (titled "Inventory Monitoring") has an Out of Stock tab and an expiry window.**
+`out_of_stock` is `total_stock <= 0` — the physical shelf, the same "nothing here" the report's badge
+and the bell's card use — so a shelf of only expired units is an Expired problem, not out of stock,
+and it is a SUBSET of Low Stock (whose count the bell links to and must keep agreeing with, so Low
+Stock was not narrowed). At zero the row badge reads "Out of Stock" instead of "Low Stock". The
+window — `expiry_month` (Y-m) or `expiry_from` / `expiry_to` — applies only on All, Expiring Soon
+and Expired (`InventoryController::EXPIRY_RANGE_FILTERS`; the other tabs are about stock levels and
+returns and ignore it). It means "holds stock expiring inside it"; **on Expiring Soon an explicit
+window REPLACES the 90/30-day horizon** (so "what expires next March" works), it never lists
+already-expired stock, and it is not clamped to today, because looking forward is the point. A
+from/to pair beats a month, a reversed pair is turned round, and unparseable input is dropped rather
+than 422'd (this feeds a live AJAX list) — the page echoes the window it actually APPLIED. The
+expiring/expired predicates are written once and used for both the filter and the sort. The expiry
+bar is always rendered and hidden on other tabs so a tab switch can reveal it without a reload; its
+boxes keep their values, so switching back restores the window. Not applied to the Inventory
+REPORT, whose status filter is a select.
 
 **User Management is search + Filter + four KPIs + a sortable table.** Three rules behind it, none
 cosmetic:

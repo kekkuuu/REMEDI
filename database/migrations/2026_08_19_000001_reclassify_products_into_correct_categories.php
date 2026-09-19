@@ -34,7 +34,10 @@ return new class extends Migration
 {
     public function up(): void
     {
-        $categoryIds = Category::pluck('id', 'name');
+        // withoutGlobalScopes() on both models: they later gained SoftDeletes,
+        // whose scope filters on `archived_at`, which does not exist yet when
+        // this runs on a fresh database.
+        $categoryIds = Category::withoutGlobalScopes()->pluck('id', 'name');
 
         foreach (ProductClassifier::NEW_CATEGORIES as $name) {
             if (! $categoryIds->has($name)) {
@@ -46,7 +49,7 @@ return new class extends Migration
         // ~1,100 single-row writes.
         $byTarget = [];
 
-        Product::with('category')
+        Product::withoutGlobalScopes()->with(['category' => fn ($q) => $q->withoutGlobalScopes()])
             ->get(['id', 'name', 'category_id'])
             ->each(function ($product) use (&$byTarget) {
                 $target = ProductClassifier::classify($product->name);

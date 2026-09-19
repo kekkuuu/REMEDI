@@ -57,7 +57,12 @@ class UserController extends Controller
             'admins' => User::where('role', 'admin')->count(),
         ];
 
-        $query = User::query();
+        // ?archived=1 lists archived accounts, where Restore lives. The default
+        // list -- and the four KPI cards above, which count through the same
+        // soft-delete scope -- describe the accounts still in use.
+        $archived = $request->boolean('archived');
+
+        $query = $archived ? User::onlyTrashed() : User::query();
 
         if ($request->filled('search')) {
             // likeTerm() escapes the user's own % and _ — see Controller.
@@ -102,11 +107,13 @@ class UserController extends Controller
         // partial never renders.
         if ($request->wantsJson() || $request->ajax()) {
             return response()->json([
-                'html' => view('admin.users._rows', compact('users'))->render(),
+                'html' => view('admin.users._rows', compact('users', 'archived'))->render(),
             ]);
         }
 
-        return view('admin.users.index', compact('users', 'stats'));
+        $archivedCount = User::onlyTrashed()->count();
+
+        return view('admin.users.index', compact('users', 'stats', 'archived', 'archivedCount'));
     }
 
     public function edit(User $user)
@@ -218,58 +225,57 @@ class UserController extends Controller
     }
 
     /**
+     * Archive an account -- the replacement for Delete.
+     *
      * Answers in two shapes, the same way PosController::checkout does: JSON
      * for the AJAX confirm dialog on the user list, and the original redirect
      * for a plain form post, which is what happens with JavaScript off.
+     *
+     * The old "a cashier with sales cannot be deleted" refusal is gone, and it
+     * is the clearest case for why. It existed because a delete cascaded into
+     * `sales` and took every transaction that person had rung up with it (two
+     * accounts and 25 sale ids were lost before it was added), and the
+     * message had to send the admin to Deactivate instead. An archived account
+     * loses nothing: the row stays, `Sale::user()` reads it back withTrashed(),
+     * and every receipt and list still names its cashier.
+     *
+     * Archiving also IS the sign-in block, not just a tidy-up. The auth
+     * provider loads users through the soft-delete scope, so the account can
+     * no longer log in, and a session it already holds stops resolving to a
+     * user on its next request. Deactivate remains the reversible, in-place
+     * way to suspend someone who is still on the list; archive is for accounts
+     * that are finished with.
      */
     public function destroy(Request $request, User $user)
     {
         if ($user->id === auth()->id()) {
-            return $this->actionFailed($request, 'You cannot delete your own account.', 'user');
+            return $this->actionFailed($request, 'You cannot archive your own account.', 'user');
         }
 
-        // A cashier who has rung up sales cannot be deleted.
-        //
-        // `sales.user_id` used to be ON DELETE CASCADE, and `sale_items.sale_id`
-        // cascades in turn, so deleting an account silently took every sale that
-        // person had ever made with it — this action reported success while the
-        // transactions, the line items and the revenue disappeared, with no
-        // audit entry for any of it. The stock those sales deducted is never
-        // given back either, so the shelf and the books end up disagreeing
-        // permanently. Two accounts were deleted on this install before the fix
-        // and 25 sale ids are missing.
-        //
-        // Migration 2026_08_24_000001 makes the constraint RESTRICT so no other
-        // path can do it; this check is what turns that into a sentence the
-        // admin can act on rather than a 500.
-        //
-        // Deactivate is the intended way to retire an account — it blocks login
-        // AND ends any live session (see EnsureUserIsActive) while keeping the
-        // sales history attributable.
-        $salesCount = $user->sales()->count();
-
-        if ($salesCount > 0) {
-            return $this->actionFailed(
-                $request,
-                "\"{$user->name}\" has ".number_format($salesCount).' '.str('sale')->plural($salesCount)
-                .' recorded and cannot be deleted — those transactions are part of the sales record. '
-                .'Deactivate the account instead: that blocks sign-in immediately and keeps the history intact.',
-                'user'
-            );
-        }
-
-        // Captured before the delete: $user->name is still readable afterwards,
-        // but only because the model is still in memory — reading it off a
-        // deleted record is the kind of thing that quietly becomes null later.
+        // Captured first: the name is read after the model has been archived,
+        // and a value read off a trashed record is the kind of thing that
+        // quietly becomes null later.
         $name = $user->name;
 
-        // Logged after the delete succeeds, not before — same rule as
-        // ProductController::destroy. A refused delete must not leave an audit
-        // entry claiming it happened.
+        // Logged after the archive succeeds, not before -- same rule as
+        // ProductController::destroy. A refused archive must not leave an
+        // audit entry claiming it happened.
         $user->delete();
 
-        AuditTrail::log('Deleted', "Deleted user account: {$name}");
+        AuditTrail::log('Archived', "Archived user account: {$name}");
 
-        return $this->actionOk($request, "User \"{$name}\" deleted successfully.", redirect()->route('users.index'));
+        return $this->actionOk($request, "User \"{$name}\" archived. They can no longer sign in, and their sales history is untouched.", redirect()->route('users.index'));
+    }
+
+    /** Bring an archived account back. */
+    public function restore(Request $request, User $user)
+    {
+        abort_unless($user->trashed(), 404);
+
+        $user->restore();
+
+        AuditTrail::log('Restored', "Restored user account: {$user->name}");
+
+        return $this->actionOk($request, "User \"{$user->name}\" restored.", redirect()->route('users.index', ['archived' => 1]));
     }
 }

@@ -79,7 +79,9 @@
                      handler targets: an admin's ROLE badge is also
                      .badge-success and sits earlier in the row, so matching
                      on colour rewrote the role to "Active". --}}
-                @if($user->is_active)
+                @if($archived)
+                    <span class="badge badge-warning" data-user-status>Archived</span>
+                @elseif($user->is_active)
                     <span class="badge badge-success" data-user-status>Active</span>
                 @else
                     <span class="badge badge-danger" data-user-status>Inactive</span>
@@ -88,6 +90,20 @@
             <td>{{ $user->created_at->format('M d, Y') }}</td>
             <td>
                 <div class="actions-cell">
+                @if($archived)
+                    <form method="POST" action="{{ route('users.restore', $user) }}"
+                          class="js-confirm"
+                          data-confirm-title="Restore this account?"
+                          data-confirm-body="{{ $user->name }} ({{ $user->email }}) goes back on the user list and can sign in again."
+                          data-confirm-label="Restore"
+                          data-confirm-icon="ti-archive-off"
+                          data-confirm-tone="neutral"
+                          data-on-success="remove-row">
+                        @csrf
+                        @method('PATCH')
+                        <button type="submit" class="btn btn-success action-btn"><i class="ti ti-archive-off" aria-hidden="true"></i> Restore</button>
+                    </form>
+                @else
                     <a href="{{ route('users.edit', $user) }}" class="btn btn-info action-btn"><i class="ti ti-pencil" aria-hidden="true"></i> Edit</a>
 
                     @if($user->id !== auth()->id())
@@ -114,27 +130,35 @@
                         {{-- Stays a real POST form: the shared js-confirm
                              handler in layouts/app.blade.php only intercepts
                              submit, so with JavaScript off this still
-                             deletes (unconfirmed) rather than being a dead
-                             button — same trade-off as #logoutModal. --}}
+                             archives (unconfirmed) rather than being a dead
+                             button -- same trade-off as #logoutModal.
+
+                             Archive, not delete: the account can no longer
+                             sign in and leaves the list, but its sales keep
+                             their cashier and it can be restored. Deactivate
+                             (above) is the in-place way to suspend someone
+                             who stays on the list. --}}
                         <form method="POST" action="{{ route('users.destroy', $user) }}"
                               class="js-confirm"
-                              data-confirm-title="Delete this account?"
-                              data-confirm-body="Permanently delete {{ $user->name }} ({{ $user->email }})? This cannot be undone."
-                              data-confirm-label="Delete"
-                              data-confirm-icon="ti-trash"
+                              data-confirm-title="Archive this account?"
+                              data-confirm-body="Archive {{ $user->name }} ({{ $user->email }})? They will be signed out and unable to sign in, and leave this list. Their sales history is kept, and you can restore the account from the Archived list."
+                              data-confirm-label="Archive"
+                              data-confirm-icon="ti-archive"
+                              data-confirm-tone="neutral"
                               data-on-success="remove-row">
                             @csrf
                             @method('DELETE')
-                            <button type="submit" class="btn btn-danger action-btn"><i class="ti ti-trash" aria-hidden="true"></i> Delete</button>
+                            <button type="submit" class="btn btn-danger action-btn"><i class="ti ti-archive" aria-hidden="true"></i> Archive</button>
                         </form>
                     @else
                         <span class="badge badge-success">You</span>
                     @endif
+                @endif
                 </div>
             </td>
         </tr>
     @empty
-        <tr><td colspan="7">No users found.</td></tr>
+        <tr><td colspan="7">{{ $archived ? 'No archived accounts.' : 'No users found.' }}</td></tr>
     @endforelse
     </tbody>
 </table></div>

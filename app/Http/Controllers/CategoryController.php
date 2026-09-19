@@ -14,7 +14,11 @@ class CategoryController extends Controller
     {
         $categories = Category::withCount('products')->orderBy('name')->get();
 
-        return view('products.categories', compact('categories'));
+        // Archived categories are listed apart, where Restore lives. Their
+        // product counts are not shown: an archived category holds none.
+        $archivedCategories = Category::onlyTrashed()->orderBy('name')->get();
+
+        return view('products.categories', compact('categories', 'archivedCategories'));
     }
 
     public function store(Request $request)
@@ -69,39 +73,54 @@ class CategoryController extends Controller
         return $this->actionOk($request, "Category renamed to \"{$category->name}\".", back());
     }
 
+    /**
+     * Archive a category -- the replacement for Delete.
+     *
+     * Still refused while the category holds products, and for the same
+     * reason as before: an archived category is hidden from the pickers and
+     * the sidebar, and a product filed under a hidden category is a product
+     * nobody can find or re-file. Move or archive the products first.
+     *
+     * What is different is the failure mode. `products.category_id` cascades
+     * on delete, so the old code had to lock the row and re-check inside a
+     * transaction to stop a concurrent product create being wiped along with
+     * the category. Archiving deletes nothing, so a product that slips in
+     * between the check and the stamp is merely filed under an archived
+     * category (Product::category() reads it withTrashed, so it still shows
+     * its name) instead of being destroyed. The lock stays anyway -- it is
+     * cheap, and it keeps the check meaningful.
+     */
     public function destroy(Request $request, Category $category)
     {
-        // products.category_id is ON DELETE CASCADE (unlike sales.user_id,
-        // which was hardened to RESTRICT), so the exists() check below is the
-        // ONLY thing standing between this action and silently wiping every
-        // product -- and its batches, also cascading -- in a category that
-        // looked empty a moment ago. An unguarded check-then-delete leaves a
-        // window: a product created in this category between the check and
-        // the delete is destroyed with it, with none of destroy()'s own
-        // guards (sold-count, sales_history, its own audit entry) ever
-        // running. lockForUpdate() closes that window the same way
-        // Sale::nextTransactionNo() closes its own race -- InnoDB's FK
-        // implementation takes a lock on the referenced parent row before a
-        // child INSERT can proceed, so a concurrent product create blocks
-        // until this transaction commits or rolls back.
         return DB::transaction(function () use ($request, $category) {
             $locked = Category::where('id', $category->id)->lockForUpdate()->first();
 
             if (! $locked || $locked->products()->exists()) {
-                return $this->actionFailed($request, 'Cannot delete a category that has products.', 'category');
+                return $this->actionFailed($request, 'Cannot archive a category that has products.', 'category');
             }
 
             $name = $locked->name;
             $locked->delete();
 
-            // Logged AFTER the delete succeeds, never before -- see
-            // ProductController::destroy() for why: an entry asserting a
-            // deletion that did not happen is worse than the crash it
-            // would otherwise accompany.
-            AuditTrail::log('Deleted', "Deleted category: {$name}");
+            // Logged AFTER the archive succeeds, never before -- see
+            // ProductController::destroy().
+            AuditTrail::log('Archived', "Archived category: {$name}");
             Cache::forget('sidebar_categories');
 
-            return $this->actionOk($request, "Category \"{$name}\" deleted successfully.", back());
+            return $this->actionOk($request, "Category \"{$name}\" archived.", back());
         });
+    }
+
+    /** Bring an archived category back. */
+    public function restore(Request $request, Category $category)
+    {
+        abort_unless($category->trashed(), 404);
+
+        $category->restore();
+
+        AuditTrail::log('Restored', "Restored category: {$category->name}");
+        Cache::forget('sidebar_categories');
+
+        return $this->actionOk($request, "Category \"{$category->name}\" restored.", back());
     }
 }

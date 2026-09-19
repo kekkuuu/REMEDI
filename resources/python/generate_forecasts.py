@@ -232,9 +232,18 @@ def load_from_mysql(env_path: str | None) -> pd.DataFrame:
     # (sku, date) pairs across the two sources sum exactly as they should.
     # Joined through products.sku, the only place sale_items.product_id and
     # sales_history.product_sku meet.
+    #
+    # Archived products are left out of BOTH halves. Their history stays in the
+    # database (that is what archiving is for), but a product nobody stocks any
+    # more must not keep getting a forecast, and its rows would otherwise flow
+    # straight into the store-wide totals on the Sales Forecasting page. The
+    # first branch has no join to products, so it excludes by SKU.
     query = """
         SELECT sale_date AS date, product_sku, quantity_sold AS qty
         FROM sales_history
+        WHERE product_sku NOT IN (
+            SELECT sku FROM products WHERE archived_at IS NOT NULL
+        )
 
         UNION ALL
 
@@ -243,6 +252,7 @@ def load_from_mysql(env_path: str | None) -> pd.DataFrame:
         FROM sale_items
         JOIN sales ON sales.id = sale_items.sale_id
         JOIN products ON products.id = sale_items.product_id
+        WHERE products.archived_at IS NULL
     """
     df = pd.read_sql(query, conn)
     conn.close()

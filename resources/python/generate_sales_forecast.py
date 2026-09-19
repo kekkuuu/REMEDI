@@ -155,6 +155,9 @@ def load_from_mysql(env_path: str | None) -> tuple[pd.DataFrame, dict]:
         """
         SELECT sale_date AS date, product_sku, quantity_sold AS qty
         FROM sales_history
+        WHERE product_sku NOT IN (
+            SELECT sku FROM products WHERE archived_at IS NOT NULL
+        )
 
         UNION ALL
 
@@ -163,6 +166,7 @@ def load_from_mysql(env_path: str | None) -> tuple[pd.DataFrame, dict]:
         FROM sale_items
         JOIN sales ON sales.id = sale_items.sale_id
         JOIN products ON products.id = sale_items.product_id
+        WHERE products.archived_at IS NULL
         """,
         conn,
     )

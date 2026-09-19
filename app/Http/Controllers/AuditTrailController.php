@@ -148,7 +148,9 @@ class AuditTrailController extends Controller
         // for the full page load; the AJAX branch above never needs it, since
         // this filter is set once (from "My Profile"'s link) and only ever
         // ridden along afterward via the hidden field the live search reads.
-        $filteredUser = $request->filled('user_id') ? User::find($request->user_id) : null;
+        // withTrashed: an archived account's actions are still on the trail, and
+        // a link that filters to them must still be able to name who.
+        $filteredUser = $request->filled('user_id') ? User::withTrashed()->find($request->user_id) : null;
 
         return view('admin.audit.index', compact('logs', 'loginCount', 'logoutCount', 'viewCount', 'filteredUser'));
     }

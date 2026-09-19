@@ -3,12 +3,24 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 
 class User extends Authenticatable
 {
-    use HasFactory, Notifiable;
+    use HasFactory, Notifiable, SoftDeletes;
+
+    /**
+     * Archived, not deleted -- see Product::DELETED_AT.
+     *
+     * For accounts this also IS the sign-in block: the auth provider loads a
+     * user through the ordinary query, which the soft-delete scope filters, so
+     * an archived account cannot log in and a session it already holds stops
+     * resolving to a user on its next request. Sales it rang up keep their
+     * cashier through Sale::user()'s withTrashed().
+     */
+    public const DELETED_AT = 'archived_at';
 
     protected $fillable = [
         'name',

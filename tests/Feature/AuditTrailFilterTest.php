@@ -84,15 +84,15 @@ class AuditTrailFilterTest extends TestCase
         );
     }
 
-    public function test_deleting_an_account_is_logged(): void
+    public function test_archiving_an_account_is_logged(): void
     {
         $user = User::factory()->create(['name' => 'Removed']);
 
         $this->actingAs($this->admin())->delete("/users/{$user->id}");
 
         $this->assertTrue(
-            AuditTrail::where('action', 'Deleted')
-                ->where('details', 'like', '%Deleted user account: Removed%')
+            AuditTrail::where('action', 'Archived')
+                ->where('details', 'like', '%Archived user account: Removed%')
                 ->exists()
         );
     }

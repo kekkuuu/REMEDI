@@ -21,9 +21,10 @@ class ProductController extends Controller
      *
      * None of these has a foreign key to `products.sku`, so the database will
      * not stop a rename from orphaning them — this list is the only thing that
-     * does. Anything added here must be re-pointed by update() and cleaned up
-     * by destroy(); if you introduce another `product_sku` column anywhere,
-     * add it here rather than to the loop.
+     * does. Anything added here must be re-pointed by update(); if you
+     * introduce another `product_sku` column anywhere, add it here rather than
+     * to the loop. destroy() no longer touches these tables at all: it archives
+     * the product, so the rows keep pointing at a row that still exists.
      */
     private const SKU_KEYED_TABLES = [
         'sales_history',
@@ -35,7 +36,13 @@ class ProductController extends Controller
 
     public function index(Request $request)
     {
-        $query = Product::with('category', 'batches');
+        // ?archived=1 lists the archived products, which is where Restore lives.
+        // The default list never shows them: the soft-delete scope hides them.
+        $archived = $request->boolean('archived');
+
+        $query = $archived
+            ? Product::onlyTrashed()->with('category')
+            : Product::with('category', 'batches');
 
         if ($request->filled('search')) {
             // likeTerm() escapes the user's own % and _ — see Controller.
@@ -56,12 +63,16 @@ class ProductController extends Controller
 
         if ($request->wantsJson() || $request->ajax()) {
             return response()->json([
-                'html' => view('products._rows', compact('products'))->render(),
+                'html' => view('products._rows', compact('products', 'archived'))->render(),
                 'pagination' => (string) $products->links(),
             ]);
         }
 
-        return view('products.index', compact('products', 'categories'));
+        // Counted only for the toggle's badge, and only on the full page: the
+        // live-search swap never redraws it.
+        $archivedCount = Product::onlyTrashed()->count();
+
+        return view('products.index', compact('products', 'categories', 'archived', 'archivedCount'));
     }
 
     public function create()
@@ -77,7 +88,9 @@ class ProductController extends Controller
             'name' => 'required|string|max:255',
             'sku' => 'required|string|max:50|unique:products,sku',
             'barcode' => 'nullable|string|max:100|unique:products,barcode',
-            'category_id' => 'required|exists:categories,id',
+            // An archived category is not offered by the pickers; refuse a
+            // hand-posted id for one just the same.
+            'category_id' => ['required', Rule::exists('categories', 'id')->whereNull('archived_at')],
             // Rule::in over the canonical list, not free text -- see
             // Product::UNITS for why the catalogue had a unit called "20".
             'unit' => ['required', Rule::in(Product::unitOptions())],
@@ -124,7 +137,11 @@ class ProductController extends Controller
         // The stored value is still decided by ProductBatch::nextBatchNumber().
         $batchSequences = ProductBatch::takenSequences($product);
 
-        return view('products.edit', compact('product', 'categories', 'suggestedExpiryDate', 'batchSequences'));
+        // Batches archived on their own (a product archived WITH its batches is
+        // not reachable here at all -- route-model binding hides it).
+        $archivedBatches = $product->batches()->onlyTrashed()->orderByDesc('archived_at')->get();
+
+        return view('products.edit', compact('product', 'categories', 'suggestedExpiryDate', 'batchSequences', 'archivedBatches'));
     }
 
     public function update(Request $request, Product $product)
@@ -133,7 +150,7 @@ class ProductController extends Controller
             'name' => 'required|string|max:255',
             'sku' => 'required|string|max:50|unique:products,sku,'.$product->id,
             'barcode' => 'nullable|string|max:100|unique:products,barcode,'.$product->id,
-            'category_id' => 'required|exists:categories,id',
+            'category_id' => ['required', Rule::exists('categories', 'id')->whereNull('archived_at')],
             // unitOptions($product->unit) rather than the bare list: one legacy
             // row has a unit of "20", and rejecting it here would make that
             // product uneditable until someone noticed why.
@@ -208,113 +225,78 @@ class ProductController extends Controller
         return $this->actionOk($request, "Product \"{$product->name}\" updated successfully.", redirect()->route('products.index'));
     }
 
+    /**
+     * Archive a product -- the replacement for Delete.
+     *
+     * Nothing is removed. The product and its batches get an `archived_at`
+     * stamp and drop out of the till, the inventory, the alerts and the
+     * forecast lists, while everything that refers to them stays put: sale
+     * lines and receipts still name the product, and `sales_history` (keyed on
+     * `sku` with no foreign key) keeps counting toward every revenue report.
+     *
+     * That is why the old refusals are gone. Delete had to say no whenever a
+     * sale line or a history row pointed at the product -- which was nearly
+     * always -- and had to hand-clean five SKU-keyed tables when it did say
+     * yes. Archiving needs neither: it cannot orphan anything, so there is
+     * nothing to guard and nothing to clean.
+     *
+     * The SKU stays reserved by the archived row (the unique index still sees
+     * it), which is also what stops a NEW product from inheriting a dead one's
+     * history and forecast -- the reuse hazard the old delete comment worried
+     * about. To bring a product back, restore it; do not re-create it.
+     */
     public function destroy(Request $request, Product $product)
     {
         $name = $product->name;
 
-        // A product that has ever been sold cannot be deleted, and must not be.
-        // `sale_items.product_id` and `.product_batch_id` are both ON DELETE
-        // RESTRICT, deliberately: a receipt, the sales list and every report
-        // read back through those rows, so removing the product would leave
-        // historical sales pointing at nothing.
-        //
-        // Without this check the RESTRICT still stopped the delete — as an
-        // uncaught QueryException, i.e. a 500 with the raw SQL in it. Same
-        // shape as CategoryController::destroy, which has always refused to
-        // delete a category that still has products.
-        $soldCount = $product->saleItems()->count();
-
-        if ($soldCount > 0) {
-            return $this->actionFailed(
-                $request,
-                "\"{$name}\" has been sold {$soldCount} ".str('time')->plural($soldCount)
-                .' and cannot be deleted — past sales and receipts still refer to it. '
-                .'Set its stock to zero instead if you no longer stock it.',
-                'product'
-            );
-        }
-
-        // The same rule for the imported sales record, which is where almost
-        // all of the exposure actually is.
-        //
-        // `sales_history.product_sku` is a plain string with NO foreign key, so
-        // the RESTRICT above does not protect it: the guard covered 29 products
-        // while 2,555 carry history and were freely deletable. Deleting one
-        // silently drops its rows out of every revenue join — measured on
-        // SYMBICORT 160/4.5MCG RAPIHALER, **₱7,741,795.77** would have vanished
-        // from every report, more than a tenth of lifetime revenue, with no
-        // error and nothing in the audit trail to explain the drop.
-        $historyRows = DB::table('sales_history')->where('product_sku', $product->sku)->count();
-
-        if ($historyRows > 0) {
-            return $this->actionFailed(
-                $request,
-                "\"{$name}\" has ".number_format($historyRows).' rows of sales history and cannot be '
-                .'deleted — every revenue report reads through them, and removing the product would '
-                .'silently reduce past totals. Set its stock to zero instead if you no longer stock it.',
-                'product'
-            );
-        }
-
-        // `inventory_receipts`, `demand_forecasts`, `sales_forecasts` and
-        // `forecast_accuracy` are the remaining sku-keyed tables (sales_history
-        // is the one already guarded above), and none of them is a reason to
-        // refuse the delete.
-        //
-        // Receipts are purchase history — what arrived, not what was sold — so
-        // unlike `sales_history` they carry no revenue and no report reads a
-        // peso figure through them. Forecast/accuracy rows carry no revenue
-        // either, only a prediction about a product that is about to stop
-        // existing. Guarding on any of them would block essentially every
-        // deletion (nearly all stock arrives via a receipt, and most products
-        // eventually get forecast) to protect rows nothing critical reads.
-        //
-        // Leaving them behind is wrong too, and NOT symmetric with a
-        // rename — update()'s SKU_KEYED_TABLES loop re-points these same four
-        // tables because the product still exists under a new SKU, but a
-        // delete has no new SKU to re-point to, so the class doc comment's
-        // "cleaned up by destroy()" means delete, not re-point. Left alone,
-        // `sku` has no FK, so the string simply survives as a dangling
-        // reference — and because a deleted SKU is free to be reused by an
-        // unrelated future product (store() only checks uniqueness against
-        // CURRENT rows), that new product could silently inherit the dead
-        // one's stale forecast until the next scheduled run overwrites it.
-        // demand_forecasts/forecast_accuracy self-heal via the nightly
-        // forecast:generate cron; sales_forecasts has no equivalent schedule,
-        // so an orphaned row there would sit until someone runs
-        // sales-forecast:generate by hand. Clear all four with the product,
-        // inside a transaction so a failed delete cannot take them with it,
-        // and say how many in the audit entry — a deletion that quietly
-        // discards records should still leave a count behind.
-        $cleanupTables = array_diff(self::SKU_KEYED_TABLES, ['sales_history']);
-        $cleanupCounts = collect($cleanupTables)
-            ->mapWithKeys(fn ($table) => [$table => DB::table($table)->where('product_sku', $product->sku)->count()]);
-        $receiptRows = $cleanupCounts['inventory_receipts'] ?? 0;
-
-        // Log AFTER the delete succeeds, never before.
-        //
-        // This used to run first, so a delete the database then refused still
-        // wrote "Deleted product: X" to the audit trail while the product sat
-        // there untouched. For a pharmacy that log is a compliance artifact;
-        // an entry asserting something that did not happen is worse than the
-        // crash it accompanied.
-        DB::transaction(function () use ($product, $cleanupTables) {
-            foreach ($cleanupTables as $table) {
-                DB::table($table)->where('product_sku', $product->sku)->delete();
-            }
+        // The batches are stamped with the product's OWN timestamp so restore()
+        // can hand back exactly the batches archived with it and leave alone
+        // any that were archived on their own beforehand.
+        DB::transaction(function () use ($product) {
             $product->delete();
+            $product->batches()->update(['archived_at' => $product->archived_at]);
         });
 
-        $note = $receiptRows > 0
-            ? ' — also removed '.number_format($receiptRows).' '
-                .str('inventory receipt')->plural($receiptRows)
-            : '';
-
-        AuditTrail::log('Deleted', "Deleted product: {$name}{$note}");
+        // After the archive succeeds, never before -- an entry claiming an
+        // action that did not happen is worse than the failure it hides.
+        AuditTrail::log('Archived', "Archived product: {$name} (SKU: {$product->sku})");
 
         AlertService::forget();
 
-        return $this->actionOk($request, "Product \"{$name}\" and its batches were deleted.", redirect()->route('products.index'));
+        return $this->actionOk($request, "Product \"{$name}\" archived. Its sales history is untouched.", redirect()->route('products.index'));
+    }
+
+    /** Bring an archived product back, together with the batches archived with it. */
+    public function restore(Request $request, Product $product)
+    {
+        abort_unless($product->trashed(), 404);
+
+        // The category may have been archived after this product was. It would
+        // come back pointing at a category the pickers no longer offer.
+        if ($product->category?->trashed()) {
+            return $this->actionFailed(
+                $request,
+                "\"{$product->name}\" belongs to the archived category \"{$product->category->name}\". Restore the category first.",
+                'product'
+            );
+        }
+
+        DB::transaction(function () use ($product) {
+            $stamp = $product->archived_at;
+
+            $product->restore();
+
+            ProductBatch::onlyTrashed()
+                ->where('product_id', $product->id)
+                ->where('archived_at', $stamp)
+                ->restore();
+        });
+
+        AuditTrail::log('Restored', "Restored product: {$product->name} (SKU: {$product->sku})");
+
+        AlertService::forget();
+
+        return $this->actionOk($request, "Product \"{$product->name}\" restored.", redirect()->route('products.index', ['archived' => 1]));
     }
 
     // ===== Batch Management =====
@@ -456,53 +438,55 @@ class ProductController extends Controller
         return $this->actionOk($request, "Batch {$batch->batch_number} updated.", back());
     }
 
+    /**
+     * Archive a batch. It leaves the shelf: out of the stock totals, the
+     * alerts and the inventory, but the row stays, so a past sale that drew on
+     * it still resolves and the delivery is still on record.
+     *
+     * The old "has been sold from" refusal is gone. It existed because a real
+     * delete would have hit `sale_items.product_batch_id` (RESTRICT) or wiped
+     * history; archiving touches neither, so there is nothing left to refuse.
+     */
     public function destroyBatch(Request $request, ProductBatch $batch)
     {
         $name = $batch->product->name;
         $batchNumber = $batch->batch_number;
 
-        // Same rule as destroy(): `sale_items.product_batch_id` is RESTRICT, so
-        // a batch that has been sold from is part of the sales record. 29 of
-        // the batches on this install are referenced that way, and deleting any
-        // of them used to 500 with the raw SQL in the response body.
-        //
-        // Locked and re-checked inside a transaction rather than a plain
-        // count-then-delete: unlocked, a sale landing on this exact batch
-        // between the count and the delete would hit the RESTRICT constraint
-        // and surface as the same raw-SQL 500 this guard exists to prevent.
-        // Locking the row also serialises this against PosController::checkout,
-        // which now takes the same lock on every batch it's about to sell from
-        // (see the comment there) — whichever of the two gets here first wins
-        // outright, rather than racing to fail in an ugly way.
-        $refused = DB::transaction(function () use ($batch) {
-            $locked = ProductBatch::whereKey($batch->getKey())->lockForUpdate()->first();
-            $soldCount = $locked->saleItems()->count();
+        $batch->delete();
 
-            if ($soldCount > 0) {
-                return true;
-            }
+        // Logged only once the archive has actually happened; see destroy().
+        AuditTrail::log('Archived', "Archived batch '{$batchNumber}' of {$name}");
 
-            $locked->delete();
+        AlertService::forget();
 
-            return false;
-        });
+        return $this->actionOk($request, "Batch {$batchNumber} archived.", back());
+    }
 
-        if ($refused) {
+    /** Put an archived batch back on the shelf. */
+    public function restoreBatch(Request $request, ProductBatch $batch)
+    {
+        abort_unless($batch->trashed(), 404);
+
+        // The parent's scope hides an archived product, so this is null exactly
+        // when the product is archived -- and a batch cannot be on the shelf of
+        // a product that is not.
+        $product = $batch->product;
+
+        if (! $product) {
             return $this->actionFailed(
                 $request,
-                "Batch {$batchNumber} has been sold from and cannot be deleted — "
-                .'past sales still refer to it. Set its quantity to 0 to take it out of stock, '
-                .'or mark it returned if it went back to the supplier.',
+                "Batch {$batch->batch_number} belongs to an archived product. Restore the product first.",
                 'batch'
             );
         }
 
-        // Logged only once the delete has actually happened; see destroy().
-        AuditTrail::log('Deleted', "Removed batch '{$batchNumber}' from {$name}");
+        $batch->restore();
+
+        AuditTrail::log('Restored', "Restored batch '{$batch->batch_number}' of {$product->name}");
 
         AlertService::forget();
 
-        return $this->actionOk($request, "Batch {$batchNumber} removed from {$name}.", back());
+        return $this->actionOk($request, "Batch {$batch->batch_number} restored.", back());
     }
 
     // Mark a batch as physically returned to the supplier. Only meaningful

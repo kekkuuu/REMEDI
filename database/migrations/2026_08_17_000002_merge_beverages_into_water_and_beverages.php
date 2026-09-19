@@ -20,8 +20,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        $target = Category::where('name', Category::CANONICAL_BEVERAGES)->first();
-        $source = Category::where('name', 'Beverages')->first();
+        // withoutGlobalScopes(): Category later gained SoftDeletes, whose scope
+        // filters on `archived_at` -- a column that does not exist yet when this
+        // migration runs on a fresh database, so the ordinary query fails.
+        $target = Category::withoutGlobalScopes()->where('name', Category::CANONICAL_BEVERAGES)->first();
+        $source = Category::withoutGlobalScopes()->where('name', 'Beverages')->first();
 
         // Nothing named "Beverages" left to merge (fresh install seeded
         // through normalizeName(), or this already ran).

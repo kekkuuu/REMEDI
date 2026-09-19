@@ -23,13 +23,14 @@ class SaleItem extends Model
         return $this->belongsTo(Sale::class);
     }
 
+    // withTrashed on both: a sold line outlives the archiving of what it sold.
     public function product()
     {
-        return $this->belongsTo(Product::class);
+        return $this->belongsTo(Product::class)->withTrashed();
     }
 
     public function batch()
     {
-        return $this->belongsTo(ProductBatch::class, 'product_batch_id');
+        return $this->belongsTo(ProductBatch::class, 'product_batch_id')->withTrashed();
     }
 }

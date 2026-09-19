@@ -31,10 +31,11 @@ class Sale extends Model
         'payment_voided' => 'boolean',
     ];
 
-    // A sale belongs to the user (cashier) who made it
+    // A sale belongs to the user (cashier) who made it. withTrashed: an archived
+    // cashier still rang these up, and every receipt and list prints the name.
     public function user()
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(User::class)->withTrashed();
     }
 
     // A sale has many line items
