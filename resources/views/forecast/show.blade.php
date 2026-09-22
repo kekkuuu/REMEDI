@@ -1,6 +1,6 @@
 @extends('layouts.app')
 
-@section('title', 'Demand Forecasting — ' . ($product->name ?? $product_sku))
+@section('title', 'Forecasting — ' . ($product->name ?? $product_sku))
 
 @section('content')
 @php
@@ -97,6 +97,68 @@
         : null;
 @endphp
 
+@php
+    // Sales-forecast half of this page: same product, from sales_forecasts
+    // (units + revenue) rather than demand_forecasts. A product can have a
+    // demand forecast with no sales forecast (the two scripts run
+    // independently and search their own SARIMA candidates), so everything
+    // here is guarded on $hasSalesForecast rather than assumed present.
+    $hasSalesForecast = $salesForecast['forecast']->isNotEmpty();
+
+    if ($hasSalesForecast) {
+        $sfForecastByMonth = $salesForecast['forecast']->keyBy(fn ($row) => $row->forecast_date->format('Y-m'));
+        $sfMonths = collect($salesForecast['actualRevenue']->keys())
+            ->merge($sfForecastByMonth->keys())->unique()->sort()->values();
+
+        // Same join-month stitch as the demand chart above: the last actual
+        // month strictly before the forecast begins, so the dashed line
+        // starts exactly where the solid one ends instead of jumping to it.
+        $sfFirstForecastMonth = $sfForecastByMonth->keys()->sort()->first();
+        $sfJoinMonth = collect($salesForecast['actualRevenue']->keys())
+            ->filter(fn ($m) => $sfFirstForecastMonth === null || $m < $sfFirstForecastMonth)
+            ->last();
+
+        $sfActualRevenueSeries = $sfMonths->map(fn ($m) => $salesForecast['actualRevenue'][$m] ?? null);
+        $sfForecastRevenueSeries = $sfMonths->map(function ($m) use ($sfForecastByMonth, $sfJoinMonth, $salesForecast) {
+            if ($m === $sfJoinMonth) {
+                return (float) ($salesForecast['actualRevenue'][$m] ?? 0);
+            }
+
+            return $sfForecastByMonth->has($m) ? (float) $sfForecastByMonth[$m]->forecast_revenue : null;
+        });
+
+        $sfRevenueLowerSeries = $sfMonths->map(function ($m) use ($sfForecastByMonth, $sfJoinMonth, $salesForecast) {
+            if ($m === $sfJoinMonth) {
+                return (float) ($salesForecast['actualRevenue'][$m] ?? 0);
+            }
+
+            return $sfForecastByMonth->has($m) && $sfForecastByMonth[$m]->lower_ci_revenue !== null
+                ? (float) $sfForecastByMonth[$m]->lower_ci_revenue
+                : null;
+        });
+
+        $sfRevenueUpperSeries = $sfMonths->map(function ($m) use ($sfForecastByMonth, $sfJoinMonth, $salesForecast) {
+            if ($m === $sfJoinMonth) {
+                return (float) ($salesForecast['actualRevenue'][$m] ?? 0);
+            }
+
+            return $sfForecastByMonth->has($m) && $sfForecastByMonth[$m]->upper_ci_revenue !== null
+                ? (float) $sfForecastByMonth[$m]->upper_ci_revenue
+                : null;
+        });
+
+        // Same "current month is a nowcast, not actionable" boundary as the
+        // demand KPIs above -- $firstActionableMonth comes from the
+        // controller (App\Support\ForecastHorizon), one definition shared by
+        // both halves of this page.
+        $sfActionable = $salesForecast['forecast']->filter(fn ($r) => $r->forecast_date->format('Y-m') >= $nextMonthKey);
+        $sfNextMonth = $sfActionable->first();
+        $sfHorizonRevenue = $sfActionable->sum('forecast_revenue');
+        $sfHorizonUnits = $sfActionable->sum('forecast_units');
+        $sfHorizonMonths = $sfActionable->count();
+    }
+@endphp
+
 {{-- Title lifted out of the card so Back can sit beside it, matching every
      other detail page. It was the card's own heading before, which left the
      back button stranded on a row of its own above. --}}
@@ -158,6 +220,48 @@
      here at the user's request, matching forecast/index.blade.php's Model
      accuracy card. The controller still computes and passes both variables;
      only the display is removed. --}}
+
+{{-- Sales Forecast: the second half of the merged page. Demand Forecasting
+     answers "how many units to buy"; this answers "how much revenue to
+     expect" -- same product, same sales history, a different forecast run
+     (sales_forecasts, fit on revenue as well as units). Shown on the same
+     page rather than a separate one, per the product request, so clicking a
+     product surfaces both instead of sending the two forecasts to different
+     pages. --}}
+<div class="card" style="margin-bottom:18px;">
+    <h2 style="margin-top:0; margin-bottom:4px; font-size:20px; font-weight:500;">
+        Sales Forecast
+    </h2>
+    <p style="font-size:13px; color:#64748b; margin:0 0 18px;">
+        Revenue forecast for this product, from the same sales history as the demand forecast above.
+    </p>
+
+    @if ($hasSalesForecast)
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom:18px;">
+            <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
+                <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Next month revenue forecast</p>
+                <p style="font-size:22px; font-weight:500; margin:0;">
+                    {{ $sfNextMonth ? '₱'.number_format($sfNextMonth->forecast_revenue, 2) : '—' }}
+                </p>
+            </div>
+            <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
+                <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast units ({{ $sfHorizonMonths }}-month)</p>
+                <p style="font-size:22px; font-weight:500; margin:0;">{{ number_format($sfHorizonUnits) }}</p>
+            </div>
+            <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
+                <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast revenue ({{ $sfHorizonMonths }}-month)</p>
+                <p style="font-size:22px; font-weight:500; margin:0;">₱{{ number_format($sfHorizonRevenue, 2) }}</p>
+            </div>
+        </div>
+
+        <p style="font-size:13px; color:#64748b; margin:0 0 8px;">Revenue — actual vs. forecast, with 80% confidence band</p>
+        <div style="position:relative; width:100%; height:260px;">
+            <canvas id="productSalesForecastChart" role="img" aria-label="Line chart of actual revenue with a dashed forecast continuation and shaded confidence band"></canvas>
+        </div>
+    @else
+        <p style="color:#94a3b8; font-size:13px;">No sales forecast available for this product yet.</p>
+    @endif
+</div>
 
 {{-- Seasonal pattern for this specific product — average units sold per
      calendar month, across however many years of sales_history exist for
@@ -335,6 +439,78 @@ new Chart(document.getElementById('productForecastChart'), {
         },
     },
 });
+
+@if ($hasSalesForecast)
+new Chart(document.getElementById('productSalesForecastChart'), {
+    type: 'line',
+    data: {
+        labels: @json($sfMonths),
+        datasets: [
+            {
+                label: 'Lower bound',
+                data: @json($sfRevenueLowerSeries),
+                borderWidth: 0,
+                pointRadius: 0,
+                fill: false,
+                spanGaps: false,
+            },
+            {
+                label: 'Confidence band',
+                data: @json($sfRevenueUpperSeries),
+                borderWidth: 0,
+                pointRadius: 0,
+                backgroundColor: 'rgba(15, 110, 86, 0.12)',
+                fill: '-1',
+                spanGaps: false,
+            },
+            {
+                label: 'Actual',
+                data: @json($sfActualRevenueSeries),
+                borderColor: '#0f6e56',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                pointRadius: 2,
+                tension: 0.25,
+                spanGaps: false,
+            },
+            {
+                label: 'Forecast',
+                data: @json($sfForecastRevenueSeries),
+                borderColor: '#0f6e56',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                borderDash: [5, 4],
+                pointRadius: 2,
+                tension: 0.25,
+                spanGaps: false,
+            },
+        ],
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                display: true,
+                labels: { filter: (item) => item.text === 'Actual' || item.text === 'Forecast' },
+            },
+            tooltip: {
+                mode: 'index',
+                intersect: false,
+                position: 'nearest',
+                filter: (item) => item.dataset.label === 'Actual' || item.dataset.label === 'Forecast',
+                callbacks: {
+                    label: (item) => `${item.dataset.label}: ₱${item.parsed.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+                },
+            },
+        },
+        scales: {
+            x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 18 } },
+            y: { beginAtZero: true, grid: { color: '#e2e8f0' }, ticks: { callback: (v) => '₱' + (v / 1000) + 'k' } },
+        },
+    },
+});
+@endif
 
 @if ($seasonal->isNotEmpty())
 new Chart(document.getElementById('productSeasonalChart'), {

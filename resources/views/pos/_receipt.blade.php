@@ -76,16 +76,22 @@
             <span>Total</span>
             <span>&#8369;{{ number_format($sale->total_amount, 2) }}</span>
         </div>
-        {{-- Historical only. The supervisor passcode that could bypass payment
-             has been removed, so no new sale can be voided -- but sales taken
-             before that still carry the flag and must keep reprinting honestly. --}}
+        {{-- The old supervisor-passcode bypass is gone; a real void exists
+             again as of 2026-09-22 (SaleController::void(), admin-only,
+             logged, with a reason) -- this now reflects EITHER a sale voided
+             through that path or one of the historical rows that predates
+             both. --}}
         @if($sale->payment_voided)
             <div class="row" style="margin-top:6px; color:#dc2626; font-weight:600;">
                 <span>Payment Check</span>
-                <span>VOIDED (supervisor)</span>
+                <span>VOIDED</span>
             </div>
         @endif
         <div class="row" style="margin-top:6px;">
+            <span>Payment Method</span>
+            <span>{{ \App\Models\Sale::PAYMENT_METHODS[$sale->payment_method] ?? ucfirst($sale->payment_method) }}</span>
+        </div>
+        <div class="row">
             <span>Amount Paid</span>
             <span>&#8369;{{ number_format($sale->amount_paid, 2) }}</span>
         </div>

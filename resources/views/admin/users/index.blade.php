@@ -319,6 +319,18 @@
         <span class="kpi-value">{{ number_format($stats['admins']) }}</span>
         <span class="kpi-sub">Administrator(s)</span>
     </div>
+
+    {{-- Grey when zero, same treatment "Archived" gets elsewhere -- there is
+         nothing to act on, so the amber that means "waiting on you" below
+         would be a false alarm on a quiet day. --}}
+    <div class="kpi {{ $stats['pending_reset'] ? '' : 'is-clear' }}" style="{{ $stats['pending_reset'] ? '--kpi-accent:#f59e0b;' : '' }}">
+        <div class="kpi-head">
+            <i class="ti ti-key" aria-hidden="true"></i>
+            <span class="kpi-label">Password Resets</span>
+        </div>
+        <span class="kpi-value">{{ number_format($stats['pending_reset']) }}</span>
+        <span class="kpi-sub">{{ $stats['pending_reset'] ? 'Waiting on "Reset password" below' : 'None pending' }}</span>
+    </div>
 </div>
 
 {{-- The table + footer live in _rows.blade.php, shared with the AJAX

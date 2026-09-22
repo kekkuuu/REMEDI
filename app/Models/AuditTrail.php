@@ -47,7 +47,7 @@ class AuditTrail extends Model
     // 'Deleted' stays on the list: nothing writes it any more (Delete became
     // Archive), but every row written before that still carries it, and the
     // filter has to be able to find them.
-    public const ACTIONS = ['Login', 'Logout', 'Viewed', 'Created', 'Updated', 'Archived', 'Restored', 'Deleted'];
+    public const ACTIONS = ['Login', 'Logout', 'Viewed', 'Created', 'Updated', 'Archived', 'Restored', 'Deleted', 'Requested', 'Reset'];
 
     /**
      * The superseded spellings, so an old bookmark or a stale link still finds

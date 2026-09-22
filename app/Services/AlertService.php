@@ -444,7 +444,11 @@ class AlertService
                 // matched the data it was written for.
                 $isAccount = in_array($row->action, ['Login', 'Logout'], true)
                     || str_contains($row->details, 'user account')
-                    || str_starts_with($row->details, 'Account ');
+                    || str_starts_with($row->details, 'Account ')
+                    // "Forgot your password?" -- a staff member locked out
+                    // and an admin resetting them back in are both account
+                    // events worth a pop, same shape as (de)activation.
+                    || str_starts_with($row->details, 'Password reset');
 
                 $isReport = str_contains($row->details, 'Report');
 
@@ -467,6 +471,8 @@ class AlertService
                     $isAccount && $row->action === 'Restored' => ['system', 'ti-user-check', 'is-system', 'User account restored'],
                     $isAccount && str_starts_with($row->details, 'Account deactivated') => ['system', 'ti-user-off', 'is-system', 'Account deactivated'],
                     $isAccount && str_starts_with($row->details, 'Account activated') => ['system', 'ti-user-check', 'is-system', 'Account activated'],
+                    $isAccount && $row->action === 'Requested' => ['system', 'ti-key', 'is-system', 'Password reset requested'],
+                    $isAccount && $row->action === 'Reset' => ['system', 'ti-key', 'is-system', 'Password reset'],
                     $isAccount => ['system', 'ti-user-cog', 'is-system', 'User account updated'],
                     $isReport => ['updates', 'ti-file-text', 'is-update', 'New report generated'],
                     $row->action === 'Deleted' => ['updates', 'ti-trash', 'is-update', 'Record deleted'],

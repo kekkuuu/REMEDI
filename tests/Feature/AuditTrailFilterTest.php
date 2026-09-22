@@ -88,7 +88,7 @@ class AuditTrailFilterTest extends TestCase
     {
         $user = User::factory()->create(['name' => 'Removed']);
 
-        $this->actingAs($this->admin())->delete("/users/{$user->id}");
+        $this->actingAs($this->admin())->delete("/users/{$user->id}", ['reason' => 'resigned']);
 
         $this->assertTrue(
             AuditTrail::where('action', 'Archived')

@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\SalesHistory;
+use App\Models\StockMovement;
 use App\Services\AlertService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
@@ -109,6 +110,10 @@ class PosController extends Controller
             // max: the column is decimal(10,2) and MySQL is strict, so an
             // unbounded amount was a 500 at the register. See MAX_MONEY.
             'amount_paid' => 'nullable|numeric|min:0|max:'.self::MAX_MONEY,
+            // Nullable, default 'cash' below: the no-JS fallback form posts
+            // no payment_method field at all, and every sale before this
+            // existed really was cash. Sale::PAYMENT_METHODS is the one list.
+            'payment_method' => 'nullable|in:'.implode(',', array_keys(Sale::PAYMENT_METHODS)),
             // Generated once by the POS page when the payment modal opens and
             // resent UNCHANGED on every retry of that same attempt — a network
             // timeout, a double-tap on Checkout, a resubmission after
@@ -250,6 +255,7 @@ class PosController extends Controller
                     // drawer figure the cashier reads back to the customer.
                     'change_due' => round($amountPaid - $totalAmount, 2),
                     'payment_voided' => false,
+                    'payment_method' => $validated['payment_method'] ?? 'cash',
                     'idempotency_key' => $idempotencyKey,
                 ]);
 
@@ -294,6 +300,9 @@ class PosController extends Controller
                         ]);
 
                         $batch->decrement('quantity', $deductQty);
+
+                        StockMovement::record($batch, StockMovement::TYPE_SALE, -$deductQty, null, $sale->id);
+
                         $remainingQty -= $deductQty;
                     }
 

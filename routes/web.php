@@ -14,6 +14,7 @@ use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SalesForecastController;
+use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\SuggestController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -37,7 +38,11 @@ Route::middleware('guest')->get('/', function () {
 // `active` rides with `auth` on the whole group, not just the role-gated part.
 // Deactivating an account has to end its live session on the next request, and
 // most of what staff touch -- the POS included -- never passes through `role`.
-Route::middleware(['auth', 'active'])->group(function () {
+// `must_change_password` rides along too -- an account on its admin-reset
+// default password ("Forgot your password?", see UserController::
+// resetPassword()) is funnelled to /profile, which sits in this same group,
+// until it sets its own.
+Route::middleware(['auth', 'active', 'must_change_password'])->group(function () {
 
     // Dashboard - shared, role-aware
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
@@ -74,8 +79,20 @@ Route::middleware(['auth', 'active'])->group(function () {
     Route::get('/sales', [SaleController::class, 'index'])->name('sales.index');
     Route::get('/sales/{sale}', [SaleController::class, 'show'])->name('sales.show');
 
+    // Void -- SHARED, not role:admin, as of 2026-09-22: staff may void a
+    // sale THEY rang up (Sale::isVisibleTo() -- checked inside void() itself,
+    // not just on the page that links here, per "a gated button is not a
+    // gated endpoint") given the correct manager passcode (Setting::
+    // checkVoidPasscode(), set by an admin at /settings). An admin needs
+    // neither the scope check nor the passcode -- see SaleController::void().
+    Route::patch('/sales/{sale}/void', [SaleController::class, 'void'])->name('sales.void');
+
     // ===== ADMIN-ONLY routes =====
     Route::middleware('role:admin')->group(function () {
+
+        // Store-wide settings -- currently just the POS void passcode above.
+        Route::get('/settings', [SettingsController::class, 'edit'])->name('settings.edit');
+        Route::put('/settings/void-passcode', [SettingsController::class, 'updateVoidPasscode'])->name('settings.void-passcode.update');
 
         // User management (+ register acts as "Add User" form)
         Route::get('/register', [RegisteredUserController::class, 'create'])->name('register');
@@ -85,6 +102,9 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::get('/users/{user}/edit', [UserController::class, 'edit'])->name('users.edit');
         Route::put('/users/{user}', [UserController::class, 'update'])->name('users.update');
         Route::patch('/users/{user}/toggle', [UserController::class, 'toggleActive'])->name('users.toggle');
+        // The admin side of "Forgot your password?" -- see routes/auth.php's
+        // guest group and UserController::resetPassword().
+        Route::patch('/users/{user}/reset-password', [UserController::class, 'resetPassword'])->name('users.reset-password');
         // DELETE archives -- nothing is removed (see UserController::destroy).
         // The verb and route names are kept; what they DO is what changed.
         // Restore routes opt back in to trashed records with ->withTrashed(),
@@ -106,6 +126,10 @@ Route::middleware(['auth', 'active'])->group(function () {
         Route::delete('/batches/{batch}', [ProductController::class, 'destroyBatch'])->name('batches.destroy');
         Route::patch('/batches/{batch}/restore', [ProductController::class, 'restoreBatch'])->withTrashed()->name('batches.restore');
         Route::patch('/batches/{batch}/return', [ProductController::class, 'markBatchReturned'])->name('batches.return');
+        // The stock card: chronological stock_movements for one product, so a
+        // discrepancy can be read off directly instead of pieced together from
+        // batches + sale_items + the audit trail. See StockMovement.
+        Route::get('/products/{product}/stock-card', [ProductController::class, 'stockCard'])->name('products.stock-card');
 
         // Categories
         Route::get('/categories', [CategoryController::class, 'index'])->name('categories.index');

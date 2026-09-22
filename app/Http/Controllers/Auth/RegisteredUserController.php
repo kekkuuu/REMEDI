@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\AuditTrail;
 use App\Models\User;
-use App\Providers\RouteServiceProvider;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -13,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 class RegisteredUserController extends Controller
@@ -28,52 +28,57 @@ class RegisteredUserController extends Controller
     /**
      * Handle an incoming registration request.
      *
-     * @throws \Illuminate\Validation\ValidationException
+     * @throws ValidationException
      */
-public function store(Request $request): RedirectResponse|JsonResponse
-{
-    // Trimmed and lower-cased before validation, and that is not cosmetic:
-    // the `lowercase` rule below REJECTS a capitalised address rather than
-    // folding it, so "Emman@remedi.com" was refused -- and because a
-    // js-confirm form reports failures through the confirm dialog, what the
-    // admin actually saw was "That action could not be completed." with no
-    // mention of the capital E. Nobody should be told off for typing a name
-    // the way they write it. A stray trailing space came back the same way.
-    $request->merge([
-        'email' => strtolower(trim((string) $request->input('email'))),
-    ]);
+    public function store(Request $request): RedirectResponse|JsonResponse
+    {
+        // Trimmed and lower-cased before validation, and that is not cosmetic:
+        // the `lowercase` rule below REJECTS a capitalised address rather than
+        // folding it, so "Emman@remedi.com" was refused -- and because a
+        // js-confirm form reports failures through the confirm dialog, what the
+        // admin actually saw was "That action could not be completed." with no
+        // mention of the capital E. Nobody should be told off for typing a name
+        // the way they write it. A stray trailing space came back the same way.
+        $request->merge([
+            'email' => strtolower(trim((string) $request->input('email'))),
+        ]);
 
-    $validated = $request->validate([
-        'name' => ['required', 'string', 'max:255'],
-        'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
-        // The form's Role select was being submitted and then dropped, so every
-        // account created here came out as the column default (staff) however
-        // the admin filled the form in. `in:admin,staff` matches the enum and
-        // the rule UserController::update uses -- role is fillable, so a
-        // tampered post would otherwise mass-assign anything.
-        'role' => ['required', 'in:admin,staff'],
-        'password' => ['required', 'confirmed', Rules\Password::defaults()],
-    ]);
+        $validated = $request->validate([
+            'name' => ['required', 'string', 'max:255'],
+            'email' => ['required', 'string', 'lowercase', 'email', 'max:255', 'unique:'.User::class],
+            // The form's Role select was being submitted and then dropped, so every
+            // account created here came out as the column default (staff) however
+            // the admin filled the form in. `in:admin,staff` matches the enum and
+            // the rule UserController::update uses -- role is fillable, so a
+            // tampered post would otherwise mass-assign anything.
+            'role' => ['required', 'in:admin,staff'],
+            // Same rule as ProfileUpdateRequest's phone field and the column's
+            // own limit (40) -- optional, since not every account is created
+            // with a number in hand.
+            'phone' => ['nullable', 'string', 'max:40'],
+            'password' => ['required', 'confirmed', Rules\Password::defaults()],
+        ]);
 
-    $user = User::create([
-        'name' => $validated['name'],
-        'email' => $validated['email'],
-        'role' => $validated['role'],
-        'password' => Hash::make($validated['password']),
-    ]);
+        $user = User::create([
+            'name' => $validated['name'],
+            'email' => $validated['email'],
+            'role' => $validated['role'],
+            'phone' => $validated['phone'] ?? null,
+            'password' => Hash::make($validated['password']),
+        ]);
 
-    event(new Registered($user));
+        event(new Registered($user));
 
-    // This route is the admin "Add User" form, not public signup, so account
-    // creation is an administrative action and belongs in the trail beside the
-    // update/toggle/delete entries UserController already writes. The role is
-    // included because which accounts were granted admin is the part worth
-    // being able to audit later.
-    AuditTrail::log('Created', "Added user account: {$user->name} ({$user->role})");
+        // This route is the admin "Add User" form, not public signup, so account
+        // creation is an administrative action and belongs in the trail beside the
+        // update/toggle/delete entries UserController already writes. The role is
+        // included because which accounts were granted admin is the part worth
+        // being able to audit later.
+        AuditTrail::log('Created', "Added user account: {$user->name} ({$user->role})");
 
-    // No Auth::login() — admin stays logged in
-    // No redirect to dashboard — go back to user list
+        // No Auth::login() — admin stays logged in
+        // No redirect to dashboard — go back to user list
 
-    return $this->actionOk($request, "User \"{$user->name}\" added successfully.", redirect()->route('users.index'));
-}
+        return $this->actionOk($request, "User \"{$user->name}\" added successfully.", redirect()->route('users.index'));
+    }
 }

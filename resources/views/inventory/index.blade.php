@@ -170,22 +170,18 @@
     </div>
 @endif
 
-{{-- Barcode scanner: hidden, not deleted -- the same treatment pos/index
-     gives its own card, and for the same reasons. The markup stays in the DOM
-     so `barcode-input`, `barcode-status` and the keydown listener all still
-     resolve, and focusEntryField() below decides where the caret belongs
-     instead of the unconditional barcode-input.focus() calls that would
-     otherwise leave it nowhere once the field cannot take focus.
+{{-- Barcode scanner -- unhidden 2026-09-22 at the user's request, the same
+     treatment pos/index got. `barcode-input`, `barcode-status`, the keydown
+     listener and focusEntryField() below all already handle the field being
+     visible (see focusEntryField()'s offsetParent check just below), so
+     nothing else needed to change.
 
-     NOTE: Quick Restock lives inside this card and is only ever revealed by a
-     successful scan (see showQuickRestock), so hiding the scanner takes it with
-     it. Restocking is still available on the product edit page, which posts to
-     the same ProductController::addBatch.
-
-     To bring both back, drop the `hidden` attribute; nothing else needs
-     changing. `autofocus` was removed with it -- a hidden input cannot take
-     focus, so it was a promise the page could not keep. --}}
-<div class="card" hidden style="margin-bottom:16px; border:2px solid #4f46e5;">
+     Quick Restock lives inside this card and is only ever revealed by a
+     successful scan (see showQuickRestock) -- it comes back with the
+     scanner. `autofocus` stays dropped: it was removed for the hidden
+     state, and this field is one of several entry points on a busy page, so
+     stealing focus on every load would be its own kind of surprise. --}}
+<div class="card" style="margin-bottom:16px; border:2px solid #4f46e5;">
     <label style="font-weight:600; font-size:.85rem;">Scan Barcode</label>
     <input
         type="text"
@@ -233,6 +229,18 @@
                 <div>
                     <label style="font-size:.8rem;">Expiry Date</label><br>
                     <input type="date" name="expiry_date" id="qr-expiry-date" required style="padding:8px; border:1px solid #d1d5db; border-radius:6px;">
+                </div>
+                <div>
+                    <label style="font-size:.8rem;">Cost Price <span style="font-weight:400; color:#9ca3af;">(optional)</span></label><br>
+                    <input type="number" name="unit_cost" id="qr-unit-cost" min="0" step="0.01" style="padding:8px; border:1px solid #d1d5db; border-radius:6px; width:110px;">
+                </div>
+                <div>
+                    <label style="font-size:.8rem;">DR Number <span style="font-weight:400; color:#9ca3af;">(optional)</span></label><br>
+                    <input type="text" name="dr_no" id="qr-dr-no" maxlength="100" style="padding:8px; border:1px solid #d1d5db; border-radius:6px; width:130px;">
+                </div>
+                <div>
+                    <label style="font-size:.8rem;">Supplier <span style="font-weight:400; color:#9ca3af;">(optional)</span></label><br>
+                    <input type="text" name="supplier" id="qr-supplier" maxlength="150" style="padding:8px; border:1px solid #d1d5db; border-radius:6px; width:140px;">
                 </div>
                 <button type="submit" class="btn btn-success">Add Batch</button>
                 <button type="button" class="btn btn-secondary" onclick="closeQuickRestock()">Cancel</button>
@@ -479,6 +487,9 @@
 
         document.getElementById('qr-batch-number').value = '';
         document.getElementById('qr-quantity').value = '';
+        document.getElementById('qr-unit-cost').value = '';
+        document.getElementById('qr-dr-no').value = '';
+        document.getElementById('qr-supplier').value = '';
         // Pre-fill from this product's usual shelf life when available
         // (see PosController::lookupBySku) — still just a starting point,
         // adjust it if this batch's actual expiry is different.

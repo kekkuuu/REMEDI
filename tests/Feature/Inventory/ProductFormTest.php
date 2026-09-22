@@ -153,6 +153,47 @@ class ProductFormTest extends TestCase
         $this->assertDatabaseMissing('products', ['sku' => 'SKU-OVER-PRICE']);
     }
 
+    /**
+     * cost_price is optional (see the form's own note -- a delivery note
+     * isn't always in hand when a product is first keyed in) but bounded by
+     * the same column, decimal(10,2), as selling_price.
+     */
+    public function test_a_cost_larger_than_the_column_is_refused(): void
+    {
+        $this->actingAs(User::factory()->admin()->create())
+            ->post('/products', $this->payload([
+                'name' => 'Absurdly Costed',
+                'sku' => 'SKU-OVER-COST',
+                'cost_price' => self::OVER_MONEY,
+            ]))
+            ->assertSessionHasErrors('cost_price');
+
+        $this->assertDatabaseMissing('products', ['sku' => 'SKU-OVER-COST']);
+    }
+
+    public function test_a_product_can_be_created_with_no_cost_set(): void
+    {
+        $this->actingAs(User::factory()->admin()->create())
+            ->post('/products', $this->payload(['sku' => 'SKU-NO-COST']))
+            ->assertSessionHasNoErrors();
+
+        $product = Product::where('sku', 'SKU-NO-COST')->firstOrFail();
+        $this->assertNull($product->cost_price);
+    }
+
+    public function test_a_cost_can_be_set_and_is_saved(): void
+    {
+        $this->actingAs(User::factory()->admin()->create())
+            ->post('/products', $this->payload(['sku' => 'SKU-WITH-COST', 'cost_price' => '4.25']))
+            ->assertSessionHasNoErrors();
+
+        $product = Product::where('sku', 'SKU-WITH-COST')->firstOrFail();
+        // assertEquals, not assertSame: sqlite (this suite) hands decimal
+        // columns back as float, MySQL (production) as string -- same
+        // untyped behaviour selling_price already has.
+        $this->assertEquals(4.25, $product->cost_price);
+    }
+
     public function test_a_reorder_level_larger_than_the_column_is_refused(): void
     {
         $this->actingAs(User::factory()->admin()->create())

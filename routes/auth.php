@@ -5,7 +5,7 @@ use App\Http\Controllers\Auth\EmailVerificationNotificationController;
 use App\Http\Controllers\Auth\EmailVerificationPromptController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordController;
-use App\Http\Controllers\Auth\PasswordResetLinkController;
+use App\Http\Controllers\Auth\PasswordResetRequestController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use Illuminate\Support\Facades\Route;
 
@@ -13,9 +13,15 @@ Route::middleware('guest')->group(function () {
     Route::get('login', [AuthenticatedSessionController::class, 'create'])
                 ->name('login');
     Route::post('login', [AuthenticatedSessionController::class, 'store']);
-    Route::get('forgot-password', [PasswordResetLinkController::class, 'create'])
+    // Breeze's own token-by-email reset (NewPasswordController, below) can't
+    // deliver anything here -- see PasswordResetRequestController's
+    // docblock -- so these two carry the same route NAMES to an in-app
+    // request-an-admin flow instead. reset-password/{token} is left wired to
+    // NewPasswordController: nothing links to it any more, but it's harmless
+    // dead code and removing it isn't this feature's job.
+    Route::get('forgot-password', [PasswordResetRequestController::class, 'create'])
                 ->name('password.request');
-    Route::post('forgot-password', [PasswordResetLinkController::class, 'store'])
+    Route::post('forgot-password', [PasswordResetRequestController::class, 'store'])
                 ->name('password.email');
     Route::get('reset-password/{token}', [NewPasswordController::class, 'create'])
                 ->name('password.reset');

@@ -89,6 +89,30 @@
                        value="{{ old('selling_price') }}" placeholder="0.00" required>
             </div>
 
+            {{-- "Default", not bare "Cost Price" -- see products/edit.blade.php's
+                 note: the Add New Batch form (on the edit page, not this one)
+                 has its own "Cost Price (optional)" for what a delivery
+                 actually cost (ProductBatch::unit_cost), and the two must
+                 read as clearly different fields. This one is optional for
+                 the same reason unit_cost is: a cost isn't always in hand
+                 when a product is first keyed in, and blocking the form on
+                 data nobody has yet would stop a legitimate new product over
+                 paperwork. Feeds the dashboard's Revenue Today tile, which
+                 excludes any line whose product has none set -- see
+                 DashboardController::computeTodayProfit(). --}}
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip"><i class="ti ti-receipt-refund" aria-hidden="true"></i></span>
+                    <label for="cost_price">Default Cost Price (&#8369;)</label>
+                </div>
+                <input type="number" step="0.01" id="cost_price" name="cost_price"
+                       value="{{ old('cost_price') }}" placeholder="0.00">
+                <span class="form-field-note">
+                    <i class="ti ti-info-circle" aria-hidden="true"></i>
+                    Optional. Used to work out today's profit on the dashboard.
+                </span>
+            </div>
+
             <div class="form-field">
                 <div class="form-field-head">
                     <span class="form-chip"><i class="ti ti-bell" aria-hidden="true"></i></span>

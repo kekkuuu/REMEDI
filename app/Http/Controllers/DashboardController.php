@@ -9,9 +9,83 @@ use App\Models\Sale;
 use App\Models\SalesHistory;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
 {
+    /** How many of the terminal's own past days the Hourly chart averages against. */
+    private const HOURLY_HISTORY_DAYS = 30;
+
+    /**
+     * ATV (Average Transaction Value): today's takings over today's
+     * transaction count. Null, not 0, with no transactions yet, so the tile
+     * can say "no sales yet today" rather than a misleading ₱0.00.
+     *
+     * Static and pure so it can be unit tested directly -- index() itself
+     * cannot be hit in the sqlite test suite, since the admin path always
+     * calls SalesHistory::monthlyRevenue()/seasonalTrends(), both MySQL-only
+     * (STRAIGHT_JOIN) queries the moment `full=1` or an AJAX request builds
+     * the body. Same reason ReportController::periodRange()/atvAtc() are
+     * extracted as static helpers rather than tested through the route.
+     */
+    public static function computeAtv(float $todaySales, int $todayTransactions): ?float
+    {
+        return $todayTransactions > 0 ? $todaySales / $todayTransactions : null;
+    }
+
+    /**
+     * ATC (Average Transaction Count): NOT today's raw count (that already
+     * has its own "Sales Today" sub-line) -- the average transactions PER
+     * DAY over the trailing 7, which is the staffing-relevant number ("do we
+     * typically see ~40 transactions a day, or ~80") and stays meaningful on
+     * a day that has barely started.
+     */
+    public static function computeAtc(int $last7Transactions): float
+    {
+        return round($last7Transactions / 7, 1);
+    }
+
+    /**
+     * Revenue Today -- despite the name, this is PROFIT: each POS line's
+     * (price charged − product's cost_price) times its quantity, summed.
+     * Replaced the old "Last 7 Days" revenue tile (2026-09-22), at the
+     * user's request, since Sales Today already shows raw revenue and this
+     * answers the question that tile didn't: what did today actually EARN.
+     *
+     * `cost_price` is a brand-new, optional column (see the migration) that
+     * nothing in the seeded catalogue has ever populated, so a product with
+     * none set contributes NOTHING here rather than being treated as pure
+     * profit (cost 0) or silently dropped from Sales Today's own total --
+     * this figure and that one are allowed to disagree, and the "N products"
+     * count is what explains why. Every UNIT still counts toward Sales
+     * Today regardless of whether its product has a cost on file.
+     *
+     * Static and pure for the same reason computeAtv()/computeAtc() are:
+     * index() cannot be hit under the sqlite test suite. $lines is plain
+     * arrays/objects with quantity, price and cost_price (nullable) --
+     * see index()'s own query, which is the only place that shape is built.
+     *
+     * @param  iterable<object{quantity:int, price:float, cost_price:?float}>  $lines
+     * @return array{profit: float, missing_cost_count: int}
+     */
+    public static function computeTodayProfit(iterable $lines): array
+    {
+        $profit = 0.0;
+        $missingCost = 0;
+
+        foreach ($lines as $line) {
+            if ($line->cost_price === null) {
+                $missingCost++;
+
+                continue;
+            }
+
+            $profit += ((float) $line->price - (float) $line->cost_price) * (int) $line->quantity;
+        }
+
+        return ['profit' => round($profit, 2), 'missing_cost_count' => $missingCost];
+    }
+
     public function index(Request $request)
     {
         // Use the global request() helper instead of injecting it
@@ -59,6 +133,7 @@ class DashboardController extends Controller
         // (SaleController scopes staff to their own rows), so the dashboard was
         // the odd one out.
         $todayByUser = Sale::whereDate('created_at', today())
+            ->where('payment_voided', false)
             ->selectRaw('user_id, COALESCE(SUM(total_amount), 0) as total, COUNT(*) as cnt')
             ->groupBy('user_id')
             ->get();
@@ -262,12 +337,35 @@ class DashboardController extends Controller
         // stock, expiring, expired, returns) deliberately get NO delta —
         // nothing snapshots them daily, so "vs yesterday" there would be an
         // invented number.
-        $yesterdayTotal = (float) Sale::whereDate('created_at', today()->subDay())->sum('total_amount');
-        $last7 = (float) Sale::where('created_at', '>=', today()->subDays(6)->startOfDay())->sum('total_amount');
-        $prev7 = (float) Sale::whereBetween('created_at', [
-            today()->subDays(13)->startOfDay(),
-            today()->subDays(7)->endOfDay(),
-        ])->sum('total_amount');
+        $yesterdayTotal = (float) Sale::whereDate('created_at', today()->subDay())
+            ->where('payment_voided', false)->sum('total_amount');
+
+        // Feeds ATC below -- the trailing-7-day TRANSACTION COUNT, not the
+        // revenue total. The revenue side of this query used to feed a "Last
+        // 7 Days" KPI tile, replaced by Revenue Today (profit) below at the
+        // user's request; only the count survives here.
+        $last7Transactions = (int) Sale::where('created_at', '>=', today()->subDays(6)->startOfDay())
+            ->where('payment_voided', false)
+            ->count();
+
+        $atv = self::computeAtv($todaySales, $todayTransactions);
+        $atc = self::computeAtc($last7Transactions);
+
+        // Revenue Today (profit): one query per day, each line's price and
+        // its product's cost_price -- see computeTodayProfit()'s own
+        // docblock for why a line with no cost set is excluded rather than
+        // assumed to be pure profit. Voided sales excluded outright, same
+        // as every other "today" figure on this page.
+        $profitLines = static fn ($date) => DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('products', 'products.id', '=', 'sale_items.product_id')
+            ->whereDate('sales.created_at', $date)
+            ->where('sales.payment_voided', false)
+            ->select('sale_items.quantity', 'sale_items.price', 'products.cost_price')
+            ->get();
+
+        $todayProfitData = self::computeTodayProfit($profitLines(today()));
+        $yesterdayProfitData = self::computeTodayProfit($profitLines(today()->subDay()));
 
         $pctChange = static function (float $now, float $before): ?float {
             if ($before <= 0.0) {
@@ -286,8 +384,11 @@ class DashboardController extends Controller
                 default => 'Good evening',
             },
             'salesTodayDelta' => $pctChange($todaySales, $yesterdayTotal),
-            'last7Sales' => $last7,
-            'last7Delta' => $pctChange($last7, $prev7),
+            'todayProfit' => $todayProfitData['profit'],
+            'todayProfitMissingCost' => $todayProfitData['missing_cost_count'],
+            'todayProfitDelta' => $pctChange($todayProfitData['profit'], $yesterdayProfitData['profit']),
+            'atv' => $atv,
+            'atc' => $atc,
 
             // Recent POS checkouts for the transactions panel. 15, not 6: the
             // panel now scrolls inside a capped box (see .dash-lower-main
@@ -378,6 +479,7 @@ class DashboardController extends Controller
             // Daily sales for the last 14 days (used elsewhere, kept for compatibility)
             $dailySalesRaw = Sale::selectRaw('DATE(created_at) as sale_date, SUM(total_amount) as total')
                 ->where('created_at', '>=', now()->subDays(13)->startOfDay())
+                ->where('payment_voided', false)
                 ->groupBy('sale_date')
                 ->pluck('total', 'sale_date');
 
@@ -397,6 +499,48 @@ class DashboardController extends Controller
             // Derived in PHP from the already-cached monthly series, so it
             // adds no query of its own.
             $data['seasonalTrends'] = SalesHistory::seasonalTrends();
+
+            // Hourly Sales & Transaction Volume -- TODAY vs. this terminal's
+            // own recent HISTORICAL average, same shape as the Sales
+            // Report's own hourly breakdown (ReportController::
+            // buildSalesReportData), scoped to today because the dashboard
+            // has no date-range picker to scope it by. POS-only, and the
+            // "historical" half is too: sales_history (the imported 4-year
+            // record) has a DATE per row, never a time, so it has no hour to
+            // average -- there is no such thing as "yesterday's hourly
+            // pattern" anywhere except in this terminal's own POS history.
+            //
+            // HOURLY_HISTORY_DAYS (30): averaged over however many of the
+            // last 30 days actually have trade, not divided by a flat 30 --
+            // a terminal only 10 days old would otherwise show an average
+            // three times lower than it really is. today() itself is
+            // excluded from both the day count and the average, since it is
+            // the thing being compared against.
+            $hourlyHistoryDays = Sale::whereDate('created_at', '>=', today()->subDays(self::HOURLY_HISTORY_DAYS))
+                ->whereDate('created_at', '<', today())
+                ->where('payment_voided', false)
+                ->get(['created_at', 'total_amount']);
+
+            $historyDayCount = max(1, $hourlyHistoryDays->map(fn ($sale) => $sale->created_at->toDateString())->unique()->count());
+
+            $todaysSaleRows = Sale::whereDate('created_at', today())
+                ->where('payment_voided', false)
+                ->get(['created_at', 'total_amount']);
+
+            $data['hourlyToday'] = collect(range(0, 23))->map(function ($hour) use ($todaysSaleRows, $hourlyHistoryDays, $historyDayCount) {
+                $inHour = $todaysSaleRows->filter(fn ($sale) => (int) $sale->created_at->format('G') === $hour);
+                $inHourHistory = $hourlyHistoryDays->filter(fn ($sale) => (int) $sale->created_at->format('G') === $hour);
+
+                return (object) [
+                    'hour' => $hour,
+                    'label' => now()->setTime($hour, 0)->format('g A'),
+                    'transactions' => $inHour->count(),
+                    'revenue' => round((float) $inHour->sum('total_amount'), 2),
+                    'avgRevenue' => round((float) $inHourHistory->sum('total_amount') / $historyDayCount, 2),
+                ];
+            });
+
+            $data['hourlyHistoryDayCount'] = $historyDayCount;
 
             return $this->dashboardResponse($request, 'admin', $data);
         }

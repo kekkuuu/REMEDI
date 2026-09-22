@@ -22,6 +22,7 @@ class ProductBatch extends Model
         'qty_received',
         'unit_cost',
         'dr_no',
+        'supplier',
         'expiry_date',
         'received_date',
         'returned_at',
@@ -313,6 +314,12 @@ class ProductBatch extends Model
     public function saleItems()
     {
         return $this->hasMany(SaleItem::class);
+    }
+
+    /** This batch's own slice of the stock card ledger — see StockMovement. */
+    public function movements()
+    {
+        return $this->hasMany(StockMovement::class);
     }
 
     // Check if this batch is expired

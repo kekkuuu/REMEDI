@@ -22,6 +22,26 @@ class User extends Authenticatable
      */
     public const DELETED_AT = 'archived_at';
 
+    /**
+     * Every reason User Management may record for archiving an account, and
+     * the one place the label is written down -- the validation rule in
+     * UserController::destroy() and the badge in admin/users/_rows.blade.php
+     * both read this rather than each hand-typing the two strings.
+     */
+    public const ARCHIVE_REASONS = [
+        'resigned' => 'Resigned',
+        'fired' => 'Fired',
+    ];
+
+    /**
+     * The password an admin resets a "forgot password" request to --
+     * UserController::resetPassword() and the request form both read this,
+     * so the value is written down once. A known, shared default is only
+     * safe because it is temporary: resetting also sets must_change_password,
+     * which EnsureUserSetsNewPassword enforces on the very next request.
+     */
+    public const DEFAULT_RESET_PASSWORD = 'staff123';
+
     protected $fillable = [
         'name',
         'email',
@@ -32,6 +52,9 @@ class User extends Authenticatable
         'role',
         'is_active',
         'last_login_at',
+        'archive_reason',
+        'password_reset_requested_at',
+        'must_change_password',
     ];
 
     protected $hidden = [
@@ -44,6 +67,8 @@ class User extends Authenticatable
         'password' => 'hashed',
         'is_active' => 'boolean',
         'last_login_at' => 'datetime',
+        'password_reset_requested_at' => 'datetime',
+        'must_change_password' => 'boolean',
     ];
 
     /**
@@ -55,6 +80,13 @@ class User extends Authenticatable
     public function getStaffCodeAttribute(): string
     {
         return ($this->isAdmin() ? 'ADM-' : 'STF-').str_pad((string) $this->id, 3, '0', STR_PAD_LEFT);
+    }
+
+    /** "Resigned" / "Fired", or null for an account with no reason on record
+     *  (archived before this existed, or never archived at all). */
+    public function getArchiveReasonLabelAttribute(): ?string
+    {
+        return self::ARCHIVE_REASONS[$this->archive_reason] ?? null;
     }
 
     // Relationship: a user (staff/admin) can have many sales transactions

@@ -22,13 +22,18 @@
                      firstItem() + loop->index is the row's 1-based position from
                      the top of the descending list, continuous across pages. --}}
                 <td style="text-align:right; color:#94a3b8;">{{ $sales->total() - ($sales->firstItem() + $loop->index) + 1 }}</td>
-                <td style="font-family: monospace; font-size: 14px; color: #4f46e5;">{{ $sale->transaction_no }}</td>
+                <td style="font-family: monospace; font-size: 14px; color: #4f46e5;">
+                    {{ $sale->transaction_no }}
+                    @if($sale->payment_voided)
+                        <span class="badge badge-danger" style="margin-left:6px;" title="{{ \App\Models\Sale::VOID_REASONS[$sale->void_reason] ?? $sale->void_reason }}">Voided</span>
+                    @endif
+                </td>
                 <td>{{ $sale->created_at->format('M d, Y') }}</td>
                 <td style="color: #64748b;">{{ $sale->created_at->format('h:i A') }}</td>
                 @if(auth()->user()->isAdmin())
                     <td>{{ $sale->user->name }}</td>
                 @endif
-                <td style="font-weight: 500;">₱{{ number_format($sale->total_amount, 2) }}</td>
+                <td style="font-weight: 500; {{ $sale->payment_voided ? 'text-decoration:line-through; color:#94a3b8;' : '' }}">₱{{ number_format($sale->total_amount, 2) }}</td>
                 <td style="text-align: right;">
                     <a href="{{ route('sales.show', $sale) }}" class="btn btn-info btn-sm">
                         <i class="ti ti-eye" aria-hidden="true"></i> View

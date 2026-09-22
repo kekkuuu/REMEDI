@@ -300,6 +300,19 @@
     </div>
 @endif
 
+{{-- Landed here by EnsureUserSetsNewPassword, not a choice -- the account is
+     still on the admin-reset default password. The Change Password dialog
+     opens itself below (data-open-password-change), same trigger the
+     server-rendered-validation-error case already uses. --}}
+@if(session('status') === 'must-change-password')
+    <div class="alert alert-warning" data-open-password-change>
+        <i class="ti ti-key" aria-hidden="true"></i>
+        <span>
+            You're signed in with a temporary password. Set a new one below before continuing.
+        </span>
+    </div>
+@endif
+
 <div class="profile-grid">
 
   <div class="profile-col">
@@ -574,7 +587,20 @@
                 // A server-rendered validation error means the form was posted
                 // without JS and came back with something to fix, so open
                 // straight onto it rather than hiding it behind the trigger.
-                if (form.querySelector('.err:not([hidden])')) openModal();
+                // The must-change-password banner opens it too, for the same
+                // reason: the account holder has one job on this page.
+                //
+                // Deferred one tick: this content script runs where
+                // @yield('content') sits in layouts/app.blade.php, ahead of
+                // the layout's OWN trailing scripts that build window.REMEDI
+                // -- calling openModal() (which reads REMEDI.lockScroll)
+                // synchronously here throws "REMEDI is not defined" before
+                // any of those scripts have run. setTimeout(0) waits for the
+                // current synchronous parse-and-execute pass to finish, by
+                // which point REMEDI is fully assembled.
+                if (form.querySelector('.err:not([hidden])') || document.querySelector('[data-open-password-change]')) {
+                    setTimeout(openModal, 0);
+                }
             }
 
             function clearErrors() {

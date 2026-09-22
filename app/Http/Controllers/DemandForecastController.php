@@ -4,13 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Models\Category;
 use App\Services\DemandForecastService;
+use App\Services\SalesForecastService;
 use Illuminate\Http\Request;
 
 class DemandForecastController extends Controller
 {
-    public function __construct(private DemandForecastService $forecasts)
-    {
-    }
+    public function __construct(
+        private DemandForecastService $forecasts,
+        private SalesForecastService $salesForecasts,
+    ) {}
 
     /**
      * GET /forecasts
@@ -44,13 +46,28 @@ class DemandForecastController extends Controller
         $topDemand = $this->forecasts->topDemandSeries(5);
         $accuracy = $this->forecasts->accuracySummary();
 
-        return view('forecast.index', compact('search', 'categoryId', 'categories', 'forecasts', 'topDemand', 'accuracy'));
+        // Demand Forecasting and Sales Forecasting merged into one page
+        // (2026-09-22): $trend is the store-wide units/revenue chart that used
+        // to live alone on /sales-forecast; $topSales is its per-product twin
+        // to $topDemand, ranked on forecast REVENUE rather than units, so the
+        // two "top 5" charts answer different questions -- what to reorder vs.
+        // what earns -- rather than the same ranking shown twice.
+        $trend = $this->salesForecasts->overallMonthlyTrend();
+        $topSales = $this->salesForecasts->topSalesForecastSeries(5);
+
+        return view('forecast.index', compact(
+            'search', 'categoryId', 'categories', 'forecasts',
+            'topDemand', 'topSales', 'accuracy', 'trend'
+        ));
     }
 
     /**
      * GET /forecast/{product}
      * Full forecast curve for one product: actual monthly sales leading
-     * up to now, plus the forecasted months with confidence bands.
+     * up to now, plus the forecasted months with confidence bands -- and,
+     * since the two forecasting pages merged, the same product's sales
+     * (units + revenue) forecast beside it, so a click on one product
+     * surfaces both instead of sending the two forecasts to different pages.
      */
     public function show(Request $request, string $product)
     {
@@ -59,6 +76,8 @@ class DemandForecastController extends Controller
         if ($data['forecast']->isEmpty()) {
             abort(404, 'No forecast available for this product yet.');
         }
+
+        $data['salesForecast'] = $this->salesForecasts->forProduct($product);
 
         if ($request->wantsJson()) {
             return response()->json(['product' => $product, 'data' => $data]);

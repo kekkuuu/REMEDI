@@ -9,11 +9,14 @@ use App\Models\AuditTrail;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\Sale;
+use App\Models\SaleItem;
 use App\Models\SalesHistory;
+use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Maatwebsite\Excel\Facades\Excel;
 
 class ReportController extends Controller
@@ -129,6 +132,32 @@ class ReportController extends Controller
     }
 
     /**
+     * ATV (Average Transaction Value) and ATC (Average Transaction Count),
+     * both scoped to POS transactions -- sales_history rows are imported
+     * units with no discrete transaction to divide by, so there is nothing
+     * for either figure to read there. ATV is per transaction; ATC is
+     * transactions PER DAY across the whole selected period (not just days
+     * that had one), so a mostly-quiet range reports an honest average
+     * rather than one inflated by skipping its own zero days.
+     *
+     * Extracted as a static, pure function -- like periodRange() above --
+     * so it can be unit tested without going through buildSalesReportData(),
+     * which calls into MySQL-only aggregates (STRAIGHT_JOIN) the test suite's
+     * sqlite connection cannot run.
+     *
+     * @return array{0: ?float, 1: float} [atv, atc]
+     */
+    public static function atvAtc(float $posTotal, int $totalTransactions, string $start, string $end): array
+    {
+        $atv = $totalTransactions > 0 ? round($posTotal / $totalTransactions, 2) : null;
+
+        $periodDays = max(1, Carbon::parse($start)->diffInDays(Carbon::parse($end)) + 1);
+        $atc = round($totalTransactions / $periodDays, 1);
+
+        return [$atv, $atc];
+    }
+
+    /**
      * Normalise a user-supplied range into one the data can actually answer.
      *
      * clampEnd() only ever moved the END back, which is where the trouble was:
@@ -178,15 +207,25 @@ class ReportController extends Controller
         $data = $this->buildSalesReportData($request);
         $range = "{$data['start']}_to_{$data['end']}";
 
-        if ($request->get('format') === 'xlsx') {
-            AuditTrail::log('Viewed', "Exported Sales Report as Excel ({$data['start']} to {$data['end']})");
+        // Carries the Category/Product filter into the download itself, so a
+        // file named "sales-report-2026-09-01_to_2026-09-22.xlsx" opened a
+        // week later doesn't have to be re-opened against the page to find
+        // out it was actually just Baby Care. Slugified: it becomes part of
+        // a filename, which a raw product name (spaces, punctuation) is not
+        // safe to be.
+        $scopeSuffix = $data['scopeLabel'] ? '-'.Str::slug($data['scopeLabel']) : '';
 
-            return Excel::download(new SalesReportExport($data), "sales-report-{$range}.xlsx");
+        if ($request->get('format') === 'xlsx') {
+            AuditTrail::log('Viewed', 'Exported Sales Report as Excel ('.$data['start'].' to '.$data['end'].
+                ($data['scopeLabel'] ? ", {$data['scopeLabel']}" : '').')');
+
+            return Excel::download(new SalesReportExport($data), "sales-report-{$range}{$scopeSuffix}.xlsx");
         }
 
-        AuditTrail::log('Viewed', "Exported Sales Report as PDF ({$data['start']} to {$data['end']})");
+        AuditTrail::log('Viewed', 'Exported Sales Report as PDF ('.$data['start'].' to '.$data['end'].
+            ($data['scopeLabel'] ? ", {$data['scopeLabel']}" : '').')');
 
-        return Pdf::loadView('reports.pdf.sales', $data)->download("sales-report-{$range}.pdf");
+        return Pdf::loadView('reports.pdf.sales', $data)->download("sales-report-{$range}{$scopeSuffix}.pdf");
     }
 
     /**
@@ -207,6 +246,19 @@ class ReportController extends Controller
             'end_date' => 'nullable|date',
             'month' => 'nullable|date_format:Y-m',
             'period' => 'nullable|in:'.implode(',', self::PERIODS),
+            'category_id' => 'nullable|integer|exists:categories,id',
+            // A SKU, not an id: the filter field is a text input with a
+            // <datalist> of every product (see reports/sales.blade.php),
+            // since a <select> with 2,600+ options is unusable and this app
+            // has no pick-one-item autocomplete component -- only the live-
+            // list-filter kind (REMEDI.attachSuggest). The SKU is directly
+            // usable as a datalist option's value; an id would need extra JS
+            // to resolve a picked label back to one.
+            'product_sku' => 'nullable|string|exists:products,sku',
+            // A user id, not a name: rendered as a plain <select> (the staff
+            // list is small, unlike the 2,600-product typeahead above) so the
+            // value posted back is always one this exists() check can trust.
+            'cashier_id' => 'nullable|integer|exists:users,id',
         ]);
 
         // Reports run off `sales_history` -- the imported sales record, which
@@ -261,67 +313,244 @@ class ReportController extends Controller
 
         [$start, $end] = $this->clampRange($start, $end, $dataStart, $dataEnd);
 
-        // Day buckets for short ranges, month buckets for long ones -- see
-        // SalesHistory::trendBetween().
-        $trend = SalesHistory::trendBetween($start, $end);
+        // Category/Product filter. A product wins over a category if a hand-
+        // edited URL carries both -- it is the more specific of the two, so
+        // there's nothing left for the category to narrow further. Archived
+        // products/categories are deliberately still selectable: this reads
+        // HISTORY, and a product discontinued last month still has sales to
+        // look back on.
+        $scopeCategoryId = $request->filled('category_id') ? (int) $request->get('category_id') : null;
+        $scopeProduct = $request->filled('product_sku')
+            ? Product::withTrashed()->where('sku', $request->get('product_sku'))->first()
+            : null;
+        if ($scopeProduct) {
+            $scopeCategoryId = null;
+        }
+        $scopeCategory = $scopeCategoryId ? Category::withTrashed()->find($scopeCategoryId) : null;
+        $isScoped = (bool) ($scopeProduct || $scopeCategory);
+
+        // Cashier -- a THIRD filter dimension, orthogonal to Category/Product
+        // and deliberately kept separate from $isScoped: sales_history has no
+        // cashier column at all (it predates this terminal, see "Two sales
+        // tables"), so a cashier can only ever narrow the POS-only figures
+        // this page already keeps separate from the merged Total Sales
+        // identity -- $sales/$scopedItems, $totalTransactions, ATV/ATC, the
+        // hourly chart and the printed transaction/line-item tables.
+        // withTrashed(): a deactivated or archived cashier still rang up real
+        // sales worth filtering to, same reasoning $scopeProduct/$scopeCategory
+        // already apply.
+        $scopeCashier = $request->filled('cashier_id')
+            ? User::withTrashed()->find($request->get('cashier_id'))
+            : null;
+
+        // The one place this gets written down, so the page heading, the
+        // PDF/print title, the Excel sheet name and the download filename
+        // can't drift into four different descriptions of the same filter.
+        $scopeParts = array_filter([
+            $scopeProduct?->name ?? $scopeCategory?->name,
+            $scopeCashier?->name,
+        ]);
+        $scopeLabel = $scopeParts ? implode(' — ', $scopeParts) : null;
+
+        $categories = Category::orderBy('name')->get(['id', 'name']);
+
+        // Lightweight columns only -- this feeds a <datalist> of every
+        // product for the filter's typeahead, not a full product listing.
+        $productOptions = Product::withTrashed()->orderBy('name')->get(['id', 'sku', 'name']);
+
+        // Plain <select>, unlike the product field above -- there are dozens
+        // of staff accounts at most, not thousands, so a typeahead would be
+        // solving a problem that doesn't exist here. withTrashed(): an
+        // archived/deactivated account still has real sales in range to
+        // filter to.
+        $cashiers = User::withTrashed()->orderBy('name')->get(['id', 'name']);
+
+        if ($isScoped) {
+            // Not trendBetween(): that aggregate is cached and has no
+            // category/product dimension to key on. See
+            // SalesHistory::scopedTrendBetween() for why an admin-chosen
+            // filter doesn't need the same caching trendBetween() does.
+            $trend = SalesHistory::scopedTrendBetween($start, $end, $scopeCategoryId, $scopeProduct?->sku);
+        } else {
+            // Day buckets for short ranges, month buckets for long ones -- see
+            // SalesHistory::trendBetween().
+            $trend = SalesHistory::trendBetween($start, $end);
+        }
+
         $dailyBreakdown = $trend['rows'];
         $granularity = $trend['granularity'];
 
         $totalSales = $dailyBreakdown->sum('revenue');
         $totalUnits = $dailyBreakdown->sum('units');
-        // Trading days is a day count regardless of how the trend is bucketed.
-        $activeDays = $granularity === 'day'
-            ? $dailyBreakdown->count()
-            : (int) DB::table('sales_history')
-                ->whereBetween('sale_date', [$start, $end])
-                ->distinct()
-                ->count('sale_date');
 
-        // Live POS transactions in the same window, listed separately: they
-        // are a different kind of record (transaction no., cashier) and only
-        // exist for dates this install actually rang up.
-        $sales = Sale::with('user')
-            ->whereDate('created_at', '>=', $start)
-            ->whereDate('created_at', '<=', $end)
-            ->orderBy('created_at')
-            ->get();
+        if ($isScoped) {
+            // Every sale_items row for this product/category in range, each
+            // carrying the sale and product it came from -- the "Where the
+            // total comes from" table becomes a line-item list rather than a
+            // transaction list when scoped, since a transaction can hold
+            // OTHER products too and listing its FULL total here would
+            // overstate what this product/category actually earned.
+            $itemsQuery = SaleItem::with(['sale.user', 'product'])
+                ->whereHas('sale', fn ($q) => $q->whereDate('created_at', '>=', $start)->whereDate('created_at', '<=', $end)->where('payment_voided', false));
 
-        $totalTransactions = $sales->count();
+            if ($scopeProduct) {
+                $itemsQuery->where('product_id', $scopeProduct->id);
+            } else {
+                $itemsQuery->whereHas('product', fn ($q) => $q->where('category_id', $scopeCategoryId));
+            }
 
-        // What the print copy lists, oldest first, so a capped page still reads
-        // as the start of the period rather than an arbitrary slice.
-        $salesForPrint = $sales->take(self::POS_PRINT_CAP);
+            // Fetched WITHOUT the cashier filter first -- $posTotal/$posByBucket
+            // below feed the "Where the total comes from" identity
+            // (historyTotal + posTotal = totalSales), which must stay whole
+            // regardless of which cashier is picked, or the arithmetic on
+            // screen would stop adding up. See the cashier comment above.
+            $allScopedItems = $itemsQuery->get()->sortBy(fn ($item) => $item->sale->created_at)->values();
 
-        // Split the headline figure into the two records it is actually made of.
-        //
-        // `Total Sales` comes from trendBetween(), which merges the imported
-        // sales_history with live POS checkouts -- but the table underneath
-        // lists POS transactions ONLY, because a history row has no transaction
-        // number or cashier to show. So the KPI and the table could never agree,
-        // and the gap read as a broken sum: Aug 21-25 showed Total Sales
-        // P283,265.21 above 16 transactions worth P31,195.98, with nothing to
-        // say where the other P252,069.23 came from.
-        //
-        // Both numbers were right. Neither said what it was counting.
-        $posTotal = round((float) $sales->sum('total_amount'), 2);
+            $scopedItems = $scopeCashier
+                ? $allScopedItems->filter(fn ($item) => $item->sale->user_id === $scopeCashier->id)->values()
+                : $allScopedItems;
+
+            // "Transactions" here means distinct sales that INCLUDED this
+            // product/category, not line items -- a cart with two matching
+            // lines is one transaction, not two.
+            $totalTransactions = $scopedItems->pluck('sale_id')->unique()->count();
+
+            // Whole-scope (cashier-blind) total, for the identity above.
+            $posTotal = round((float) $allScopedItems->sum('subtotal'), 2);
+
+            // The (possibly cashier-filtered) total of what's actually
+            // LISTED below -- the "Line items" print table's own footer,
+            // which must equal what it's printed under, not the whole-scope
+            // figure above.
+            $listedPosTotal = round((float) $scopedItems->sum('subtotal'), 2);
+
+            $activeDays = $granularity === 'day' ? $dailyBreakdown->count() : $dailyBreakdown->pluck('key')->unique()->count();
+
+            $posByBucket = $allScopedItems
+                ->groupBy(fn ($item) => $granularity === 'day'
+                    ? $item->sale->created_at->toDateString()
+                    : $item->sale->created_at->format('Y-m'))
+                ->map(fn ($group) => round((float) $group->sum('subtotal'), 2));
+
+            $scopedItemsForPrint = $scopedItems->take(self::POS_PRINT_CAP);
+
+            // ATV/ATC/Hourly are whole-TRANSACTION metrics (this till's
+            // overall activity), and mixing them into a one-product slice
+            // would read as "average value of a sale of just this item",
+            // which is a different and much noisier number. Left unset --
+            // the view hides those cards entirely while scoped, rather than
+            // showing a figure that answers a question nobody asked.
+            $sales = collect();
+            $salesForPrint = collect();
+            $atv = null;
+            $atc = 0.0;
+            $hourlyBreakdown = collect();
+        } else {
+            $scopedItems = collect();
+            $scopedItemsForPrint = collect();
+
+            // Trading days is a day count regardless of how the trend is bucketed.
+            $activeDays = $granularity === 'day'
+                ? $dailyBreakdown->count()
+                : (int) DB::table('sales_history')
+                    ->whereBetween('sale_date', [$start, $end])
+                    ->distinct()
+                    ->count('sale_date');
+
+            // Live POS transactions in the same window, listed separately: they
+            // are a different kind of record (transaction no., cashier) and only
+            // exist for dates this install actually rang up. Voided sales are
+            // excluded outright here (not just from the total) -- they
+            // contributed ₱0 to revenue, so listing one under a total it
+            // isn't part of would read as the report's own arithmetic being
+            // wrong. The interactive Sales History list still shows a voided
+            // row with its own badge; a printed report is a different case.
+            $allSales = Sale::with('user')
+                ->whereDate('created_at', '>=', $start)
+                ->whereDate('created_at', '<=', $end)
+                ->where('payment_voided', false)
+                ->orderBy('created_at')
+                ->get();
+
+            // $sales narrows to one cashier when the filter is set; $allSales
+            // (whole-till, cashier-blind) stays intact below for $posTotal /
+            // $posByBucket, which feed the "Where the total comes from"
+            // identity -- that arithmetic can't be honestly narrowed to one
+            // cashier, since sales_history (the other half of Total Sales)
+            // has no cashier to filter by at all.
+            $sales = $scopeCashier
+                ? $allSales->where('user_id', $scopeCashier->id)->values()
+                : $allSales;
+
+            $totalTransactions = $sales->count();
+
+            // What the print copy lists, oldest first, so a capped page still reads
+            // as the start of the period rather than an arbitrary slice.
+            $salesForPrint = $sales->take(self::POS_PRINT_CAP);
+
+            // Split the headline figure into the two records it is actually made of.
+            //
+            // `Total Sales` comes from trendBetween(), which merges the imported
+            // sales_history with live POS checkouts -- but the table underneath
+            // lists POS transactions ONLY, because a history row has no transaction
+            // number or cashier to show. So the KPI and the table could never agree,
+            // and the gap read as a broken sum: Aug 21-25 showed Total Sales
+            // P283,265.21 above 16 transactions worth P31,195.98, with nothing to
+            // say where the other P252,069.23 came from.
+            //
+            // Both numbers were right. Neither said what it was counting.
+            //
+            // From $allSales, not $sales: this identity (and the bucket
+            // breakdown below) describes the whole till regardless of which
+            // cashier is filtered, for the same reason given above.
+            $posTotal = round((float) $allSales->sum('total_amount'), 2);
+
+            // The (possibly cashier-filtered) total of what's actually
+            // LISTED below -- the printed transaction table's own footer.
+            $listedPosTotal = round((float) $sales->sum('total_amount'), 2);
+
+            // POS takings per bucket, keyed the same way trendBetween() keys its
+            // rows (Y-m-d for a day-bucketed range, Y-m for a month-bucketed one).
+            // The breakdown table uses it to show the imported and POS halves of
+            // each row side by side, so the headline figure can be followed down
+            // the page instead of having to be taken on trust. From $allSales
+            // for the same reason $posTotal is, just above.
+            $posByBucket = $allSales
+                ->groupBy(fn ($sale) => $granularity === 'day'
+                    ? $sale->created_at->toDateString()
+                    : $sale->created_at->format('Y-m'))
+                ->map(fn ($group) => round((float) $group->sum('total_amount'), 2));
+
+            // Off $listedPosTotal, not $posTotal: when a cashier is picked,
+            // ATV/ATC should answer "this cashier's average", not the whole
+            // till's -- $totalTransactions is already narrowed the same way.
+            [$atv, $atc] = self::atvAtc($listedPosTotal, $totalTransactions, $start, $end);
+
+            // Hourly sales / transaction volume — POS-only, for the same reason
+            // ATV/ATC are: sales_history has a DATE per row, never a time, so an
+            // imported sale cannot be placed in an hour. This is honestly this
+            // TERMINAL's own hourly pattern, not the whole four-year record's.
+            $hourlyBreakdown = collect(range(0, 23))->map(function ($hour) use ($sales) {
+                $inHour = $sales->filter(fn ($sale) => (int) $sale->created_at->format('G') === $hour);
+
+                return (object) [
+                    'hour' => $hour,
+                    'label' => Carbon::createFromTime($hour)->format('g A'),
+                    'transactions' => $inHour->count(),
+                    'revenue' => round((float) $inHour->sum('total_amount'), 2),
+                ];
+            });
+        }
+
         $historyTotal = round($totalSales - $posTotal, 2);
-
-        // POS takings per bucket, keyed the same way trendBetween() keys its
-        // rows (Y-m-d for a day-bucketed range, Y-m for a month-bucketed one).
-        // The breakdown table uses it to show the imported and POS halves of
-        // each row side by side, so the headline figure can be followed down
-        // the page instead of having to be taken on trust.
-        $posByBucket = $sales
-            ->groupBy(fn ($sale) => $granularity === 'day'
-                ? $sale->created_at->toDateString()
-                : $sale->created_at->format('Y-m'))
-            ->map(fn ($group) => round((float) $group->sum('total_amount'), 2));
 
         return compact(
             'sales', 'start', 'end', 'totalSales', 'totalTransactions',
             'dailyBreakdown', 'months', 'month', 'totalUnits', 'activeDays',
             'dataStart', 'dataEnd', 'granularity', 'posTotal', 'historyTotal', 'posByBucket',
-            'salesForPrint'
+            'salesForPrint', 'atv', 'atc', 'hourlyBreakdown', 'listedPosTotal',
+            'categories', 'productOptions', 'scopeCategory', 'scopeProduct', 'isScoped', 'scopeLabel', 'scopedItems', 'scopedItemsForPrint',
+            'cashiers', 'scopeCashier'
         ) + ['period' => $quick];
     }
 
@@ -599,9 +828,36 @@ class ReportController extends Controller
         // is meaningless when scoped to one month.
         $seasonalTrends = SalesHistory::seasonalTrends();
 
+        // Sales by category — merges sales_history with the till, same as
+        // topProducts above, just grouped one level up.
+        $salesByCategory = SalesHistory::salesByCategoryBetween($start, $end);
+
+        // Sales by staff/cashier is POS-ONLY: sales_history is an imported
+        // record of units sold, with no cashier column at all -- there was
+        // nobody signed into anything before this terminal existed. So this
+        // table only ever reflects what THIS till has rung up in the range,
+        // same limitation the Hourly figures on the Sales Report carry, and
+        // it is empty for any period entirely before the terminal went live.
+        $salesByStaff = DB::table('sales')
+            ->join('users', 'users.id', '=', 'sales.user_id')
+            ->whereDate('sales.created_at', '>=', $start)
+            ->whereDate('sales.created_at', '<=', $end)
+            ->where('sales.payment_voided', false)
+            ->selectRaw('sales.user_id, MAX(users.name) AS name, COUNT(*) AS transactions, SUM(sales.total_amount) AS revenue')
+            ->groupBy('sales.user_id')
+            ->orderByDesc('revenue')
+            ->get()
+            ->map(fn ($r) => (object) [
+                'user_id' => $r->user_id,
+                'name' => $r->name,
+                'transactions' => (int) $r->transactions,
+                'revenue' => round((float) $r->revenue, 2),
+            ]);
+
         return compact(
             'topProducts', 'slowMoving', 'slowMovingCount', 'salesTrend', 'seasonalTrends',
-            'months', 'month', 'start', 'end', 'dataStart', 'dataEnd', 'granularity'
+            'months', 'month', 'start', 'end', 'dataStart', 'dataEnd', 'granularity',
+            'salesByCategory', 'salesByStaff'
         );
     }
 }

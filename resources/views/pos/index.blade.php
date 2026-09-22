@@ -4,6 +4,11 @@
 
 @section('content')
 
+{{-- Renders the GCash / Other QR payment box below -- see its own comment.
+     Loaded here, not in the layout, for the same reason Chart.js is loaded
+     per page rather than globally: most pages never need it. --}}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+
 <style>
     /* Cart quantity input — was width:50px with the app's default
        9px/12px input padding, which left almost no room once the
@@ -183,7 +188,36 @@
 
     /* Scan and payment fields: big type, they are hit under time pressure. */
     .pos-input-lg { padding: 12px; font-size: 1.1rem; margin-top: 6px; }
+
+    /* GCash / Other QR lock this field to the exact total -- see
+       updateQrPayment() below -- so it reads as filled-in-for-you rather
+       than editable-but-currently-correct. */
+    .pos-input[readonly] { background: #f8fafc; color: #475569; cursor: default; }
     .pos-input-search { padding: 10px; }
+
+    .pos-paymethod-btn {
+        padding: 9px 10px;
+        border: 1px solid #d1d5db;
+        border-radius: 7px;
+        background: #fff;
+        color: #374151;
+        font-size: .85rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: background .14s ease, border-color .14s ease, color .14s ease;
+    }
+    .pos-paymethod-btn:hover { background: #f8fafc; border-color: #a5b4fc; }
+    .pos-paymethod-btn.is-active {
+        background: #10b981;
+        border-color: #10b981;
+        color: #fff;
+    }
+    /* An odd COUNT (three methods, since Card was removed) leaves the last
+       button alone in the second row of this 2-column grid -- span it full
+       width rather than leaving it stranded in the left column. Only fires
+       when the last child is also an odd-numbered one, i.e. the count itself
+       is odd; a future even-numbered list is untouched. */
+    #payment-method-group .pos-paymethod-btn:last-child:nth-child(odd) { grid-column: 1 / -1; }
 
     .cart-qty-input {
         width: 68px;
@@ -209,18 +243,15 @@
     .pos-cart-bar:hover { background: #f8fafc; }
 </style>
 
-{{-- Barcode scanner: hidden, not deleted.
-
-     The markup stays in the DOM so every handle below it (barcode-input,
-     barcode-status and the keydown listener) still resolves and the scanning
-     path keeps working for a hardware reader, which types into whatever holds
-     focus. Deleting it would mean null-guarding four call sites and losing the
-     feature; hiding it is one attribute and reversible.
-
-     To bring it back, drop the `hidden` attribute -- focusEntryField() below
-     detects that the field is visible again and re-arms it automatically, so
-     nothing else needs changing. --}}
-<div class="card" hidden style="margin-bottom: 12px; border: 2px solid #4f46e5;">
+{{-- Barcode scanner -- unhidden 2026-09-22 at the user's request. The
+     `hidden` attribute is gone; everything else (barcode-input,
+     barcode-status, the keydown listener, focusEntryField() below) was
+     already built to keep working the moment it came back, per the note
+     this comment used to carry -- see git history / REMEDI.md for why it
+     was hidden in the first place (the search placeholder no longer
+     mentions barcodes, but SEARCH still matches on the column regardless of
+     whether this card is shown). --}}
+<div class="card" style="margin-bottom: 12px; border: 2px solid #4f46e5;">
     <label style="font-weight:600; font-size:.85rem;">Scan Barcode</label>
     <input
         type="text"
@@ -279,6 +310,7 @@
             @csrf
             <div id="hidden-inputs"></div>
             <input type="hidden" name="amount_paid" id="amount-paid-hidden" value="">
+            <input type="hidden" name="payment_method" id="payment-method-hidden" value="cash">
             {{-- One value per checkout ATTEMPT, not per request -- see the
                  script below and PosController::checkout(). A retry of this
                  same attempt (a timeout, a corrected payment amount) resends
@@ -303,7 +335,45 @@
             <span style="font-weight:700; font-size:1.15rem;">&#8369;<span id="modal-total">0.00</span></span>
         </div>
 
-        <label for="amount-paid-input" style="font-weight:600; font-size:.85rem;">Customer's Payment (&#8369;) <span style="color:#dc2626;" id="amount-required-mark">*</span></label>
+        {{-- Payment method -- Sale::PAYMENT_METHODS is the one definition;
+             PosController::checkout() validates against the same list.
+             Plain buttons, not a <select>: four options read faster as a
+             row a cashier can tap than as a dropdown to open first. Cash
+             stays the default (checked on load) since that is what every
+             sale before this was. --}}
+        <div style="margin-bottom:12px;">
+            <span style="font-weight:600; font-size:.85rem; display:block; margin-bottom:6px;">Payment Method</span>
+            <div id="payment-method-group" style="display:grid; grid-template-columns:repeat(2, 1fr); gap:6px;">
+                @foreach(\App\Models\Sale::PAYMENT_METHODS as $value => $label)
+                    <button type="button" class="pos-paymethod-btn {{ $loop->first ? 'is-active' : '' }}" data-method="{{ $value }}">
+                        {{ $label }}
+                    </button>
+                @endforeach
+            </div>
+        </div>
+
+        {{-- GCash / Other QR -- there is no real payment gateway behind this
+             till, so the code encodes a plain reference string (store,
+             method, amount, this checkout attempt's idempotency key) rather
+             than a live payment link. It exists so the payment METHOD reads
+             as an actual QR to scan, not just a button labelled "QR".
+             Hidden for Cash, and rebuilt whenever the method or the total
+             changes -- see updateQrPayment() below. --}}
+        <div id="qr-payment-box" style="display:none; margin-bottom:14px; padding:12px; border:1px dashed #a5b4fc; border-radius:8px; background:#f8fafc; text-align:center;">
+            <div id="qr-code-canvas" style="display:inline-flex; justify-content:center;"></div>
+            <p style="margin:8px 0 0; font-size:.78rem; color:#64748b;">
+                Scan to pay &#8369;<span id="qr-amount">0.00</span>
+            </p>
+        </div>
+
+        {{-- Label text swaps for GCash/Other QR -- see updateQrPayment()
+             below -- since the field itself stops meaning "what did the
+             customer hand over" and starts meaning "the exact amount their
+             e-wallet app charged them". --}}
+        <label for="amount-paid-input" style="font-weight:600; font-size:.85rem;">
+            <span id="amount-paid-label-text">Customer's Payment (&#8369;)</span>
+            <span style="color:#dc2626;" id="amount-required-mark">*</span>
+        </label>
         <input
             type="number"
             id="amount-paid-input"
@@ -607,6 +677,80 @@
     const modalTotalEl = document.getElementById('modal-total');
     const checkoutForm = document.getElementById('checkout-form');
     const idempotencyKeyHidden = document.getElementById('idempotency-key-hidden');
+    const paymentMethodHidden = document.getElementById('payment-method-hidden');
+    const paymentMethodGroup = document.getElementById('payment-method-group');
+
+    // Delegated, not one listener per button: the group never changes after
+    // render, but this matches the pattern every other click-to-select
+    // control on this page already uses.
+    if (paymentMethodGroup) {
+        paymentMethodGroup.addEventListener('click', (e) => {
+            const btn = e.target.closest('.pos-paymethod-btn');
+            if (!btn) return;
+            paymentMethodGroup.querySelectorAll('.pos-paymethod-btn').forEach((b) => b.classList.remove('is-active'));
+            btn.classList.add('is-active');
+            paymentMethodHidden.value = btn.dataset.method;
+            updateQrPayment();
+        });
+    }
+
+    /* GCash / Other QR -- shows an actual QR code to scan rather than just a
+       selected button. No real payment gateway sits behind this till, so the
+       code encodes a plain reference string (not a live payment link):
+       store name, method, the order total, and this checkout ATTEMPT's
+       idempotency key (see generateIdempotencyKey() below), which is what
+       makes the code change between two carts of the same total. qrcodejs
+       (loaded above) redraws in place via .clear()/.makeCode() rather than
+       being torn down and rebuilt, so this can run on every total change
+       without leaking canvases. */
+    let qrPaymentInstance = null;
+
+    function updateQrPayment() {
+        const box = document.getElementById('qr-payment-box');
+        const canvas = document.getElementById('qr-code-canvas');
+        const amountEl = document.getElementById('qr-amount');
+        const labelText = document.getElementById('amount-paid-label-text');
+        if (!box || !canvas) return;
+
+        const method = paymentMethodHidden.value;
+        const isQr = method === 'gcash' || method === 'qr';
+        box.style.display = isQr ? 'block' : 'none';
+
+        // GCash / Other QR are EXACT-payment methods -- the customer's
+        // e-wallet app charges them the precise total, so there is no
+        // "change" to work out and nothing for the cashier to type or get
+        // wrong. Cash keeps the manual field, since a customer can hand
+        // over more than the total and expect change back. Switching BACK
+        // to Cash clears the field rather than leaving the QR total sitting
+        // in a box that is now editable again -- that number was never
+        // typed by anyone and would otherwise look like a real entry.
+        amountPaidInput.readOnly = isQr;
+        amountPaidInput.value = isQr ? cartTotal.toFixed(2) : '';
+        if (labelText) {
+            labelText.textContent = isQr
+                ? "Amount Charged via " + (method === 'gcash' ? 'GCash' : 'E-wallet') + " (₱)"
+                : "Customer's Payment (₱)";
+        }
+        updatePaymentState();
+
+        if (!isQr) return;
+
+        amountEl.textContent = cartTotal.toFixed(2);
+
+        const payload = 'REMEDI|' + method.toUpperCase() + '|' + cartTotal.toFixed(2) + '|' + (idempotencyKeyHidden.value || '');
+
+        if (typeof QRCode === 'undefined') return;
+
+        if (!qrPaymentInstance) {
+            qrPaymentInstance = new QRCode(canvas, {
+                text: payload, width: 128, height: 128,
+                colorDark: '#111827', colorLight: '#ffffff',
+            });
+        } else {
+            qrPaymentInstance.clear();
+            qrPaymentInstance.makeCode(payload);
+        }
+    }
 
     // Good enough entropy for a replay key -- not for anything cryptographic.
     // randomUUID() needs a secure context (HTTPS, or localhost for local dev);
@@ -626,12 +770,19 @@
         if (Object.keys(cart).length === 0) return;
         modalTotalEl.innerText = cartTotal.toFixed(2);
         amountPaidInput.value = '';
+        // Cash by default on every fresh checkout, matching what every sale
+        // before this feature existed actually was.
+        if (paymentMethodGroup) {
+            paymentMethodGroup.querySelectorAll('.pos-paymethod-btn').forEach((b, i) => b.classList.toggle('is-active', i === 0));
+        }
+        paymentMethodHidden.value = 'cash';
         // Generated HERE, not inside submitCheckout() -- a retry of this same
         // attempt (a network timeout, a corrected payment amount after
         // "insufficient payment") must resend the SAME key, or the one thing
         // it exists to prevent -- a second sale for one cart -- happens
         // anyway. See PosController::checkout().
         idempotencyKeyHidden.value = generateIdempotencyKey();
+        updateQrPayment();
         updatePaymentState();
         modalOverlay.style.display = 'flex';
         // preventScroll: the field is inside a fixed overlay, and revealing it
@@ -839,7 +990,13 @@
             return;
         }
 
-        const change = amountPaid - cartTotal;
+        // Centavos, not a bare float subtraction -- GCash/Other QR now fill
+        // this field programmatically with cartTotal.toFixed(2) rather than
+        // a customer's typed amount, and a stray float remainder there
+        // (131.75 vs 131.75000000000003) would show "Insufficient amount"
+        // on a payment that is, to the peso, exact. Same reasoning
+        // PosController::checkout() already compares in integer centavos.
+        const change = (Math.round(amountPaid * 100) - Math.round(cartTotal * 100)) / 100;
 
         if (change < 0) {
             changeDueEl.innerText = '\u20B1' + (0).toFixed(2);

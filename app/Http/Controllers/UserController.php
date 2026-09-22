@@ -55,6 +55,11 @@ class UserController extends Controller
             'active' => User::where('is_active', true)->count(),
             'inactive' => User::where('is_active', false)->count(),
             'admins' => User::where('role', 'admin')->count(),
+            // "Forgot your password?" requests waiting on an admin -- see
+            // PasswordResetRequestController. Same "count before any filter"
+            // rule as the other three: this describes the account list as a
+            // whole, not the search box's narrowed slice.
+            'pending_reset' => User::whereNotNull('password_reset_requested_at')->count(),
         ];
 
         // ?archived=1 lists archived accounts, where Restore lives. The default
@@ -139,6 +144,12 @@ class UserController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|string|lowercase|email|max:255|unique:users,email,'.$user->id,
             'role' => 'required|in:admin,staff',
+            // Same rule as ProfileUpdateRequest's own phone field, and the
+            // same column limit (40) -- an admin editing someone else's
+            // account should be bound by the same rule the account holder
+            // is, not a looser one just because this form has no other use
+            // for FormRequest.
+            'phone' => 'nullable|string|max:40',
             'password' => 'nullable|confirmed|min:8',
         ]);
 
@@ -150,6 +161,7 @@ class UserController extends Controller
         $user->name = $validated['name'];
         $user->email = $validated['email'];
         $user->role = $validated['role'];
+        $user->phone = $validated['phone'] ?? null;
 
         if (! empty($validated['password'])) {
             $user->password = Hash::make($validated['password']);
@@ -252,19 +264,61 @@ class UserController extends Controller
             return $this->actionFailed($request, 'You cannot archive your own account.', 'user');
         }
 
+        // Required, not optional: the Archived list otherwise carries a badge
+        // that just says "Archived" with no way to tell a resignation from a
+        // termination apart later, which is exactly the distinction this was
+        // added to record. Rule::in() against User::ARCHIVE_REASONS' own keys,
+        // so a third reason can never be added in one place and not the other.
+        $validated = $request->validate([
+            'reason' => 'required|in:'.implode(',', array_keys(User::ARCHIVE_REASONS)),
+        ]);
+
         // Captured first: the name is read after the model has been archived,
         // and a value read off a trashed record is the kind of thing that
         // quietly becomes null later.
         $name = $user->name;
+
+        // Written before delete() so it lands in the same row the archive
+        // stamps -- a separate write after delete() would still work (the
+        // row still exists, only hidden by the soft-delete scope), but doing
+        // it first keeps the "set the fact, then archive" order explicit.
+        $user->archive_reason = $validated['reason'];
+        $user->save();
 
         // Logged after the archive succeeds, not before -- same rule as
         // ProductController::destroy. A refused archive must not leave an
         // audit entry claiming it happened.
         $user->delete();
 
-        AuditTrail::log('Archived', "Archived user account: {$name}");
+        $reasonLabel = User::ARCHIVE_REASONS[$validated['reason']];
 
-        return $this->actionOk($request, "User \"{$name}\" archived. They can no longer sign in, and their sales history is untouched.", redirect()->route('users.index'));
+        AuditTrail::log('Archived', "Archived user account: {$name} ({$reasonLabel})");
+
+        return $this->actionOk($request, "User \"{$name}\" archived ({$reasonLabel}). They can no longer sign in, and their sales history is untouched.", redirect()->route('users.index'));
+    }
+
+    /**
+     * The admin side of "Forgot your password?" -- resets to the shared
+     * default (User::DEFAULT_RESET_PASSWORD) and forces a change on the
+     * account's next sign-in, so a known password value can't sit valid
+     * indefinitely. Not gated on a pending request existing: an admin can
+     * reset anyone's password on request (a phone call, someone standing at
+     * the counter) whether or not they used the online form.
+     */
+    public function resetPassword(Request $request, User $user)
+    {
+        $user->password = Hash::make(User::DEFAULT_RESET_PASSWORD);
+        $user->must_change_password = true;
+        $user->password_reset_requested_at = null;
+        $user->save();
+
+        AuditTrail::log('Reset', "Password reset: {$user->name}");
+
+        return $this->actionOk(
+            $request,
+            "\"{$user->name}\"'s password was reset to the default. They'll be asked to set a new one the next time they sign in.",
+            redirect()->route('users.index')
+        );
     }
 
     /** Bring an archived account back. */
@@ -272,6 +326,14 @@ class UserController extends Controller
     {
         abort_unless($user->trashed(), 404);
 
+        // Cleared, not carried forward: a restored account isn't "resigned"
+        // or "fired" any more, and leaving the old value would show a stale
+        // reason if the account is ever archived again without it being set
+        // (the reason is only ever written by destroy() above, which always
+        // sets it -- but the restore-then-inspect-the-row path is real, e.g.
+        // an admin checking the audit trail, and a leftover reason there
+        // would read as a claim about THIS archiving rather than the last one).
+        $user->archive_reason = null;
         $user->restore();
 
         AuditTrail::log('Restored', "Restored user account: {$user->name}");

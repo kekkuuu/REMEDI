@@ -615,18 +615,15 @@
      The four stock tiles link straight to the Inventory filter that lists
      exactly what they're counting. --}}
 @php
-    $expiredCount = $expiredBatches->count();
     $expiringCount = $expiringSoonBatches->count();
     $lowStockCount = $lowStockProducts->count();
-    // is_returnable, not the medicine-only tally. This drives the KPI card and
-    // the Alerts panel row, both labelled generically ("batches can still go
-    // back to the supplier") and both linking to the Inventory need_to_return
-    // filter — so they have to count what that filter and the bell count.
-    // $returnStats keeps the narrow figure for the Medicine Returns card, which
-    // is explicitly per-category.
+    // No longer read by a KPI tile here (see the ATV/ATC tiles below), but
+    // still needed: admin._dashboard-actions' Alerts panel reads both to
+    // decide whether to show its Expired-stock and Return-window cards.
     //
     // Use PHP comment syntax here. This is inside an @php block, so the body is
     // raw PHP and a Blade comment would be a parse error, not a comment.
+    $expiredCount = $expiredBatches->count();
     $needReturnCount = $returnableCount;
 @endphp
 {{-- Greeting bar. The date pill is rendered server-side and then kept live by
@@ -667,16 +664,34 @@
         <x-kpi-delta :change="$salesTodayDelta" against="vs yesterday" empty-label="No sales" />
     </a>
 
-    {{-- Same seven days DashboardController sums (today-6 through today). --}}
-    <a href="{{ route('sales.index', ['start_date' => today()->subDays(6)->toDateString(), 'end_date' => today()->toDateString()]) }}"
+    {{-- Revenue Today: PROFIT, not raw revenue -- each POS line's (price
+         charged − product cost_price) × quantity, summed for today. See
+         DashboardController::computeTodayProfit(). Replaced the "Last 7
+         Days" revenue tile (2026-09-22) at the user's request: Sales Today
+         beside it already shows the raw total, so a second revenue figure a
+         week wide was the same number restated, not a second question
+         answered. Same destination as Sales Today -- both describe today's
+         POS activity, just two different measures of it. --}}
+    <a href="{{ route('sales.index', ['start_date' => today()->toDateString(), 'end_date' => today()->toDateString()]) }}"
        class="kpi" style="--kpi-accent:#0d9488;">
         <div class="kpi-head">
-            <i class="ti ti-calendar-stats" aria-hidden="true"></i>
-            <span class="kpi-label">Last 7 Days</span>
+            <i class="ti ti-chart-line" aria-hidden="true"></i>
+            <span class="kpi-label">Revenue Today</span>
         </div>
-        <span class="kpi-value">&#8369;{{ number_format($last7Sales, 2) }}</span>
-        <span class="kpi-sub">{{ number_format($totalProducts) }} products in catalog</span>
-        <x-kpi-delta :change="$last7Delta" against="vs previous 7 days" empty-label="No sales" />
+        <span class="kpi-value">&#8369;{{ number_format($todayProfit, 2) }}</span>
+        {{-- Price minus cost, not a mystery formula -- and the honest caveat
+             when it's under-counted: a product with no cost_price on file
+             contributes nothing here (see computeTodayProfit()'s docblock),
+             so this figure can read low on a catalogue that hasn't been
+             given costs yet. Says so rather than passing off a partial sum
+             as the whole picture. --}}
+        <span class="kpi-sub">
+            price &minus; cost
+            @if($todayProfitMissingCost > 0)
+                &middot; {{ $todayProfitMissingCost }} {{ Str::plural('line', $todayProfitMissingCost) }} excluded (no cost set)
+            @endif
+        </span>
+        <x-kpi-delta :change="$todayProfitDelta" against="vs yesterday" empty-label="No profit yet" />
     </a>
 
     <a href="{{ route('inventory.index', ['filter' => 'low_stock']) }}"
@@ -699,24 +714,32 @@
         <span class="kpi-sub">batches within 30 days</span>
     </a>
 
-    <a href="{{ route('inventory.index', ['filter' => 'expired']) }}"
-       class="kpi {{ $expiredCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#dc2626;">
+    {{-- ATV — today's takings ÷ today's transactions. Same "today" scope and
+         same destination as the Sales Today tile, since it's a second view of
+         that tile's own numbers, not a new period. Null with no sales yet
+         today rather than a misleading ₱0.00. --}}
+    <a href="{{ route('sales.index', ['start_date' => today()->toDateString(), 'end_date' => today()->toDateString()]) }}"
+       class="kpi" style="--kpi-accent:#dc2626;">
         <div class="kpi-head">
-            <i class="ti ti-alert-octagon" aria-hidden="true"></i>
-            <span class="kpi-label">Expired</span>
+            <i class="ti ti-receipt-2" aria-hidden="true"></i>
+            <span class="kpi-label">Avg. Transaction Value</span>
         </div>
-        <span class="kpi-value">{{ number_format($expiredCount) }}</span>
-        <span class="kpi-sub">batches still in stock</span>
+        <span class="kpi-value">{!! $atv !== null ? '&#8369;'.number_format($atv, 2) : '&mdash;' !!}</span>
+        <span class="kpi-sub">{{ $atv !== null ? 'per transaction today' : 'no sales yet today' }}</span>
     </a>
 
-    <a href="{{ route('inventory.index', ['filter' => 'need_to_return']) }}"
-       class="kpi {{ $needReturnCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#3b82f6;">
+    {{-- ATC — average transactions PER DAY over the trailing week, not
+         today's raw count (that's already the Sales Today sub-line). Links to
+         the Sales Report's own Weekly quick range so the figure and the page
+         it opens describe the same window. --}}
+    <a href="{{ route('reports.sales', ['period' => 'weekly']) }}"
+       class="kpi" style="--kpi-accent:#3b82f6;">
         <div class="kpi-head">
-            <i class="ti ti-package-export" aria-hidden="true"></i>
-            <span class="kpi-label">Need to Return</span>
+            <i class="ti ti-chart-bar" aria-hidden="true"></i>
+            <span class="kpi-label">Avg. Transaction Count</span>
         </div>
-        <span class="kpi-value">{{ number_format($needReturnCount) }}</span>
-        <span class="kpi-sub">{{ $returnStats['fail_to_return'] }} already missed window</span>
+        <span class="kpi-value">{{ number_format($atc, 1) }}</span>
+        <span class="kpi-sub">transactions/day &middot; last 7 days</span>
     </a>
 </div>
 
@@ -811,6 +834,26 @@
         @endif
     </div>
     </div>{{-- end .dash-charts --}}
+
+    {{-- Hourly Sales & Transaction Volume -- TODAY vs. this terminal's own
+         recent average (the dashboard has no date-range picker, so "today"
+         is the one window it can show directly, and the average gives it
+         something to be read against). POS-only, both halves: sales_history
+         (the imported 4-year record) carries a DATE per row, never a time,
+         so there is no such thing as its "hourly pattern" to average --
+         only this terminal's own POS history has one. Always rendered, even
+         at all zeros: a flat day IS the answer on a quiet one, same as the
+         Sales Report's own hourly chart. --}}
+    <div class="card" style="margin-top:16px;">
+        <div class="demand-head">
+            <span class="label">Hourly Sales &amp; Transaction Volume</span>
+            <a href="{{ route('reports.sales', ['period' => 'daily']) }}" class="view-all">View All</a>
+        </div>
+        <p style="margin:-6px 0 10px; font-size:12px; color:#94a3b8;">
+            Today against the average of the last {{ $hourlyHistoryDayCount }} trading {{ Str::plural('day', $hourlyHistoryDayCount) }}
+        </p>
+        <div class="chart-box" style="height:220px;"><canvas id="hourlyTodayChart"></canvas></div>
+    </div>
 
     <div class="card" style="margin-top:16px;">
         @if ($demandFromHistory ?? false)
@@ -1730,6 +1773,75 @@
                 },
             },
             plugins: [valueLabelPlugin],
+        });
+    }
+
+    // Hourly Sales & Transaction Volume — today only (see
+    // DashboardController::index()'s $hourlyToday). Same bar+trend-line
+    // treatment as the Sales Report's own hourly chart: the line is what
+    // makes a peak hour readable at a glance rather than requiring a bar-by-
+    // bar comparison. The line is the terminal's own HISTORICAL average for
+    // that hour (DashboardController's $hourlyHistoryDayCount trading days),
+    // not a self-trend of today's own bars -- that's what makes this a
+    // "today vs. usual" comparison rather than just Today plotted twice.
+    if (document.getElementById('hourlyTodayChart')) {
+        const hourlyLabels = {!! json_encode($hourlyToday->pluck('label')) !!};
+        const hourlyRevenue = {!! json_encode($hourlyToday->pluck('revenue')) !!};
+        const hourlyAvgRevenue = {!! json_encode($hourlyToday->pluck('avgRevenue')) !!};
+        const hourlyTransactions = {!! json_encode($hourlyToday->pluck('transactions')) !!};
+
+        new Chart(document.getElementById('hourlyTodayChart'), {
+            type: 'bar',
+            data: {
+                labels: hourlyLabels,
+                datasets: [{
+                    label: 'Today',
+                    data: hourlyRevenue,
+                    backgroundColor: (ctx) => barGradient(ctx, C.sky),
+                    borderRadius: 4,
+                    maxBarThickness: 22,
+                    order: 1,
+                }, {
+                    type: 'line',
+                    label: 'Average',
+                    data: hourlyAvgRevenue,
+                    borderColor: '#94a3b8',
+                    backgroundColor: '#94a3b8',
+                    borderWidth: 2,
+                    borderDash: [5, 4],
+                    tension: 0.35,
+                    pointRadius: 2,
+                    pointBackgroundColor: '#94a3b8',
+                    fill: false,
+                    order: 0,
+                }],
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: {
+                        display: true,
+                        position: 'top',
+                        align: 'end',
+                        labels: { boxWidth: 12, font: { size: 11 }, color: '#64748b' },
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => ctx.dataset.label + ': ₱' + ctx.parsed.y.toLocaleString(undefined, { minimumFractionDigits: 2 }),
+                            afterLabel: (ctx) => ctx.datasetIndex === 0 ? hourlyTransactions[ctx.dataIndex] + ' transaction(s) today' : '',
+                        },
+                    },
+                },
+                scales: {
+                    x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { display: false } },
+                    y: {
+                        beginAtZero: true,
+                        ticks: { color: '#94a3b8', font: { size: 10 }, callback: (v) => '₱' + v.toLocaleString() },
+                        grid: { color: '#f1f5f9' },
+                    },
+                },
+            },
         });
     }
 

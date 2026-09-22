@@ -7,6 +7,7 @@ use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductBatch;
 use App\Models\SalesHistory;
+use App\Models\StockMovement;
 use App\Services\AlertService;
 use App\Services\SalesForecastService;
 use Illuminate\Http\Request;
@@ -96,6 +97,9 @@ class ProductController extends Controller
             'unit' => ['required', Rule::in(Product::unitOptions())],
             // Bounded by the columns behind them -- see Controller::MAX_MONEY.
             'selling_price' => 'required|numeric|min:0|max:'.self::MAX_MONEY,
+            // Optional, like ProductBatch's own unit_cost -- see the form's
+            // own note. Feeds DashboardController::computeTodayProfit().
+            'cost_price' => 'nullable|numeric|min:0|max:'.self::MAX_MONEY,
             'reorder_level' => 'required|integer|min:0|max:'.self::MAX_COUNT,
         ]);
 
@@ -144,6 +148,60 @@ class ProductController extends Controller
         return view('products.edit', compact('product', 'categories', 'suggestedExpiryDate', 'batchSequences', 'archivedBatches'));
     }
 
+    /**
+     * The stock card: every stock_movements row for this product, newest
+     * first (matching the app's general feed convention -- audit trail,
+     * sales list), with a running balance and the batch/reason/user behind
+     * each line. This is what answers "500 units sold but never recorded" --
+     * read the ledger for the range in question rather than piecing it
+     * together from batches, sale_items and the audit trail separately.
+     */
+    public function stockCard(Request $request, Product $product)
+    {
+        $request->validate([
+            'start_date' => 'nullable|date',
+            'end_date' => 'nullable|date',
+            'type' => 'nullable|in:'.implode(',', StockMovement::TYPES),
+        ]);
+
+        $query = $product->stockMovements()
+            ->with(['batch', 'sale', 'performedBy'])
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
+
+        if ($request->filled('start_date')) {
+            $query->whereDate('created_at', '>=', $request->get('start_date'));
+        }
+
+        if ($request->filled('end_date')) {
+            $query->whereDate('created_at', '<=', $request->get('end_date'));
+        }
+
+        if ($request->filled('type')) {
+            $query->where('type', $request->get('type'));
+        }
+
+        $movements = $query->paginate(50)->withQueryString();
+
+        // The beginning balance for whatever's currently displayed: the
+        // product's total on-hand stock RIGHT NOW, minus every movement newer
+        // than what's on screen (movements are newest-first, so that is
+        // everything before the current page). Simpler than deriving a
+        // per-batch opening balance, and correct because every stock change
+        // ever made to this product's batches goes through StockMovement::record.
+        $currentTotal = (int) $product->batches()->sum('quantity');
+
+        return view('products.stock-card', [
+            'product' => $product,
+            'movements' => $movements,
+            'currentTotal' => $currentTotal,
+            'types' => StockMovement::TYPES,
+            'filterType' => $request->get('type'),
+            'startDate' => $request->get('start_date'),
+            'endDate' => $request->get('end_date'),
+        ]);
+    }
+
     public function update(Request $request, Product $product)
     {
         $validated = $request->validate([
@@ -156,6 +214,7 @@ class ProductController extends Controller
             // product uneditable until someone noticed why.
             'unit' => ['required', Rule::in(Product::unitOptions($product->unit))],
             'selling_price' => 'required|numeric|min:0|max:'.self::MAX_MONEY,
+            'cost_price' => 'nullable|numeric|min:0|max:'.self::MAX_MONEY,
             'reorder_level' => 'required|integer|min:0|max:'.self::MAX_COUNT,
         ]);
 
@@ -326,6 +385,14 @@ class ProductController extends Controller
             // edit() derives the next batch's suggested shelf life from the gap
             // between the two, so one date from next year quietly poisons both.
             'received_date' => 'required|date|before_or_equal:today',
+            // All three optional -- a delivery note isn't always in hand when
+            // stock is keyed in, and making them required would block the
+            // form on data nobody has yet rather than let it be added later
+            // via Edit. unit_cost is bounded by the same column ceiling as
+            // selling_price (Controller::MAX_MONEY): it is a decimal(10,2).
+            'unit_cost' => 'nullable|numeric|min:0|max:'.self::MAX_MONEY,
+            'dr_no' => 'nullable|string|max:100',
+            'supplier' => 'nullable|string|max:150',
         ]);
 
         $validated['product_id'] = $product->id;
@@ -353,7 +420,9 @@ class ProductController extends Controller
             // posts to this same route) lost the original figure.
             $validated['qty_received'] = $validated['quantity'];
 
-            ProductBatch::create($validated);
+            $batch = ProductBatch::create($validated);
+
+            StockMovement::record($batch, StockMovement::TYPE_STOCK_IN, $batch->quantity, 'Stock received');
         });
 
         AuditTrail::log('Created', "Added batch '{$validated['batch_number']}' ({$validated['quantity']} units) for {$product->name}");
@@ -368,6 +437,9 @@ class ProductController extends Controller
         $oldExpiry = $batch->expiry_date?->toDateString();
         $oldQuantity = (int) $batch->quantity;
         $wasExpired = $batch->is_expired;
+        $oldUnitCost = $batch->unit_cost;
+        $oldDrNo = $batch->dr_no;
+        $oldSupplier = $batch->supplier;
 
         $rules = [
             'quantity' => 'required|integer|min:0|max:'.self::MAX_COUNT,
@@ -377,6 +449,18 @@ class ProductController extends Controller
             // expired stock past every guard in scopeSellable(). No batch in
             // the catalogue has a null expiry, so requiring it breaks nothing.
             'expiry_date' => 'required|date',
+            'unit_cost' => 'nullable|numeric|min:0|max:'.self::MAX_MONEY,
+            'dr_no' => 'nullable|string|max:100',
+            'supplier' => 'nullable|string|max:150',
+            // Required only when the quantity is actually moving -- a bare
+            // expiry correction or filling in the cost/DR/supplier fields
+            // isn't a stock movement and needs no reason. A quantity change
+            // is: it's either a manual count correction or a pull-out, and
+            // the stock card (below) is only worth having if every entry on
+            // it says why.
+            'reason' => ['nullable', 'string', 'max:255', Rule::requiredIf(
+                fn () => (int) $request->input('quantity') !== $oldQuantity
+            )],
         ];
 
         // The date rule applies ONLY when the expiry is actually being changed.
@@ -392,6 +476,11 @@ class ProductController extends Controller
 
         $validated = $request->validate($rules);
 
+        // Not a column -- pulled out before update() and used only to label
+        // the ledger entry below.
+        $reason = $validated['reason'] ?? null;
+        unset($validated['reason']);
+
         // Lock the row before writing: unlocked, two admins editing the same
         // batch at once (one correcting a receipt-count typo, another marking
         // spoilage) both read the pre-edit quantity, and whichever UPDATE
@@ -401,9 +490,15 @@ class ProductController extends Controller
         // lockForUpdate() inside a transaction serialises the two writes
         // instead, the same pattern already used for the batch-number and
         // transaction-number races.
-        DB::transaction(function () use ($batch, $validated) {
+        DB::transaction(function () use ($batch, $validated, $oldQuantity, $reason) {
             ProductBatch::whereKey($batch->getKey())->lockForUpdate()->first();
             $batch->update($validated);
+
+            $delta = (int) $validated['quantity'] - $oldQuantity;
+
+            if ($delta !== 0) {
+                StockMovement::record($batch, StockMovement::TYPE_ADJUSTMENT, $delta, $reason);
+            }
         });
 
         // Record WHAT changed, not just that something did.
@@ -428,6 +523,22 @@ class ProductController extends Controller
         if ($validated['expiry_date'] !== $oldExpiry) {
             $changes[] = "expiry {$oldExpiry} to {$validated['expiry_date']}"
                 .($wasExpired ? ' — BATCH WAS EXPIRED' : '');
+        }
+
+        if (($validated['unit_cost'] ?? null) != $oldUnitCost) {
+            $changes[] = 'cost '.($oldUnitCost ?? '—').' to '.($validated['unit_cost'] ?? '—');
+        }
+
+        if (($validated['dr_no'] ?? null) !== $oldDrNo) {
+            $changes[] = 'DR# '.($oldDrNo ?? '—').' to '.($validated['dr_no'] ?? '—');
+        }
+
+        if (($validated['supplier'] ?? null) !== $oldSupplier) {
+            $changes[] = 'supplier '.($oldSupplier ?? '—').' to '.($validated['supplier'] ?? '—');
+        }
+
+        if ($reason) {
+            $changes[] = "reason: {$reason}";
         }
 
         AuditTrail::log('Updated', "Updated batch '{$batch->batch_number}' for {$batch->product->name}"
@@ -567,6 +678,10 @@ class ProductController extends Controller
                 // and its place in the Returned filter.
                 'quantity' => 0,
             ]);
+
+            if ($qty > 0) {
+                StockMovement::record($locked, StockMovement::TYPE_RETURN, -$qty, 'Returned to supplier');
+            }
 
             return [$qty, false];
         });

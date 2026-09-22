@@ -1,20 +1,131 @@
 @extends('layouts.app')
 
-@section('title', 'Demand Forecasting')
+@section('title', 'Forecasting')
 
 @section('content')
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 @include('partials._chart-gradient')
 
-<div class="card">
-    <h2 style="margin-top:0; margin-bottom:18px; font-size:20px; font-weight:500;">
-        Demand Forecasting
+@php
+    // Store-wide trend, same merge-into-one-axis technique the per-product
+    // detail chart below uses: actual months from sales_history, continued
+    // by the aggregate forecast, stitched at the last actual month so the
+    // dashed line starts exactly where the solid one ends.
+    $months = $trend['actualUnits']->keys()->merge($trend['forecastUnits']->keys())->unique()->sort()->values();
+
+    $actualUnitsSeries = $months->map(fn ($m) => $trend['actualUnits'][$m] ?? null);
+    $forecastUnitsSeries = $months->map(function ($m) use ($trend) {
+        if (array_key_exists($m, $trend['forecastUnits']->toArray())) {
+            return (float) $trend['forecastUnits'][$m];
+        }
+        return $m === $trend['lastActualMonth'] ? (float) $trend['actualUnits'][$m] : null;
+    });
+
+    $actualRevenueSeries = $months->map(fn ($m) => $trend['actualRevenue'][$m] ?? null);
+    $forecastRevenueSeries = $months->map(function ($m) use ($trend) {
+        if (array_key_exists($m, $trend['forecastRevenue']->toArray())) {
+            return (float) $trend['forecastRevenue'][$m];
+        }
+        return $m === $trend['lastActualMonth'] ? (float) $trend['actualRevenue'][$m] : null;
+    });
+
+    // Confidence bounds for the shaded band. Each anchors to the last actual
+    // month exactly like the forecast line does, so the band opens from the
+    // actual series rather than appearing out of nowhere a month later.
+    //
+    // ?? collect() because overallMonthlyTrend() is cached for 6 hours: a
+    // payload cached before these keys existed must render an unshaded chart,
+    // not a 500.
+    $bandSeries = function (string $key) use ($trend, $months) {
+        $bound = $trend[$key] ?? collect();
+
+        return $months->map(function ($m) use ($bound, $trend) {
+            if ($bound->has($m)) {
+                return (float) $bound[$m];
+            }
+
+            return $m === $trend['lastActualMonth']
+                ? (float) ($trend['actualUnits'][$m] ?? 0)
+                : null;
+        });
+    };
+
+    $unitsLowerSeries = $bandSeries('forecastUnitsLower');
+    $unitsUpperSeries = $bandSeries('forecastUnitsUpper');
+
+    $revenueBand = function (string $key) use ($trend, $months) {
+        $bound = $trend[$key] ?? collect();
+
+        return $months->map(function ($m) use ($bound, $trend) {
+            if ($bound->has($m)) {
+                return (float) $bound[$m];
+            }
+
+            return $m === $trend['lastActualMonth']
+                ? (float) ($trend['actualRevenue'][$m] ?? 0)
+                : null;
+        });
+    };
+
+    $revenueLowerSeries = $revenueBand('forecastRevenueLower');
+    $revenueUpperSeries = $revenueBand('forecastRevenueUpper');
+
+    $hasUnitsBand = $unitsUpperSeries->filter(fn ($v) => $v !== null)->isNotEmpty();
+    $hasRevenueBand = $revenueUpperSeries->filter(fn ($v) => $v !== null)->isNotEmpty();
+
+    // Same boundary as the per-product detail page (App\Support\ForecastHorizon):
+    // the horizon OPENS on the current month, a nowcast against a partial
+    // actual that nobody can still act on. The chart keeps that row -- the
+    // model's estimate read against the partial month is informative -- but
+    // the KPI total below must not count it.
+    $actionableMonthKey = \App\Support\ForecastHorizon::firstActionableMonthKey();
+    $actionableUnits = $trend['forecastUnits']->filter(fn ($v, $m) => $m >= $actionableMonthKey);
+    $actionableRevenue = $trend['forecastRevenue']->filter(fn ($v, $m) => $m >= $actionableMonthKey);
+    $forecastUnitsTotal = $actionableUnits->sum();
+    $forecastRevenueTotal = $actionableRevenue->sum();
+    $forecastMonths = $actionableUnits->count();
+@endphp
+
+<div class="card" style="margin-bottom:18px;">
+    <h2 style="margin-top:0; margin-bottom:4px; font-size:20px; font-weight:500;">
+        Forecasting
     </h2>
     <p style="font-size:13px; color:#64748b; margin:0 0 18px;">
-        Per-product demand forecast, modeled from sales history. For store-wide sales and revenue trends, see
-        <a href="{{ route('sales-forecast.index') }}">Sales Forecasting</a>.
+        Store-wide sales trend, per-product demand, and per-product sales forecast, all modeled from the same sales
+        history. Click a product below to see its demand and sales forecast together.
     </p>
 
+    <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; margin-bottom:18px;">
+        <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
+            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Last month with sales</p>
+            <p style="font-size:22px; font-weight:500; margin:0;">{{ $trend['lastActualMonth'] ?? '—' }}</p>
+        </div>
+        <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
+            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast total, units ({{ $forecastMonths }}-month)</p>
+            <p style="font-size:22px; font-weight:500; margin:0;">{{ number_format($forecastUnitsTotal) }}</p>
+        </div>
+        <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
+            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast total, revenue ({{ $forecastMonths }}-month)</p>
+            {{-- Money keeps its centavos. number_format() with no precision rounds
+                 to whole pesos, so this KPI silently reported a figure that was
+                 up to 50 centavos away from the number it was summing. The units
+                 KPI above it stays whole on purpose -- demand is integral. --}}
+            <p style="font-size:22px; font-weight:500; margin:0;">₱{{ number_format($forecastRevenueTotal, 2) }}</p>
+        </div>
+    </div>
+
+    <p style="font-size:13px; color:#64748b; margin:0 0 8px;">Units sold — actual vs. forecast, with 80% confidence band</p>
+    <div style="position:relative; width:100%; height:230px; margin-bottom:24px;">
+        <canvas id="unitsTrendChart" role="img" aria-label="Line chart of total units sold per month, actual with a dashed forecast continuation"></canvas>
+    </div>
+
+    <p style="font-size:13px; color:#64748b; margin:0 0 8px;">Revenue — actual vs. forecast, with 80% confidence band</p>
+    <div style="position:relative; width:100%; height:230px;">
+        <canvas id="revenueTrendChart" role="img" aria-label="Line chart of total revenue per month, actual with a dashed forecast continuation"></canvas>
+    </div>
+</div>
+
+<div class="card">
     {{-- The "Model accuracy" card (MAE/RMSE/MAPE/sMAPE, measured on a
          holdout -- see DemandForecastService::accuracySummary()) is hidden
          here at the user's request; nothing about the computation changed,
@@ -22,15 +133,12 @@
          to this view by DemandForecastController -- only unused now, not
          removed there, in case this comes back. --}}
 
-    {{-- Top 5 products by forecast demand, one line each.
-
-         The table below ranks products and gives each a sparkline, which answers
-         "how much" per product but not "how do they compare over the coming
-         months". Five lines on one shared axis do that: which product carries the
-         most demand, whether it is steady or spiky, and where two of them cross.
-
-         Ranked on the SUM over the horizon, so one spiky month cannot outrank a
-         product that is busy every month. --}}
+    {{-- Two "top 5" charts, side by side conceptually but stacked here since
+         each needs its own width: demand (units to buy, DemandForecastService)
+         and sales forecast (revenue to expect, SalesForecastService). They
+         answer different questions on purpose -- what to reorder vs. what
+         earns -- rather than the same ranking told twice, which is why a
+         product can appear on one and not the other. --}}
     @if (!empty($topDemand['series']))
     <div style="border:0.5px solid #e5e7eb; border-radius:12px; background:#fff; padding:16px; margin-bottom:18px;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:4px;">
@@ -46,6 +154,25 @@
         </p>
         <div style="height:340px;">
             <canvas id="topDemandChart"></canvas>
+        </div>
+    </div>
+    @endif
+
+    @if (!empty($topSales['series']))
+    <div style="border:0.5px solid #e5e7eb; border-radius:12px; background:#fff; padding:16px; margin-bottom:18px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:4px;">
+            <span style="font-size:14px; font-weight:500; color:#111;">
+                <i class="ti ti-currency-peso" style="font-size:14px; vertical-align:-1px; margin-right:6px; color:#0f6e56;"></i>
+                Top 5 products by sales forecast
+            </span>
+            <span style="font-size:12px; color:#6b7280;">forecast revenue per month</span>
+        </div>
+        <p style="font-size:12px; color:#94a3b8; margin:0 0 12px;">
+            {{ $topSales['months'][0] ?? '' }} &ndash; {{ $topSales['months'][count($topSales['months']) - 1] ?? '' }}
+            &middot; ranked by total forecast revenue over the period
+        </p>
+        <div style="height:340px;">
+            <canvas id="topSalesForecastChart"></canvas>
         </div>
     </div>
     @endif
@@ -101,21 +228,152 @@
 </div>
 
 <script>
+new Chart(document.getElementById('unitsTrendChart'), {
+    type: 'line',
+    data: {
+        labels: @json($months),
+        datasets: [
+            {{-- Band first: the fill dataset points back one index with
+                 fill:'-1', so the lower bound has to already exist. --}}
+            @if ($hasUnitsBand)
+            {
+                label: 'Lower bound',
+                data: @json($unitsLowerSeries),
+                borderWidth: 0,
+                pointRadius: 0,
+                fill: false,
+                spanGaps: false,
+            },
+            {
+                label: '80% confidence band',
+                data: @json($unitsUpperSeries),
+                borderWidth: 0,
+                pointRadius: 0,
+                backgroundColor: 'rgba(15, 110, 86, 0.13)',
+                fill: '-1',
+                spanGaps: false,
+            },
+            @endif
+            {
+                label: 'Actual',
+                data: @json($actualUnitsSeries),
+                borderColor: '#0f6e56',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                pointRadius: 2,
+                tension: 0.25,
+                spanGaps: false,
+            },
+            {
+                label: 'Forecast',
+                data: @json($forecastUnitsSeries),
+                borderColor: '#0f6e56',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                borderDash: [5, 4],
+                pointRadius: 2,
+                tension: 0.25,
+                spanGaps: false,
+            },
+        ],
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                mode: 'index',
+                intersect: false,
+                filter: (item) => item.dataset.label === 'Actual' || item.dataset.label === 'Forecast',
+                callbacks: { label: (c) => `${c.dataset.label}: ${Math.round(c.parsed.y).toLocaleString()}` },
+            },
+        },
+        scales: {
+            x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12 } },
+            y: { beginAtZero: true, grid: { color: '#e2e8f0' } },
+        },
+    },
+});
+
+new Chart(document.getElementById('revenueTrendChart'), {
+    type: 'line',
+    data: {
+        labels: @json($months),
+        datasets: [
+            @if ($hasRevenueBand)
+            {
+                label: 'Lower bound',
+                data: @json($revenueLowerSeries),
+                borderWidth: 0,
+                pointRadius: 0,
+                fill: false,
+                spanGaps: false,
+            },
+            {
+                label: '80% confidence band',
+                data: @json($revenueUpperSeries),
+                borderWidth: 0,
+                pointRadius: 0,
+                backgroundColor: 'rgba(83, 74, 183, 0.13)',
+                fill: '-1',
+                spanGaps: false,
+            },
+            @endif
+            {
+                label: 'Actual',
+                data: @json($actualRevenueSeries),
+                borderColor: '#534ab7',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                pointRadius: 2,
+                tension: 0.25,
+                spanGaps: false,
+            },
+            {
+                label: 'Forecast',
+                data: @json($forecastRevenueSeries),
+                borderColor: '#534ab7',
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                borderDash: [5, 4],
+                pointRadius: 2,
+                tension: 0.25,
+                spanGaps: false,
+            },
+        ],
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: { display: false },
+            tooltip: {
+                mode: 'index',
+                intersect: false,
+                filter: (item) => item.dataset.label === 'Actual' || item.dataset.label === 'Forecast',
+                // Two decimals, not Math.round(): this axis is pesos. The units
+                // chart above rounds on purpose -- that one counts boxes.
+                callbacks: { label: (c) => c.dataset.label + ': ₱' + c.parsed.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
+            },
+        },
+        scales: {
+            x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12 } },
+            y: { beginAtZero: true, grid: { color: '#e2e8f0' }, ticks: { callback: (v) => '₱' + (v / 1000) + 'k' } },
+        },
+    },
+});
+
 function renderSparklines() {
-    // ── Top 10 in demand ──
-    (function () {
-        const el = document.getElementById('topDemandChart');
-        if (!el || el.dataset.rendered) return;
+    /* Five distinct hues, spaced around the wheel rather than shaded: a
+       single-hue ramp stops separating cleanly well before five lines, and
+       these are the first five of the wheel the dashboard doughnuts use. */
+    const palette = ['#10b981', '#3b82f6', '#eab308', '#f97316', '#dc2626',
+                     '#8b5cf6', '#14b8a6', '#0ea5e9', '#a855f7', '#fb7185'];
 
-        const months = @json($topDemand['months'] ?? []);
-        const series = @json($topDemand['series'] ?? []);
-        if (!months.length || !series.length) return;
-
-        /* Five distinct hues, spaced around the wheel rather than shaded: a
-           single-hue ramp stops separating cleanly well before five lines, and
-           these are the first five of the wheel the dashboard doughnuts use. */
-        const palette = ['#10b981', '#3b82f6', '#eab308', '#f97316', '#dc2626',
-                         '#8b5cf6', '#14b8a6', '#0ea5e9', '#a855f7', '#fb7185'];
+    function renderTopSeriesChart(elId, months, series, unitLabel, formatter) {
+        const el = document.getElementById(elId);
+        if (!el || el.dataset.rendered || !months.length || !series.length) return;
 
         new Chart(el, {
             type: 'line',
@@ -130,7 +388,7 @@ function renderSparklines() {
                     tension: 0.35,
                     pointRadius: 3,
                     pointHoverRadius: 5,
-                    // No area fill: ten stacked translucent washes would hide
+                    // No area fill: five stacked translucent washes would hide
                     // every line underneath them.
                     fill: false,
                 })),
@@ -146,11 +404,9 @@ function renderSparklines() {
                                   pointStyle: 'circle', font: { size: 11 }, padding: 12 },
                     },
                     tooltip: {
-                        // Anchor to the point, not the hovered average.
                         position: 'nearest',
                         callbacks: {
-                            label: (ctx) => ctx.dataset.label + ': ' +
-                                Math.round(ctx.parsed.y).toLocaleString() + ' units',
+                            label: (ctx) => ctx.dataset.label + ': ' + formatter(ctx.parsed.y),
                         },
                     },
                 },
@@ -158,9 +414,9 @@ function renderSparklines() {
                     y: {
                         beginAtZero: true,
                         ticks: { color: '#9ca3af', font: { size: 10 },
-                                 callback: (v) => Number(v).toLocaleString() },
+                                 callback: (v) => formatter(v) },
                         grid: { color: '#f1f5f9' },
-                        title: { display: true, text: 'Forecast units',
+                        title: { display: true, text: unitLabel,
                                  color: '#9ca3af', font: { size: 11 } },
                     },
                     x: { ticks: { color: '#9ca3af', font: { size: 10 } }, grid: { display: false } },
@@ -169,7 +425,23 @@ function renderSparklines() {
         });
 
         el.dataset.rendered = '1';
-    })();
+    }
+
+    renderTopSeriesChart(
+        'topDemandChart',
+        @json($topDemand['months'] ?? []),
+        @json($topDemand['series'] ?? []),
+        'Forecast units',
+        (v) => Math.round(v).toLocaleString() + ' units'
+    );
+
+    renderTopSeriesChart(
+        'topSalesForecastChart',
+        @json($topSales['months'] ?? []),
+        @json($topSales['series'] ?? []),
+        'Forecast revenue',
+        (v) => '₱' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 })
+    );
 
     document.querySelectorAll('canvas.sparkline').forEach(canvas => {
         if (canvas.dataset.rendered) return;
@@ -229,14 +501,11 @@ function runSearch(term, category, pushState = true) {
     }
 
     // Swap the stale rows for a skeleton so a search/filter reads as
-
     // 'working' instead of leaving the previous results on screen.
-
     // See REMEDI.holdScroll: read the offset before the rows are gone.
     const restoreScroll = REMEDI.holdScroll();
 
     REMEDI.showListSkeleton(wrapper, { rows: 6 });
-
 
     fetch(url, {
         headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },

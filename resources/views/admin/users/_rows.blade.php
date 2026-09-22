@@ -40,6 +40,7 @@
                 </th>
             @endforeach
             <th>Email</th>
+            <th>Phone</th>
             @foreach(['role', 'status', 'joined'] as $key)
                 <th aria-sort="{{ $columns[$key]['aria'] }}">
                     <a href="{{ $columns[$key]['url'] }}" class="th-sort {{ $columns[$key]['active'] ? 'is-sorted' : '' }}">
@@ -69,6 +70,7 @@
                 </div>
             </td>
             <td>{{ $user->email }}</td>
+            <td style="color:#64748b;">{{ $user->phone ?: '—' }}</td>
             <td>
                 <span class="badge {{ $user->role === 'admin' ? 'badge-success' : 'badge-warning' }}">
                     {{ ucfirst($user->role) }}
@@ -80,11 +82,27 @@
                      .badge-success and sits earlier in the row, so matching
                      on colour rewrote the role to "Active". --}}
                 @if($archived)
-                    <span class="badge badge-warning" data-user-status>Archived</span>
+                    {{-- archive_reason_label is null for a row archived before
+                         this existed -- falls back to the bare badge rather
+                         than printing "Archived — " with nothing after it. --}}
+                    <span class="badge badge-warning" data-user-status>
+                        Archived{{ $user->archive_reason_label ? ' — '.$user->archive_reason_label : '' }}
+                    </span>
                 @elseif($user->is_active)
                     <span class="badge badge-success" data-user-status>Active</span>
                 @else
                     <span class="badge badge-danger" data-user-status>Inactive</span>
+                @endif
+
+                {{-- "Forgot your password?" landed here -- see
+                     PasswordResetRequestController and
+                     UserController::resetPassword(). Only shown while a
+                     request is actually pending, so a row with none reads
+                     exactly as it always did. --}}
+                @if(! $archived && $user->password_reset_requested_at)
+                    <span class="badge badge-warning" style="display:block; margin-top:4px; white-space:nowrap;" title="Requested {{ $user->password_reset_requested_at->format('M j, Y g:i A') }}">
+                        <i class="ti ti-key" aria-hidden="true"></i> Reset requested
+                    </span>
                 @endif
             </td>
             <td>{{ $user->created_at->format('M d, Y') }}</td>
@@ -107,6 +125,24 @@
                     <a href="{{ route('users.edit', $user) }}" class="btn btn-info action-btn"><i class="ti ti-pencil" aria-hidden="true"></i> Edit</a>
 
                     @if($user->id !== auth()->id())
+                        {{-- Not gated on a pending request: an admin can reset
+                             anyone's password on request (a phone call,
+                             someone at the counter) whether or not they used
+                             the online form -- see UserController::
+                             resetPassword(). The badge above just says who's
+                             actually waiting. --}}
+                        <form method="POST" action="{{ route('users.reset-password', $user) }}"
+                              class="js-confirm"
+                              data-confirm-title="Reset password?"
+                              data-confirm-body="{{ $user->name }}'s password will be reset to the default ({{ \App\Models\User::DEFAULT_RESET_PASSWORD }}). They'll be asked to set a new one the next time they sign in."
+                              data-confirm-label="Reset password"
+                              data-confirm-icon="ti-key"
+                              data-confirm-tone="neutral">
+                            @csrf
+                            @method('PATCH')
+                            <button type="submit" class="btn btn-secondary action-btn"><i class="ti ti-key" aria-hidden="true"></i> Reset password</button>
+                        </form>
+
                         <form method="POST" action="{{ route('users.toggle', $user) }}"
                               class="js-confirm"
                               data-confirm-title="{{ $user->is_active ? 'Deactivate' : 'Activate' }} this account?"
@@ -138,16 +174,24 @@
                              their cashier and it can be restored. Deactivate
                              (above) is the in-place way to suspend someone
                              who stays on the list. --}}
+                        {{-- The reason (Resigned/Fired -- see User::ARCHIVE_REASONS)
+                             is chosen IN the confirm dialog, not before it:
+                             data-confirm-reasons swaps the dialog's one
+                             generic Confirm button for one per reason, and
+                             picking one fills the hidden field below and
+                             submits in the same click -- see the
+                             confirmModalReasons handler in this layout. --}}
                         <form method="POST" action="{{ route('users.destroy', $user) }}"
                               class="js-confirm"
                               data-confirm-title="Archive this account?"
-                              data-confirm-body="Archive {{ $user->name }} ({{ $user->email }})? They will be signed out and unable to sign in, and leave this list. Their sales history is kept, and you can restore the account from the Archived list."
-                              data-confirm-label="Archive"
+                              data-confirm-body="Archive {{ $user->name }} ({{ $user->email }})? They will be signed out and unable to sign in, and leave this list. Their sales history is kept, and you can restore the account from the Archived list. Choose why below."
+                              data-confirm-reasons="{{ json_encode(\App\Models\User::ARCHIVE_REASONS) }}"
                               data-confirm-icon="ti-archive"
                               data-confirm-tone="neutral"
                               data-on-success="remove-row">
                             @csrf
                             @method('DELETE')
+                            <input type="hidden" name="reason" value="">
                             <button type="submit" class="btn btn-danger action-btn"><i class="ti ti-archive" aria-hidden="true"></i> Archive</button>
                         </form>
                     @else
@@ -158,7 +202,7 @@
             </td>
         </tr>
     @empty
-        <tr><td colspan="7">{{ $archived ? 'No archived accounts.' : 'No users found.' }}</td></tr>
+        <tr><td colspan="8">{{ $archived ? 'No archived accounts.' : 'No users found.' }}</td></tr>
     @endforelse
     </tbody>
 </table></div>

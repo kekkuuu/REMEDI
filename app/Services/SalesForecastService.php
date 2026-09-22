@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\SalesForecast;
 use App\Models\SalesHistory;
+use App\Support\ForecastHorizon;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -150,6 +151,96 @@ class SalesForecastService
             'forecastRevenueUpper' => $forecastRevenueUpper,
             'topProducts' => $topProducts,
             'lastActualMonth' => $lastActualMonth,
+        ];
+    }
+
+    /**
+     * The N products with the most forecast REVENUE over the actionable
+     * horizon, as month-by-month series -- the sales-forecast twin of
+     * DemandForecastService::topDemandSeries(). Same shape (months + series)
+     * so the two charts on the merged forecast page read as a matched pair,
+     * and the same "sum over the horizon" ranking for the same reason: a
+     * single spiky month should not outrank a product that earns steadily.
+     *
+     * Ranked on revenue, not units -- demand's top 5 already answers "what
+     * needs reordering"; this answers "what earns the most", which is what a
+     * sales forecast is for.
+     *
+     * @return array{months: list<string>, series: list<array{sku:string, name:string, values:list<float>}>}
+     */
+    public function topSalesForecastSeries(int $limit = 5): array
+    {
+        $from = ForecastHorizon::firstActionableMonth();
+
+        $rows = DB::table('sales_forecasts')
+            ->where('forecast_date', '>=', $from)
+            ->select('product_sku', 'forecast_date', 'forecast_revenue')
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return ['months' => [], 'series' => []];
+        }
+
+        $months = $rows->map(fn ($r) => Carbon::parse($r->forecast_date)->format('Y-m'))
+            ->unique()->sort()->values();
+
+        $topSkus = $rows->groupBy('product_sku')
+            ->map(fn ($g) => (float) $g->sum('forecast_revenue'))
+            ->sortDesc()
+            ->take($limit)
+            ->keys();
+
+        $names = DB::table('products')->whereIn('sku', $topSkus)->pluck('name', 'sku');
+
+        $byProduct = $rows->whereIn('product_sku', $topSkus)
+            ->groupBy('product_sku')
+            ->map(fn ($g) => $g->mapWithKeys(fn ($r) => [
+                Carbon::parse($r->forecast_date)->format('Y-m') => (float) $r->forecast_revenue,
+            ]));
+
+        $series = $topSkus->map(fn ($sku) => [
+            'sku' => $sku,
+            'name' => $names[$sku] ?? $sku,
+            'values' => $months->map(fn ($m) => $byProduct[$sku][$m] ?? 0.0)->all(),
+        ])->values()->all();
+
+        return ['months' => $months->all(), 'series' => $series];
+    }
+
+    /**
+     * One product's sales-forecast detail: actual monthly units + revenue
+     * (same sales_history read as the store-wide trend, scoped to this SKU,
+     * revenue priced at the CURRENT selling_price like every other revenue
+     * figure in the app -- see "A price edit rewrites historical revenue")
+     * and the forecast curve with confidence bands.
+     *
+     * Feeds the Sales Forecast section on the merged forecast detail page
+     * (forecast/show.blade.php) that sits alongside the Demand Forecast
+     * chart, per the product request to show both for one product rather
+     * than sending the per-product view to two different pages.
+     */
+    public function forProduct(string $productSku): array
+    {
+        $through = SalesHistory::reportableThrough();
+
+        $actualUnits = DB::table('sales_history')
+            ->where('product_sku', $productSku)
+            ->where('sale_date', '<=', $through)
+            ->selectRaw("DATE_FORMAT(sale_date, '%Y-%m') as month, SUM(quantity_sold) as total_qty")
+            ->groupBy('month')
+            ->orderBy('month')
+            ->pluck('total_qty', 'month');
+
+        $sellingPrice = (float) (DB::table('products')->where('sku', $productSku)->value('selling_price') ?? 0);
+        $actualRevenue = $actualUnits->map(fn ($qty) => round($qty * $sellingPrice, 2));
+
+        $forecast = SalesForecast::forProduct($productSku)->get();
+
+        return [
+            'actualUnits' => $actualUnits,
+            'actualRevenue' => $actualRevenue,
+            'forecast' => $forecast,
+            'lastActualMonth' => $actualUnits->keys()->last(),
         ];
     }
 }

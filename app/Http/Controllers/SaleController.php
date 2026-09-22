@@ -2,9 +2,15 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AuditTrail;
 use App\Models\Sale;
+use App\Models\SalesHistory;
+use App\Models\Setting;
+use App\Models\StockMovement;
+use App\Services\AlertService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class SaleController extends Controller
 {
@@ -32,7 +38,11 @@ class SaleController extends Controller
         // The scope itself is deliberately kept: a staff member's card is their
         // own takings, an admin's is the whole register. That is a property of
         // who is looking, not of what they typed in the search box.
-        $scopedToday = (clone $query)->whereDate('created_at', today());
+        // payment_voided excluded here only -- the LIST below still shows a
+        // voided sale (with its own badge), since hiding it from the list
+        // entirely would look like the transaction never happened. Only the
+        // "today" figures need to stop counting it.
+        $scopedToday = (clone $query)->whereDate('created_at', today())->where('payment_voided', false);
 
         if ($request->filled('search')) {
             // Reject anything but a plain string before it reaches likeTerm(),
@@ -134,9 +144,147 @@ class SaleController extends Controller
         // receipt permalink and the suggest endpoint — see Sale::isVisibleTo().
         abort_unless($sale->isVisibleTo($request->user()), 403);
 
-        $sale->load('items.product', 'user');
+        $sale->load('items.product', 'user', 'voidedBy');
 
         return view('sales.show', compact('sale'));
+    }
+
+    /**
+     * Void a completed sale. Reverses everything checkout did: every line's
+     * batch gets its quantity back, one `StockMovement::TYPE_VOID` row per
+     * line so the stock card shows exactly where it came from, and the sale
+     * is flagged `payment_voided` so it stops counting in the revenue
+     * aggregates that filter on it (DashboardController, ReportController,
+     * SalesHistory — see the sweep through those) while staying fully
+     * visible on its own receipt and in Sales History, with who voided it,
+     * when, and why.
+     *
+     * SHARED, not role:admin, as of 2026-09-22 — staff may void a sale too,
+     * given the correct manager passcode. Two gates, checked in this order:
+     *
+     *  1. Sale::isVisibleTo() — an admin may void anything; staff only a
+     *     sale they themselves rang up. Checked HERE, not just on the button
+     *     that links here (sales/show.blade.php only ever renders that
+     *     button on a sale isVisibleTo() already let the viewer see, but a
+     *     gated button is not a gated endpoint — see pos.receipt and
+     *     suggest.sales for what happens when only the page checks).
+     *  2. The passcode (Setting::checkVoidPasscode(), set by an admin at
+     *     /settings) — required for staff, not for an admin, who does not
+     *     need to prove themselves to themselves.
+     *
+     * The reason is chosen the same way User::ARCHIVE_REASONS is: the
+     * confirm dialog's reason-picker (data-confirm-reasons) replaces the
+     * single generic Confirm button with one per Sale::VOID_REASONS entry,
+     * so picking one both answers "are you sure?" and supplies the field
+     * this validates — see the shared confirmModal handler in
+     * layouts/app.blade.php. Staff additionally see a passcode field first
+     * (data-confirm-passcode), gating those same buttons until 6 digits are
+     * entered.
+     */
+    public function void(Request $request, Sale $sale)
+    {
+        abort_unless($sale->isVisibleTo($request->user()), 403);
+
+        $isAdmin = $request->user()->isAdmin();
+
+        $rules = [
+            'reason' => 'required|in:'.implode(',', array_keys(Sale::VOID_REASONS)),
+        ];
+
+        if (! $isAdmin) {
+            $rules['passcode'] = ['required', 'digits:6'];
+        }
+
+        $validated = $request->validate($rules);
+
+        if (! $isAdmin) {
+            if (! Setting::voidPasscodeIsSet()) {
+                return $this->actionFailed(
+                    $request,
+                    'No manager passcode has been set yet. Ask an admin to set one before voiding a sale.',
+                    'passcode'
+                );
+            }
+
+            if (! Setting::checkVoidPasscode($validated['passcode'])) {
+                return $this->actionFailed($request, 'Incorrect passcode.', 'passcode');
+            }
+        }
+
+        $sale->load('items.batch');
+
+        // Locked and re-checked inside the transaction, not just the plain
+        // property read above: two admins voiding the same sale at once
+        // would otherwise both pass an unlocked check and both restock it,
+        // the same double-restock race markBatchReturned's own lock exists
+        // to close.
+        $alreadyVoided = DB::transaction(function () use ($sale, $validated, $request) {
+            $locked = Sale::whereKey($sale->getKey())->lockForUpdate()->first();
+
+            if ($locked->payment_voided) {
+                return true;
+            }
+
+            foreach ($sale->items as $item) {
+                // withTrashed() on the relation: an archived batch or
+                // product still gets its stock back. Nothing to restock
+                // onto if the batch row itself is somehow gone (never
+                // happens in practice — batches are archived, not deleted).
+                $batch = $item->batch;
+
+                if (! $batch) {
+                    continue;
+                }
+
+                $batch->increment('quantity', $item->quantity);
+
+                StockMovement::record(
+                    $batch->fresh(),
+                    StockMovement::TYPE_VOID,
+                    $item->quantity,
+                    'Voided sale '.$sale->transaction_no,
+                    $sale->id,
+                    $request->user()->id
+                );
+            }
+
+            $locked->update([
+                'payment_voided' => true,
+                'voided_at' => now(),
+                'voided_by' => $request->user()->id,
+                'void_reason' => $validated['reason'],
+            ]);
+
+            return false;
+        });
+
+        if ($alreadyVoided) {
+            return $this->actionFailed(
+                $request,
+                "Transaction {$sale->transaction_no} was already voided.",
+                'reason'
+            );
+        }
+
+        // A void moves stock and retires revenue the same way a checkout
+        // does, so it needs the same two cache invalidations checkout makes
+        // itself: the POS-dependent SalesHistory aggregates, and the alert
+        // payload (restocking can pull a product back OUT of low stock).
+        SalesHistory::bumpCacheVersion();
+        AlertService::forget();
+
+        $reasonLabel = Sale::VOID_REASONS[$validated['reason']];
+
+        AuditTrail::log(
+            'Updated',
+            "Voided sale {$sale->transaction_no} ({$reasonLabel}) — ₱".number_format($sale->total_amount, 2).' reversed and stock restocked'
+        );
+
+        return $this->actionOk(
+            $request,
+            "Transaction {$sale->transaction_no} voided. Stock has been returned to the shelf.",
+            redirect()->route('sales.show', $sale)
+        );
     }
 
     /**

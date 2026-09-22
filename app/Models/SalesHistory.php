@@ -428,6 +428,7 @@ class SalesHistory extends Model
             ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
             ->join('products', 'products.id', '=', 'sale_items.product_id')
             ->whereBetween(DB::raw('DATE(sales.created_at)'), [$start, $end])
+            ->where('sales.payment_voided', false)
             ->selectRaw('products.sku AS sku, SUM(sale_items.quantity) AS qty')
             ->groupBy('products.sku')
             ->pluck('qty', 'sku')
@@ -518,6 +519,87 @@ class SalesHistory extends Model
             ]);
     }
 
+    /**
+     * The same day/month-bucketed trend trendBetween() builds, narrowed to
+     * one category or one product -- the Sales Report's Category/Product
+     * filter. NOT cached, unlike trendBetween(): a filtered view is admin-
+     * chosen and rare, so the key space would mostly miss anyway, and this
+     * is already indexed the same way dailyTotals() is.
+     *
+     * $productSku wins if both are given -- filtering by a product is more
+     * specific than filtering by its category, so there's nothing left for
+     * the category to narrow further.
+     *
+     * @return array{granularity: string, rows: Collection}
+     */
+    public static function scopedTrendBetween(string $start, string $end, ?int $categoryId, ?string $productSku): array
+    {
+        $span = Carbon::parse($start)->diffInDays(Carbon::parse($end), true);
+        $granularity = $span <= self::DAILY_GRANULARITY_MAX_DAYS ? 'day' : 'month';
+
+        $historyQuery = DB::table('sales_history')
+            ->join('products', 'products.sku', '=', 'sales_history.product_sku')
+            ->whereBetween('sale_date', [$start, $end]);
+
+        $posQuery = DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('products', 'products.id', '=', 'sale_items.product_id')
+            ->whereBetween(DB::raw('DATE(sales.created_at)'), [$start, $end])
+            ->where('sales.payment_voided', false);
+
+        if ($productSku) {
+            $historyQuery->where('sales_history.product_sku', $productSku);
+            $posQuery->where('products.sku', $productSku);
+        } elseif ($categoryId) {
+            $historyQuery->where('products.category_id', $categoryId);
+            $posQuery->where('products.category_id', $categoryId);
+        }
+
+        if ($granularity === 'day') {
+            $history = $historyQuery
+                ->selectRaw('sale_date AS d, SUM(sales_history.quantity_sold * products.selling_price) AS revenue, SUM(sales_history.quantity_sold) AS units')
+                ->groupBy('sale_date')
+                ->get();
+        } else {
+            $history = $historyQuery
+                ->selectRaw("DATE_FORMAT(sale_date, '%Y-%m-01') AS d, SUM(sales_history.quantity_sold * products.selling_price) AS revenue, SUM(sales_history.quantity_sold) AS units")
+                ->groupBy('d')
+                ->get();
+        }
+
+        $pos = ($granularity === 'day'
+            ? $posQuery->selectRaw('DATE(sales.created_at) AS d, SUM(sale_items.subtotal) AS revenue, SUM(sale_items.quantity) AS units')->groupBy('d')
+            : $posQuery->selectRaw("DATE_FORMAT(sales.created_at, '%Y-%m-01') AS d, SUM(sale_items.subtotal) AS revenue, SUM(sale_items.quantity) AS units")->groupBy('d')
+        )->get();
+
+        $byKey = collect();
+
+        foreach ($history as $row) {
+            $date = Carbon::parse($row->d);
+            $key = $granularity === 'month' ? $date->format('Y-m') : $date->toDateString();
+            $byKey->put($key, [
+                'key' => $key,
+                'label' => $granularity === 'month' ? $date->format('M Y') : $date->format('M j'),
+                'units' => (int) $row->units,
+                'revenue' => round((float) $row->revenue, 2),
+            ]);
+        }
+
+        foreach ($pos as $row) {
+            $date = Carbon::parse($row->d);
+            $key = $granularity === 'month' ? $date->format('Y-m') : $date->toDateString();
+            $existing = $byKey->get($key);
+            $byKey->put($key, [
+                'key' => $key,
+                'label' => $granularity === 'month' ? $date->format('M Y') : $date->format('M j'),
+                'units' => ($existing['units'] ?? 0) + (int) $row->units,
+                'revenue' => round(($existing['revenue'] ?? 0) + (float) $row->revenue, 2),
+            ]);
+        }
+
+        return ['granularity' => $granularity, 'rows' => $byKey->sortKeys()->values()];
+    }
+
     /** Top products by units within a date range, names resolved. */
     public static function topProductsBetween(string $start, string $end, int $limit = 10): Collection
     {
@@ -602,6 +684,78 @@ class SalesHistory extends Model
     }
 
     /**
+     * Revenue and units grouped by product CATEGORY over a range — merges
+     * sales_history with live POS the same way topProductsBetween does
+     * (revenue on both sides is units x products.selling_price), just grouped
+     * one level up. There was no report that answered "which category sold
+     * the most" at all before this; only a shelf-VALUE breakdown existed
+     * (Inventory report), which is a different question from sales.
+     */
+    public static function salesByCategoryBetween(string $start, string $end): Collection
+    {
+        return Cache::remember(
+            static::rangeKey('by_category', [$start, $end], true),
+            now()->addHours(self::CACHE_TTL_HOURS),
+            fn () => static::computeSalesByCategoryBetween($start, $end)
+        );
+    }
+
+    private static function computeSalesByCategoryBetween(string $start, string $end): Collection
+    {
+        $rows = DB::table('sales_history')
+            ->join('products', 'products.sku', '=', 'sales_history.product_sku')
+            ->join('categories', 'categories.id', '=', 'products.category_id')
+            ->whereBetween('sale_date', [$start, $end])
+            ->selectRaw(
+                'STRAIGHT_JOIN categories.id AS category_id,'
+                .' MAX(categories.name) AS name,'
+                .' SUM(sales_history.quantity_sold) AS total_qty,'
+                .' SUM(sales_history.quantity_sold * products.selling_price) AS total_revenue'
+            )
+            ->groupBy('categories.id')
+            ->get()
+            ->keyBy('category_id');
+
+        // Fold in the terminal, keyed on SKU -> product's category, the only
+        // way sale_items (product_id) and a category can meet without a
+        // second join per row.
+        $categoryBySku = DB::table('products')->pluck('category_id', 'sku');
+        $categoryNames = DB::table('categories')->pluck('name', 'id');
+        $prices = DB::table('products')->pluck('selling_price', 'sku');
+
+        foreach (static::posUnitsBetween($start, $end) as $sku => $qty) {
+            $categoryId = $categoryBySku[$sku] ?? null;
+
+            if (! $categoryId) {
+                continue;   // an archived/orphaned SKU with no category left
+            }
+
+            $price = (float) ($prices[$sku] ?? 0);
+
+            if ($existing = $rows->get($categoryId)) {
+                $existing->total_qty += $qty;
+                $existing->total_revenue += $qty * $price;
+
+                continue;
+            }
+
+            $rows->put($categoryId, (object) [
+                'category_id' => $categoryId,
+                'name' => $categoryNames[$categoryId] ?? 'Uncategorized',
+                'total_qty' => $qty,
+                'total_revenue' => $qty * $price,
+            ]);
+        }
+
+        return $rows->sortByDesc('total_revenue')->values()->map(fn ($r) => (object) [
+            'category_id' => $r->category_id,
+            'name' => $r->name,
+            'total_qty' => (int) $r->total_qty,
+            'total_revenue' => round((float) $r->total_revenue, 2),
+        ]);
+    }
+
+    /**
      * Units + revenue bucketed by DAY for short ranges and by MONTH for long
      * ones, returned as ['granularity' => 'day'|'month', 'rows' => Collection].
      *
@@ -623,6 +777,7 @@ class SalesHistory extends Model
         return DB::table('sales')
             ->join('sale_items', 'sale_items.sale_id', '=', 'sales.id')
             ->whereBetween(DB::raw('DATE(sales.created_at)'), [$start, $end])
+            ->where('sales.payment_voided', false)
             ->selectRaw(
                 'DATE(sales.created_at) AS d,'
                 .' SUM(sale_items.quantity) AS units,'

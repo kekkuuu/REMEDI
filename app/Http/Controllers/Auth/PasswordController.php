@@ -28,8 +28,14 @@ class PasswordController extends Controller
             'password' => ['required', Password::defaults(), 'confirmed'],
         ]);
 
+        // must_change_password cleared here, not just set false by default --
+        // this is the ONLY path off an admin-reset password (see
+        // EnsureUserSetsNewPassword), so leaving it out would nag forever
+        // after the account holder had already done the one thing asked of
+        // them.
         $request->user()->update([
             'password' => Hash::make($validated['password']),
+            'must_change_password' => false,
         ]);
 
         AuditTrail::log('Updated', 'Changed own account password');

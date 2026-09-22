@@ -28,7 +28,7 @@
 </style>
 </head>
 <body>
-    <h1>Sales Report</h1>
+    <h1>Sales Report{{ $scopeLabel ? ' — '.$scopeLabel : '' }}</h1>
     <p class="sub">{{ \Carbon\Carbon::parse($start)->format('M j, Y') }} &ndash; {{ \Carbon\Carbon::parse($end)->format('M j, Y') }}</p>
 
     <table class="kpis">

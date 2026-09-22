@@ -8,7 +8,9 @@
         <label for="password">Password</label>
         <input id="password" type="password" name="password" required>
 
-
+        <div style="margin:8px 0 14px; font-size:.85rem;">
+            <a href="{{ route('password.request') }}">Forgot your password?</a>
+        </div>
 
         <button type="submit" class="btn btn-primary">Log in</button>
 

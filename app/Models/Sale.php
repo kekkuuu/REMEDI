@@ -20,7 +20,14 @@ class Sale extends Model
         // could set this has been removed from checkout, which now always
         // writes false -- but sales taken before that keep their true value
         // so receipts and reports don't misreport them as normally paid.
+        // A REAL void path exists again as of 2026-09-22 (SaleController::
+        // void()), admin-only and logged, which is what the four columns
+        // below record.
         'payment_voided',
+        'payment_method',
+        'voided_at',
+        'voided_by',
+        'void_reason',
         // One per checkout attempt, resent unchanged on a retry of that same
         // attempt. See PosController::checkout() and the migration that adds
         // the unique index this relies on.
@@ -29,6 +36,38 @@ class Sale extends Model
 
     protected $casts = [
         'payment_voided' => 'boolean',
+        'voided_at' => 'datetime',
+    ];
+
+    /**
+     * Every payment method checkout accepts, and the one place the label is
+     * written down -- the POS form and PosController::checkout()'s
+     * validation both read this rather than each hand-typing the list.
+     *
+     * No card/debit/credit option -- removed 2026-09-22 at the user's
+     * request; this till only ever took cash and QR-based e-wallets. A sale
+     * recorded before that (payment_method='card') still displays correctly
+     * everywhere -- the receipt and sales/show.blade.php both fall back to
+     * ucfirst($sale->payment_method) for a value not in this list, so old
+     * data doesn't need a migration.
+     */
+    public const PAYMENT_METHODS = [
+        'cash' => 'Cash',
+        'gcash' => 'GCash',
+        'qr' => 'Other QR / E-wallet',
+    ];
+
+    /**
+     * Every reason SaleController::void() accepts, read the same way
+     * User::ARCHIVE_REASONS is -- by the confirm dialog's reason-picker
+     * (data-confirm-reasons) and by the validation rule together, so a third
+     * reason can never be added in one place and not the other.
+     */
+    public const VOID_REASONS = [
+        'cashier_error' => 'Cashier Error',
+        'customer_cancelled' => 'Customer Cancelled',
+        'duplicate' => 'Duplicate Transaction',
+        'other' => 'Other',
     ];
 
     // A sale belongs to the user (cashier) who made it. withTrashed: an archived
@@ -36,6 +75,13 @@ class Sale extends Model
     public function user()
     {
         return $this->belongsTo(User::class)->withTrashed();
+    }
+
+    // The admin who voided this sale, if any. withTrashed: same reasoning as
+    // user() above -- an account archived since still voided a real sale.
+    public function voidedBy()
+    {
+        return $this->belongsTo(User::class, 'voided_by')->withTrashed();
     }
 
     // A sale has many line items

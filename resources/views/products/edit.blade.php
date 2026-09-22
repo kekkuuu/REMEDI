@@ -16,6 +16,11 @@
         <h3>{{ $product->name }}</h3>
         <p>SKU {{ $product->sku }}</p>
     </div>
+    <div class="page-head-actions">
+        <a href="{{ route('products.stock-card', $product) }}" class="btn btn-secondary">
+            <i class="ti ti-list-details" aria-hidden="true"></i> Stock Card
+        </a>
+    </div>
 </div>
 
 {{-- Same fields and values as before; only the presentation changed. The
@@ -89,6 +94,28 @@
                     <label for="selling_price">Selling Price (&#8369;)</label>
                 </div>
                 <input type="number" step="0.01" id="selling_price" name="selling_price" value="{{ old('selling_price', $product->selling_price) }}" required>
+            </div>
+
+            {{-- "Default", not bare "Cost Price": the Add New Batch card below
+                 has its OWN "Cost Price (optional)" (ProductBatch::unit_cost,
+                 what a specific delivery actually cost), and the two sitting
+                 on one page under the same label would leave an admin unable
+                 to tell which one they're editing. This one is the product-
+                 level figure the dashboard's Revenue Today tile reads
+                 (DashboardController::computeTodayProfit()); a batch's own
+                 unit_cost is purchase-history/traceability and nothing
+                 downstream computes profit from it. Optional, like
+                 unit_cost -- see that field's own note. --}}
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-receipt-refund"></i></span>
+                    <label for="cost_price">Default Cost Price (&#8369;)</label>
+                </div>
+                <input type="number" step="0.01" id="cost_price" name="cost_price" value="{{ old('cost_price', $product->cost_price) }}">
+                <span class="form-field-note">
+                    <i class="ti ti-info-circle" aria-hidden="true"></i>
+                    Optional. Used to work out today's profit on the dashboard -- separate from a batch's own delivery cost below.
+                </span>
             </div>
 
             <div class="form-field">
@@ -202,6 +229,41 @@
 
         </div>
 
+        {{-- Cost, DR number and supplier — all optional, and all filled in
+             through THIS form and no other: ProductController::addBatch is
+             the single write path for a new batch, so there is nowhere else
+             stock-in details can be entered. Leaving these blank is fine;
+             cost-of-goods and traceability reporting simply have nothing to
+             show for a batch that skipped them. --}}
+        <div class="form-grid cols-3">
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-currency-peso"></i></span>
+                    <label for="unit_cost">Cost Price <span style="font-weight:400; color:#94a3b8;">(optional)</span></label>
+                </div>
+                <input type="number" id="unit_cost" name="unit_cost" value="{{ old('unit_cost') }}"
+                       min="0" step="0.01" placeholder="Purchase price per unit">
+            </div>
+
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-file-invoice"></i></span>
+                    <label for="dr_no">DR Number <span style="font-weight:400; color:#94a3b8;">(optional)</span></label>
+                </div>
+                <input type="text" id="dr_no" name="dr_no" value="{{ old('dr_no') }}"
+                       maxlength="100" placeholder="Delivery receipt #">
+            </div>
+
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip" aria-hidden="true"><i class="ti ti-truck-delivery"></i></span>
+                    <label for="supplier">Supplier <span style="font-weight:400; color:#94a3b8;">(optional)</span></label>
+                </div>
+                <input type="text" id="supplier" name="supplier" value="{{ old('supplier') }}"
+                       maxlength="150" placeholder="Who this batch was received from">
+            </div>
+        </div>
+
         {{-- Its own actions row, below the fields, exactly where Update
              Product sits. It used to be a fifth cell in the grid with an
              invisible chip holding its column open, which left it floating
@@ -229,19 +291,43 @@
         <div>
     <div class="table-scroll"><table class="remedi-table">
         <thead>
-            <tr><th>Batch No.</th><th>Quantity</th><th>Received</th><th>Expiry</th><th>Status</th><th>Return Status</th><th>Actions</th></tr>
+            <tr><th>Batch No.</th><th>Quantity</th><th>Cost / DR / Supplier</th><th>Received</th><th>Expiry</th><th>Status</th><th>Return Status</th><th>Actions</th></tr>
         </thead>
         <tbody>
         @forelse($existingBatches as $batch)
             <tr>
                 <td>{{ $batch->batch_number }}</td>
                 <td>
-                    <form method="POST" action="{{ route('batches.update', $batch) }}" style="display:flex; gap:4px; align-items:center;">
+                    {{-- Reason is REQUIRED server-side only when the quantity
+                         actually changes (ProductController::updateBatch) — so
+                         leaving it blank while only nudging other fields
+                         through the second form below still works. --}}
+                    <form method="POST" action="{{ route('batches.update', $batch) }}" style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
                         @csrf
                         @method('PUT')
                         <input type="number" name="quantity" value="{{ $batch->quantity }}" min="0" style="width:70px; padding:4px; border:1px solid #d1d5db; border-radius:4px;">
                         <input type="hidden" name="expiry_date" value="{{ $batch->expiry_date?->format('Y-m-d') }}">
+                        <input type="hidden" name="unit_cost" value="{{ $batch->unit_cost }}">
+                        <input type="hidden" name="dr_no" value="{{ $batch->dr_no }}">
+                        <input type="hidden" name="supplier" value="{{ $batch->supplier }}">
+                        <input type="text" name="reason" placeholder="Reason if changing qty" style="width:130px; padding:4px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;">
                         <button type="submit" class="btn btn-info" style="padding:4px 8px;">Update</button>
+                    </form>
+                </td>
+                <td>
+                    {{-- Same route, this form's own hidden quantity/expiry keep
+                         the OTHER form's fields untouched — quantity posted
+                         unchanged means no stock movement is recorded and no
+                         reason is required. --}}
+                    <form method="POST" action="{{ route('batches.update', $batch) }}" style="display:flex; flex-direction:column; gap:3px;">
+                        @csrf
+                        @method('PUT')
+                        <input type="hidden" name="quantity" value="{{ $batch->quantity }}">
+                        <input type="hidden" name="expiry_date" value="{{ $batch->expiry_date?->format('Y-m-d') }}">
+                        <input type="number" name="unit_cost" value="{{ $batch->unit_cost }}" min="0" step="0.01" placeholder="Cost" style="width:90px; padding:3px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;">
+                        <input type="text" name="dr_no" value="{{ $batch->dr_no }}" maxlength="100" placeholder="DR #" style="width:90px; padding:3px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;">
+                        <input type="text" name="supplier" value="{{ $batch->supplier }}" maxlength="150" placeholder="Supplier" style="width:110px; padding:3px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;">
+                        <button type="submit" class="btn btn-info" style="padding:3px 8px; font-size:12px;">Save</button>
                     </form>
                 </td>
                 <td>{{ $batch->received_date?->format('M d, Y') ?? '—' }}</td>
@@ -308,7 +394,7 @@
                 </td>
             </tr>
         @empty
-            <tr><td colspan="7">No batches yet. Add one above.</td></tr>
+            <tr><td colspan="8">No batches yet. Add one above.</td></tr>
         @endforelse
         </tbody>
     </table></div>

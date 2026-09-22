@@ -28,6 +28,7 @@ class Product extends Model
         'category_id',
         'unit',
         'selling_price',
+        'cost_price',
         'reorder_level',
     ];
 
@@ -41,6 +42,12 @@ class Product extends Model
     public function batches()
     {
         return $this->hasMany(ProductBatch::class);
+    }
+
+    /** This product's stock card — see StockMovement. */
+    public function stockMovements()
+    {
+        return $this->hasMany(StockMovement::class);
     }
 
     public function saleItems()

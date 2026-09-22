@@ -256,7 +256,7 @@ class ArchiveTest extends TestCase
         $admin = $this->admin();
         $cashier = User::factory()->create(['email' => 'archived@remedi.com', 'role' => 'staff']);
 
-        $this->actingAs($admin)->delete('/users/'.$cashier->id)->assertSessionHasNoErrors();
+        $this->actingAs($admin)->delete('/users/'.$cashier->id, ['reason' => 'resigned'])->assertSessionHasNoErrors();
 
         auth()->logout();
         $this->post('/login', ['email' => 'archived@remedi.com', 'password' => 'password']);
@@ -274,7 +274,7 @@ class ArchiveTest extends TestCase
         $admin = $this->admin();
         $cashier = User::factory()->create(['name' => 'Gone Cashier', 'email' => 'gone.cashier@remedi.com', 'role' => 'staff']);
 
-        $this->actingAs($admin)->delete('/users/'.$cashier->id);
+        $this->actingAs($admin)->delete('/users/'.$cashier->id, ['reason' => 'fired']);
 
         // The email, not the name: the bell's feed says "Archived user account:
         // Gone Cashier" on every page.
@@ -297,7 +297,16 @@ class ArchiveTest extends TestCase
 
             $this->assertStringNotContainsString('data-confirm-label="Delete"', $html, "$url still offers Delete");
             $this->assertStringNotContainsString('data-confirm-label="Remove"', $html, "$url still offers Remove");
-            $this->assertStringContainsString('data-confirm-label="Archive"', $html, "$url has no Archive");
+
+            // /users archives through the reason-picker dialog (Resigned/
+            // Fired -- see User::ARCHIVE_REASONS), which has no single
+            // data-confirm-label at all; every other list still offers a
+            // plain single-button Archive confirm.
+            if ($url === '/users') {
+                $this->assertStringContainsString('data-confirm-reasons=', $html, "$url has no reason-picker Archive");
+            } else {
+                $this->assertStringContainsString('data-confirm-label="Archive"', $html, "$url has no Archive");
+            }
         }
     }
 }

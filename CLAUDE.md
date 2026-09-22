@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (194 passed, 603 assertions — measured 2026-09-19) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (254 passed, 791 assertions — measured 2026-09-22) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -61,7 +61,7 @@ rule below: `/` redirects to login, `/register` is the admin Add User form (a gu
 staff get 403, and an admin who creates a user **stays signed in as themselves**), and staff may
 change their name but not their email. **Never change the app to satisfy a test; fix the test.**
 
-Beyond Breeze there are now fourteen suites covering the things REMEDI.md says must never regress:
+Beyond Breeze there are now nineteen suites covering the things REMEDI.md says must never regress:
 
 - `Feature\DestructiveGuardsTest` — the refusals standing between an ordinary click and lost data,
   each one a thing that happened here or was one request away: a cashier with sales deleted, an admin
@@ -112,7 +112,8 @@ cost a false "security bug" during a QA pass; `DeactivationTest` carries the war
 - `Feature\Inventory\ProductFormTest` — what the product and batch forms accept: unit as a closed
   list (a canonical unit accepted, free text and the wrong case refused, the one legacy `"20"` row
   still editable, the form rendering a `<select>`), and the numeric ceilings on `selling_price`,
-  `reorder_level` and batch `quantity`.
+  `cost_price`, `reorder_level` and batch `quantity` — plus that `cost_price` is genuinely optional
+  (a product saves fine with none set, and the value round-trips when one is).
 
 - `Feature\Auth\RegistrationEmailTest` — the Add User address: stored as typed, another domain
   accepted, capitals and stray spaces folded rather than refused (the `lowercase` rule REJECTS them),
@@ -127,6 +128,46 @@ cost a false "security bug" during a QA pass; `DeactivationTest` carries the war
   no `show()`, so `/products/{id}` answered **500** (BadMethodCallException) rather than 404. Nothing
   links there, which is why it survived; the route is now `->except(['show'])` and that URI answers
   405, since PUT/PATCH/DELETE still live on it.
+
+- `Feature\Inventory\StockMovementTest` — the stock card ledger (`StockMovement`): `addBatch` logs a
+  `stock_in` row, checkout logs a `sale` row linked back to the `Sale`, `markBatchReturned` logs a
+  `return`, and `updateBatch` refuses a quantity change with no `reason` and, given one, logs an
+  `adjustment` with the correct signed delta and `balance_after`. Also covers the `/products/{id}/
+  stock-card` page itself and its type filter.
+
+- `Feature\Reports\DashboardKpiTest` — ATV (Average Transaction Value) and ATC (Average Transaction
+  Count) on the admin dashboard's KPI row, which replaced the Expired/Need-to-Return tiles (both stay
+  visible elsewhere — the Inventory tab, the bell, the Medicine Returns card). Both are extracted as
+  static, pure functions on `DashboardController` (`computeAtv`/`computeAtc`) and tested directly,
+  never through the route: the admin dashboard body always calls `SalesHistory::monthlyRevenue()`/
+  `seasonalTrends()`, both MySQL-only (`STRAIGHT_JOIN`) queries this suite's sqlite connection cannot
+  run. `ReportController::atvAtc()` (the Sales Report's own ATV/ATC, POS-scoped, folded into
+  `SalesReportPeriodTest`) is extracted the same way and for the same reason. Also covers
+  `computeTodayProfit()` (Revenue Today, which replaced Last 7 Days): price minus cost times
+  quantity, a line with no cost set excluded rather than scored at zero, zero lines reading as zero
+  profit rather than null, and the sum rounding to centavos.
+
+- `Feature\Pos\VoidTest` — `SaleController::void()`: refused with no reason or an unknown one,
+  restocks the exact batch a line came from with a matching `StockMovement::TYPE_VOID` row, refused a
+  second time on an already-voided sale (and does not double-restock), and a voided sale stays listed
+  in Sales History while dropping out of "today"'s total. As of 2026-09-22 also covers the passcode
+  half: staff refused with no passcode set at all, refused with the wrong one, allowed to void their
+  OWN sale with the correct one, still refused (403) on a colleague's sale even with the correct code,
+  and an admin needing none of it. Also covers `PosController::checkout()`'s payment method: defaults
+  to `cash` with none sent, records the one chosen, refuses an unrecognised one AND the removed `card`
+  value specifically.
+
+- `Feature\Auth\PasswordResetRequestTest` — the in-app "Forgot your password?" flow: a request flags
+  the account and logs it, a second click doesn't duplicate the audit row, an unknown or archived
+  email is refused, an admin can reset the password (with or without a pending request) and it sets
+  `must_change_password`, staff cannot (403), and the resulting lock is a HARD block -- a plain page
+  load redirects to `/profile`, an AJAX/JSON request gets 423, and only changing the password (which
+  clears the flag) lifts it.
+
+- `Feature\SettingsTest` — store-wide settings (`SettingsController`, `Setting` model), currently just
+  the POS void passcode `Feature\Pos\VoidTest` covers spending: staff can't reach `/settings` at all
+  (403), an admin can set and later replace it, the 6-digit and confirmation rules are enforced, and
+  replacing one invalidates the old code immediately.
 
 Forecasting is the one area still uncovered — neither pipeline, neither service, neither page.
 
@@ -150,10 +191,24 @@ This file carried five different figures for "the low-stock count" at once, thre
 the rule they described existed, and no reader could tell which was current.
 
 **Running the app.** `.claude/launch.json` defines two preview configurations, and only one of them
-is real: **`remedi`** (`php artisan serve --port=8000`) serves the app, while **`dev`**
+is real: **`remedi`** (`php artisan serve --port=8000 --no-reload`) serves the app, while **`dev`**
 (`npm run dev`, port 5173) starts a Vite server nothing consumes — no view references `@vite`, so it
 compiles to an asset the app never loads. Start `remedi`, never `dev`. Under XAMPP the docroot is
 `public/`, so the app is also reachable through Apache without `artisan serve` at all.
+
+**`--no-reload` is required on this Windows box, not cosmetic.** Bare `php artisan serve` spawns its
+child process through Symfony `Process`, and Laravel's hot-reload feature strips every `$_ENV` key
+not on its `passthroughVariables` allowlist (setting it to `false`, i.e. unset) before handing the
+child its environment — `APP_KEY` is not on that list. The intent is that the child re-reads `.env`
+itself on every request so edits apply without a restart; here it does not reliably do that, so the
+very first request throws `MissingAppKeyException` and every page — including `/login` — renders the
+generic 500 page (measured 2026-09-22, reproduced with `curl` directly against both `php artisan
+serve` and a manually spawned `php -S 127.0.0.1:PORT server.php`: the latter, and `artisan serve
+--no-reload`, both serve `/login` correctly; bare `artisan serve` does not). `--no-reload` skips the
+stripping branch entirely and passes `$_ENV` through unchanged, which is what fixes it. If a preview
+ever shows the branded 500 page on first load, check `storage/logs/laravel.log` for
+`MissingAppKeyException` before suspecting application code — restarting with `--no-reload` is the
+fix, not `php artisan key:generate`.
 
 **`artisan serve` is single-threaded — one request at a time — and `/dashboard` occupies it for
 5–12s.** Nothing else is served during that window, static files included; see the loader notes
@@ -310,6 +365,8 @@ a surface that needs the same answer, call it rather than re-deriving it.
 | Columns the user list may be sorted by | `UserController::SORTABLE` |
 | Upper bounds for money and counts | `Controller::MAX_MONEY` / `MAX_COUNT` |
 | Chart gradients; the navigation skeleton | `partials/_chart-gradient`, `partials/_page-skeleton` |
+| Store-wide admin-set config (the POS void passcode so far) | `App\Models\Setting` |
+| Who may void a sale, and whether a passcode is needed | `Sale::isVisibleTo()` + `Setting::checkVoidPasscode()` in `SaleController::void()` |
 
 ### Laravel 10-style skeleton on Laravel 12
 `bootstrap/app.php` binds `App\Http\Kernel` / `App\Console\Kernel`; middleware aliases live in
@@ -434,6 +491,55 @@ stock Breeze route; its card is hidden on the profile page but the route is live
 archiving, inside the transaction, so `SessionGuard::logout()`'s `cycleRememberToken()` save cannot
 undo the stamp. Any new account-removal path needs both.
 
+**"Forgot your password?" is an in-app request-an-admin flow, not email** -- this app has no
+working mail delivery (`.env` points `MAIL_MAILER=smtp` at a local mailpit catcher, nothing that
+exists outside a dev machine), so Breeze's own token-by-email reset
+(`PasswordResetLinkController` / `NewPasswordController`) can never deliver anything here. The two
+routes it used to own (`password.request` / `password.email`, still `GET`/`POST /forgot-password`)
+are repointed at `PasswordResetRequestController` instead; `reset-password/{token}` is left wired
+to the original `NewPasswordController` as harmless dead code, since nothing links to it any more.
+
+A signed-out account (any role -- the login page's "Forgot your password?" link doesn't
+distinguish) posts its email; `PasswordResetRequestController::store()` validates it against an
+ACTIVE, non-archived user (`Rule::exists('users','email')->whereNull('archived_at')`, the same
+"validate against a row that can still be acted on" rule checkout and category validation already
+follow) and stamps `users.password_reset_requested_at`, idempotently -- a second click while one is
+already pending touches nothing and writes no second audit row, so the page always answers with one
+generic message regardless. `AuditTrail::log('Requested', "Password reset requested: {name}")`
+- 'Requested' and 'Reset' are new entries in `AuditTrail::ACTIONS` - is what actually notifies an
+admin: `AlertService`'s `$isAccount` detection (see "Notifications" below) now also matches a
+`str_starts_with($row->details, 'Password reset')` details string, so the request rides the EXISTING
+account-change bell/toast pipeline (`ACCOUNT_KIND`, admin-only, linking at `/users`) rather than a
+new notification channel built just for this.
+
+**The admin side is `UserController::resetPassword()` (`PATCH /users/{user}/reset-password`,
+`role:admin`), not gated on a pending request existing** -- an admin can act on a phone call or
+someone standing at the counter, whether or not they used the online form; the per-row "Reset
+requested" badge and the `/users` page's own "Password Resets" KPI (counted before any filter, same
+rule the other three follow) just say who's actually waiting. It resets the password to
+`User::DEFAULT_RESET_PASSWORD` ('staff123', the one place the value is written down), sets
+`must_change_password`, and clears the pending flag.
+
+**A known, shared default password is only safe because it can't stay valid, and the block is HARD
+-- every request shape, not just page loads.** `EnsureUserSetsNewPassword` (paired with `auth`/
+`active` on the same top-level `['auth', 'active', 'must_change_password']` group in
+`routes/web.php`, the same way `active` itself rides along) sends an account with
+`must_change_password` set to `/profile` instead of wherever it was headed -- same rigor as
+`EnsureUserIsActive`, AJAX/JSON included (423 Locked, not let through), because "can't enter the
+system unless you change it" means the bell's poll and an in-progress checkout too, not only a full
+page navigation. `/profile*` is the one exemption -- where the password form lives, and where the
+Change Password card's own AJAX submit needs to keep reaching `/password` (a separate route in
+routes/auth.php's OWN `['auth','active']` group, so it was never gated by this in the first place).
+The flag is cleared in exactly one place, `PasswordController::update()`, so the account holder's
+current password IS the temporary one and they type it as `current_password` like anyone else
+changing their password. `/profile`
+carries an amber banner (`session('status') === 'must-change-password'`) that also auto-opens the
+Change Password dialog -- same trigger condition the pre-existing "a validation error means open
+straight onto it" case uses, and note the `setTimeout(openModal, 0)` on that path: this content
+script runs where `@yield('content')` sits, AHEAD of the layout's own trailing scripts that build
+`window.REMEDI`, so calling `REMEDI.lockScroll()` synchronously here throws before those scripts have
+run. Deferring one tick waits for the current synchronous parse-and-execute pass to finish.
+
 Shared: dashboard, POS, inventory, sales list, suggest,
 `/alerts` and `/notifications`. `role:admin`: products/batches/categories CRUD, reports, both
 forecast pages, user management, audit trail. `/register` is the admin "Add User" form, not public
@@ -515,25 +621,31 @@ already on the unfiltered list, where there is nowhere to go and it stays the pu
 was. That exception is what keeps the remembered open/closed state meaningful; without it the
 category list could never be collapsed.
 
-**Search placeholders no longer mention barcodes** (inventory, POS, products). Barcode SEARCH still
-works everywhere — `likeTerm()` still matches the column — it is only the prompt that stopped
-advertising it, alongside the hidden scanner cards.
+**Search placeholders don't mention barcodes** (inventory, POS, products), regardless of the scanner
+card's own visibility. Barcode SEARCH works everywhere either way — `likeTerm()` still matches the
+column — this was only ever about the prompt, not the capability.
 
-**The barcode scanner card is hidden, not deleted — in BOTH modules** (`pos/index.blade.php` and
-`inventory/index.blade.php`). The markup stays in the
-DOM so `barcode-input`, `barcode-status` and the keydown listener all still resolve and a hardware
-reader keeps working. `focusEntryField()` decides where the caret belongs — the scanner when it is
-visible, the product search box when it is not — because a hidden input cannot take focus and the
-three `barcodeInput.focus()` calls would otherwise silently leave the caret nowhere after every sale,
-receipt close and click. Remove the `hidden` attribute to bring it back; nothing else needs changing.
+**The barcode scanner card is UNHIDDEN as of 2026-09-22, at the user's request, in BOTH modules**
+(`pos/index.blade.php` and `inventory/index.blade.php`) — it was built hidden-not-deleted specifically
+so bringing it back would cost one attribute, and that is exactly what happened: the `hidden` attribute
+is gone and nothing else needed to change. `barcode-input`, `barcode-status`, the keydown listener and
+a hardware reader all already worked whether the card was shown or not, and `focusEntryField()`'s
+`offsetParent !== null` check — which picks the scanner when it is visible, the product search box
+when it is not, because a hidden input cannot take focus — now resolves to the scanner automatically
+on both pages, no code change required. If it is ever hidden again, the markup staying in the DOM
+(rather than being deleted) is what keeps that one-attribute reversibility.
 
-Inventory carries the same card and the same trap, and now the same fix: its own `focusEntryField()`
-picks the search box while the scanner is hidden, and the click-anywhere refocus handler bails out
-entirely rather than dragging focus to the search box on every click. `autofocus` was dropped from
-the hidden input — a hidden input cannot take focus, so it was a promise the page could not keep.
-**Note that Quick Restock lives inside that card** and is only ever revealed by a successful scan, so
-hiding the scanner takes it with it; restocking is still on the product edit page, which posts to the
-same `ProductController::addBatch`.
+Inventory carries the same card and the same mechanism: its own `focusEntryField()` now picks the
+scanner too, and the click-anywhere refocus handler (which bailed out entirely while the scanner's
+`offsetParent` was `null`) is active again — clicking anywhere that isn't an input/select/button/link
+refocuses the scanner, the same behavior the page had before it was ever hidden. `autofocus` stays
+OFF on both scanner inputs regardless: it was dropped when hidden (a hidden input cannot take focus,
+so it was a promise the page could not keep) and was never restored, since autofocusing one of
+several entry points on a busy page on every load would be a surprise of its own — `focusEntryField()`
+already arms it after every sale/restock/click, which is the behavior that actually matters. **Quick
+Restock lives inside Inventory's card** and is only ever revealed by a successful scan, so it comes
+back with the scanner; restocking is also still available on the product edit page either way, which
+posts to the same `ProductController::addBatch`.
 
 **Every POS surface must report the same number checkout will honour** — `pos/_grid.blade.php`
 (badge, `is-out` class, `data-true-stock`, and the `addToCart` ceiling) and
@@ -581,8 +693,99 @@ one row per batch drawn from, so 8 units taken 5+3 from two batches printed the 
 same unit price — correct totals, but a customer reads it as being charged twice. `_receipt.blade.php`
 and `sales/show.blade.php` both group on `product_id|price` (price too, so rows charged at different
 rates can never merge). The `sale_items` rows are untouched: batch traceability stays in the data,
-it just isn't shown. Add a Batch column if that detail is ever wanted on the internal view. Payment must cover the total; the old supervisor-passcode bypass was
-removed deliberately. `sales.payment_voided` is read-only history (checkout always writes `false`).
+it just isn't shown. Add a Batch column if that detail is ever wanted on the internal view. Payment
+must cover the total; the old supervisor-passcode bypass that could mark a sale voided at the point of
+sale was removed deliberately — `checkout()` always writes `payment_voided => false`.
+
+**A real void exists again as of 2026-09-22 — `SaleController::void()` — not a checkout-time bypass.**
+Voiding a completed sale is a full reversal: every line's batch gets its `quantity` back
+(`ProductBatch::increment`), one `StockMovement::TYPE_VOID` row per line so the stock card shows
+exactly where it came from, and the sale is flagged `payment_voided` / `voided_at` / `voided_by` /
+`void_reason` (`Sale::VOID_REASONS` — Cashier Error / Customer Cancelled / Duplicate Transaction /
+Other). Idempotent: a lock-and-recheck inside the transaction refuses a second void on the same sale
+rather than restocking it twice, the same race `markBatchReturned` already guards against. The reason
+is picked IN the confirm dialog, not before it — `data-confirm-reasons` (a JSON `{value: label}` map)
+swaps the shared confirm modal's single generic Confirm button for one button per reason (see "Every
+state-changing action answers in two shapes" below), the same mechanism `User::ARCHIVE_REASONS` uses
+on the Archive button in User Management.
+
+**As of the same day, void is SHARED, not `role:admin` — staff may void a sale THEY rang up, given a
+manager passcode.** `role:admin` was "the closest thing this app has to restricted to managers"; a
+6-digit passcode an admin sets is the real thing. `void()` checks two gates, in order:
+
+1. `Sale::isVisibleTo()` — an admin may void anything; staff only a sale they rang up themselves.
+   Checked INSIDE the endpoint, not just on the button that links to it (`sales/show.blade.php` only
+   ever renders "Void Transaction" on a sale the viewer can already see, but per this file's own
+   standing lesson — `pos.receipt`, `suggest.sales` — **a gated button is not a gated endpoint**).
+2. The passcode (`Setting::checkVoidPasscode()`) — required for staff, skipped for an admin, who
+   does not need to prove themselves to themselves.
+
+`Setting` is a new plain key/value table (`settings`: `key` unique, `value`) for store-wide config an
+admin sets through the UI rather than `.env`/`config()` (which would need a redeploy) — the void
+passcode (`Setting::VOID_PASSCODE_KEY`) is its first and so far only user, stored HASHED
+(`Hash::make`/`Hash::check`, same as any other credential) via `SettingsController` at `/settings`
+(`role:admin`, its own sidebar entry after Audit trail). A void with no passcode set at all, or the
+wrong one, is refused with a message naming which (`actionFailed`, so it reads the same both-422-shapes
+way every other confirm-dialog refusal does).
+
+**The confirm dialog's `data-confirm-passcode="1"` is the UI half — a THIRD opt-in on top of
+`data-confirm-reasons`, not a replacement for it.** It reveals a "Manager passcode" field ABOVE the
+reason buttons and disables all of them (or the plain Confirm button, if there are no reasons) until
+exactly 6 digits are entered (`syncPasscodeGate()`), the same "picking an answer both confirms and
+supplies the field" instinct the reason picker already has. **The value is copied into the form's own
+`[name="passcode"]` field only when `passcodeRequired` is true** — the first version of this copied it
+unconditionally on every confirm-dialog submission app-wide, which silently blanked the Settings
+page's OWN "New passcode" field (also named `passcode`, for an unrelated purpose) every time it was
+submitted, since that dialog's gate input is always empty. Any confirm dialog that ever reuses the
+field name `passcode` for something else needs to know this. The passcode `<input>` is
+`type="password"` (masked, not plain text — a credential someone else's screen can be watching), with
+`inputmode="numeric"` for a numeric keypad on mobile despite not being `type="number"`.
+
+Covered by `Feature\SettingsTest` (setting/replacing the passcode, the 6-digit and confirmation rules,
+staff locked out of `/settings` itself) and `Feature\Pos\VoidTest` (no passcode set at all, the wrong
+one, the correct one restocking exactly like an admin's void, staff blocked from someone else's sale
+even with the right code, an admin needing none of it).
+
+**A voided sale stays fully visible — its own receipt, Sales History — while dropping out of every
+revenue aggregate that reads `payment_voided`.** Filtered explicitly (not a global Eloquent scope,
+which would also hide it from `sales.show`/`pos.receipt` — the wrong call, since an admin needs to
+SEE what they voided) in: `DashboardController`'s today/yesterday/7-day/hourly queries,
+`SaleController::index()`'s `$scopedToday` KPI cards (the list itself still shows the row, with a
+"Voided" badge), `ReportController`'s `$sales`/`$salesByStaff`/`$scopedItems` queries, and
+`SalesHistory::posTotalsBetween()`/`posUnitsBetween()`/`scopedTrendBetween()`'s POS halves (raw
+`DB::table` joins, so each needs `where('sales.payment_voided', false)` by hand — Eloquent's scope
+does not reach a raw join). **If you add another aggregate that reads `sales`/`sale_items`, it needs
+the same filter or a void silently keeps counting.** A void also calls `SalesHistory::
+bumpCacheVersion()` and `AlertService::forget()`, the same two invalidations checkout itself makes —
+restocking can pull a product back out of low stock, and the POS-dependent cached aggregates need to
+stop serving pre-void numbers.
+
+**`payment_method` (default `'cash'`) records how the sale was paid — `Sale::PAYMENT_METHODS`
+(Cash / GCash / Other QR / E-wallet — no card/debit/credit option, removed 2026-09-22 at the user's
+request, this till only ever took cash and QR-based e-wallets) is the one list**, rendered as a row
+of buttons in the checkout modal (not a `<select>`: options read faster as something to tap) and
+validated against the same constant server-side. A sale recorded before the removal
+(`payment_method='card'`) still displays correctly everywhere — the receipt and `sales/show.blade.php`
+both fall back to `ucfirst($sale->payment_method)` for a value not in the current list, so old data
+needed no migration. The default matters: every sale before this existed, and every no-JS checkout
+post today, really is cash, so a missing field must resolve to the true historical value, not an
+arbitrary one.
+
+**GCash / Other QR show an actual QR code to scan, and lock the payment field to the exact total.**
+No real payment gateway sits behind this till, so the code (`qrcodejs`, loaded from cdnjs on this one
+page) encodes a plain reference string — store, method, the order total, this checkout ATTEMPT's
+idempotency key (which is what changes the code between two carts of the same total) — not a live
+payment link; it exists so the payment METHOD reads as an actual QR, not a button merely labelled
+"QR". Both are exact-payment methods: the customer's e-wallet app charges them the precise total, so
+there is no change to work out and nothing for the cashier to type or mistype. Selecting either makes
+`amount-paid-input` `readOnly` and fills it with `cartTotal.toFixed(2)`; switching back to Cash clears
+it and hands editing back, since that number was never actually typed by anyone. **The change
+calculation compares in integer centavos**
+(`Math.round(amountPaid*100) - Math.round(cartTotal*100)`), not a bare float subtraction — the field
+now holds a PROGRAMMATICALLY-set value every single time a QR method is chosen, so any float remainder
+(131.75 vs 131.75000000000003) would show "Insufficient amount" on a payment that is, to the peso,
+exact, on every QR checkout rather than the rare case a typed cash amount happened to hit it. Same
+reasoning `PosController::checkout()` already compares money in centavos for.
 
 `transaction_no` is `unique()`; mint it only via `Sale::nextTransactionNo()`, which counts within the
 day under `lockForUpdate()`. Never derive it from `Sale::count()` — a global count behind a per-day
@@ -630,6 +833,28 @@ is what the batch arrived with, and `addBatch` must set it (nothing reads it yet
 recovered later). Expiry validates `after:today` **and** `after:received_date` — an inverted pair
 poisons the shelf-life suggestion `edit()` derives for the next batch. REMEDI.md "Inventory model"
 has the detail.
+
+**A batch may carry its own cost, DR number and supplier — all three optional, all three filled in
+only through `addBatch`/`updateBatch`.** `unit_cost` and `dr_no` existed as real columns
+(`2026_08_02_023329`) with no form writing them; `supplier` (migration `2026_09_22_114535`) never
+existed at all. Optional rather than required: a delivery note isn't always in hand when stock is
+keyed in, and the alternative — blocking the form on data nobody has yet — would stop a legitimate
+stock-in over paperwork. Nothing downstream requires them either; profit reporting and traceability
+simply have nothing to show for a batch that skipped them, same as before this existed.
+
+**Every stock movement is logged to `stock_movements` (the "stock card"), through one write path:
+`StockMovement::record()`.** Four callers, four types — `addBatch` (`stock_in`), the checkout FEFO
+walk (`sale`, linked to the `Sale` via `sale_id`), `markBatchReturned` (`return`), and `updateBatch`
+when the posted quantity differs from the stored one (`adjustment`). `balance_after` is read off the
+batch's OWN quantity column immediately after it is written, never computed independently, so the
+ledger cannot drift from what the batch itself reports. A manual quantity edit through `updateBatch`
+now **requires a `reason`** — enforced only when quantity is actually changing, via
+`Rule::requiredIf()`, so a bare expiry correction or filling in cost/DR/supplier needs none. Per
+product at `/products/{id}/stock-card` (`ProductController::stockCard`), newest first, filterable by
+type and date range — this is what answers "500 units sold but never recorded in POS": read the
+ledger for the period in question rather than piecing it together from batches, sale_items and the
+audit trail separately. **The ledger is forward-only** — it started recording 2026-09-22, so a product
+with stock and no rows on its card simply predates the feature; nothing was retrofitted.
 
 **The batch number is the product's letters plus the RECEIVED DATE, and
 `ProductBatch::nextBatchNumber()` is the one definition.** `AAA-YYYYMMDD-NN` — three letters off the
@@ -821,6 +1046,24 @@ section renders only `@if($sales->isNotEmpty())` -- a period whose sales are all
 no terminal section, instead of an empty table. Verified: Mar 2026 prints 31 day rows totalling
 PHP 1,554,763.66 where it previously printed nothing; the current month prints both sections.
 
+**The Sales Report's Cashier filter is a THIRD dimension, orthogonal to Category/Product and
+deliberately kept apart from `$isScoped`.** `sales_history` has no cashier column at all — it predates
+this terminal — so a cashier can only ever narrow the figures that are already POS-only:
+`$sales`/`$scopedItems`, `$totalTransactions`, ATV/ATC, the hourly chart, and the printed transaction /
+line-item tables. It must NOT narrow `Total Sales`, `$historyTotal`, `$posTotal` or the "Where the
+total comes from" bucket table (`$dailyBreakdown`/`$posByBucket`) — those describe the WHOLE till (and
+the imported record), and `historyTotal = totalSales - posTotal` would read too high, not too low, if
+`$posTotal` were quietly narrowed to one cashier while `$totalSales` stayed store-wide. Both branches of
+`buildSalesReportData()` therefore fetch an unfiltered collection first (`$allSales`/`$allScopedItems`)
+for `$posTotal`/`$posByBucket`, then derive the (possibly cashier-filtered) `$sales`/`$scopedItems` from
+it for everything else — including a THIRD total, `$listedPosTotal`, which is what the printed
+transaction/line-item table's own footer must equal (the list is cashier-filtered; `$posTotal` no
+longer is). `$scopeCashier` (`User::withTrashed()`, an archived/deactivated cashier still rang up real
+sales) folds into `$scopeLabel` alongside Category/Product (`implode(' — ', ...)`), so the PDF/print
+title and the Excel sheet name pick it up for free. The filtered-by banner explains the split in
+words — "Total Sales above still covers every cashier... since sales_history has no cashier to filter
+by" — the same "say what the KPI is made of" instinct behind the History/POS caption below.
+
 **The Sales Report's headline figure is two records added together, and it has to say so.**
 `Total Sales` comes from `trendBetween()`, which merges `sales_history` with live POS checkouts —
 but the table beneath it lists POS transactions only, because a history row has no transaction
@@ -847,6 +1090,24 @@ person beat a `period` carried beside them, the month picker reads "Weekly · Se
 than claiming "All time" (the `<select>` trap above), and an unknown period is a validation error, not
 ignored. The report page cannot be rendered by the sqlite suite (its aggregates are MySQL), so
 `SalesReportPeriodTest` pins `periodRange()` and the validation; check the page itself against MySQL.
+
+**ATV/ATC, Hourly Sales, Sales by Category and Sales by Staff are all POS-only — `sales_history` has
+no transaction, no time-of-day and no cashier to read any of them from.** It's an imported record of
+units sold per day; there was nobody signed into anything before this terminal existed, and a row
+carries a date, never a time. `ReportController::atvAtc()` (static, pure — see the DashboardKpiTest
+entry above) divides the Sales Report's `posTotal`/`totalTransactions` for ATV and
+`totalTransactions` by the whole period length (not just days that had a sale) for ATC. The dashboard
+carries its own pair, `DashboardController::computeAtv()`/`computeAtc()` — ATV off TODAY's sales,
+ATC off the TRAILING 7 DAYS' transaction count divided by 7 — deliberately not the same function,
+since the two describe different windows for a different purpose (a KPI tile vs. a report's selected
+range). **The admin dashboard's KPI row replaced Expired and Need-to-Return with these two** (2026-09-
+22); both stock counters are still shown elsewhere on the same page (the Alerts panel, which reads
+`$expiredCount`/`$needReturnCount` independently — do not delete those from `_dashboard-body`'s `@php`
+block just because the tiles that used to read them are gone). Hourly Sales/Transaction Volume buckets
+`sales.created_at` by hour of day (0–23) over the report's own range; Sales by Category and Sales by
+Staff live on the Analytics report — category merges `sales_history` with the till exactly the way
+`topProductsBetween()` does (`SalesHistory::salesByCategoryBetween()`), staff is a flat POS-only
+group-by since there is no cashier to attribute an imported row to.
 
 **The month picker and the date inputs are mutually exclusive — keep them that way.** The filter form
 submits every field it owns, so a month left selected rode along with a later date edit and won on
@@ -1019,10 +1280,39 @@ result is not evidence either way.
 ### Forecasting pipeline
 Two independent pipelines, each PHP → Python subprocess → CSV → upsert into MySQL:
 
-| Concern | Command | Script | Table | Service / page |
+| Concern | Command | Script | Table | Service |
 |---|---|---|---|---|
-| Demand ("how much to buy") | `forecast:generate` | `resources/python/generate_forecasts.py` | `demand_forecasts` | `DemandForecastService`, `/forecast` |
-| Sales units + revenue | `sales-forecast:generate` | `resources/python/generate_sales_forecast.py` | `sales_forecasts` | `SalesForecastService`, `/sales-forecast` |
+| Demand ("how much to buy") | `forecast:generate` | `resources/python/generate_forecasts.py` | `demand_forecasts` | `DemandForecastService` |
+| Sales units + revenue | `sales-forecast:generate` | `resources/python/generate_sales_forecast.py` | `sales_forecasts` | `SalesForecastService` |
+
+**The pipelines stayed independent, but the two PAGES merged into one, `/forecast`, on 2026-09-22.**
+They used to be separate nav entries built from the same sales data and, on the per-product page, the
+same forecast for one SKU shown two different places — `SalesForecastController`'s own docblock used
+to argue for keeping them apart ("to avoid two pages showing the same per-product forecast"), which
+stopped being the right call the moment the ask became "show both for the product I clicked, together".
+`/sales-forecast` still resolves — `SalesForecastController::index()` is now a one-line
+`redirect()->route('forecast.index')`, so an old bookmark or a link saved somewhere does not 404 — but
+it renders nothing of its own any more; `resources/views/sales_forecast/` is deleted. `forecast.index`
+now opens with the store-wide units/revenue trend that used to be the whole of `/sales-forecast`
+(`SalesForecastService::overallMonthlyTrend()`, unchanged), then two "top 5" charts side by side —
+`DemandForecastService::topDemandSeries()` (forecast **units**, unchanged) and the new
+`SalesForecastService::topSalesForecastSeries()` (forecast **revenue** over the same actionable
+horizon, same "sum over the horizon, not a spiky single month" ranking). They deliberately answer
+different questions — what to reorder vs. what earns — so they name different products, not the same
+ranking twice. Below that is the same searchable per-product table as before, still linking to
+`forecast.show`.
+
+`forecast.show` (`/forecast/{product}`) now renders BOTH forecasts for that one SKU: the existing
+Demand Forecast chart (units, from `demand_forecasts`) first, then a new "Sales Forecast" card (KPIs +
+a revenue trend chart with confidence band, from `sales_forecasts`) below it, then Seasonal Pattern and
+the forecast-detail table as before. `DemandForecastController::show()` still 404s only on an empty
+DEMAND forecast — a product can have one without a sales forecast (the two scripts search their own
+SARIMA candidates independently), so the Sales Forecast card guards on `$hasSalesForecast` and prints
+"No sales forecast available for this product yet." rather than assuming the second half exists.
+`SalesForecastService::forProduct($sku)` is new (`DemandForecastService::forProduct()` had no revenue
+twin) — actual revenue is `quantity_sold * products.selling_price` at the CURRENT price, same
+"a price edit rewrites historical revenue" convention as every other revenue figure in the app, scoped
+to one SKU so no `STRAIGHT_JOIN` is needed the way the store-wide aggregate does.
 
 **The dashed forecast is stitched to the solid actual at `$joinMonth`, and that month must be
 STRICTLY BEFORE the first forecast month.** All three forecast series (value, lower, upper) carry the
@@ -1561,7 +1851,35 @@ behind all of them so they cannot drift:
 | `?full=1` | the whole page rendered synchronously, body included |
 
 `?full=1` is the no-JS path (`<noscript>` redirects to it) and the loader's failure panel offers it —
-keep it working, it is the floor under the enhancement. Two traps in the injector, both in
+keep it working, it is the floor under the enhancement.
+
+**The admin KPI row's second tile is "Revenue Today" -- PROFIT, not a second revenue figure** (it
+replaced "Last 7 Days" 2026-09-22, at the user's request: Sales Today beside it already shows raw
+revenue, so a week-wide revenue total was the same question asked twice rather than a second one
+answered). It sums, per POS line rung up today, `(price charged − product's cost_price) × quantity`
+— `DashboardController::computeTodayProfit()`, static and pure like `computeAtv()`/`computeAtc()`
+beside it, for the identical reason: `index()`'s AJAX-body branch cannot be hit under the sqlite test
+suite. **`products.cost_price` is a brand-new, optional column** (migration
+`2026_09_22_173452`) nothing in the seeded catalogue has ever populated, so a line whose product has
+none set contributes **nothing** to this figure rather than being scored at zero cost (which would
+overstate profit as pure margin) or silently dropped from Sales Today (which still counts every unit
+regardless). The tile's own sub-line names how many lines that was, so an under-counted figure reads
+as "waiting on cost data" rather than as a wrong number. Voided sales are excluded, same as every
+other "today" figure on this page. `$last7Transactions` (the trailing-7-day COUNT, not revenue) is
+kept — Avg. Transaction Count still reads it — only the revenue half of that old query is gone.
+
+**`cost_price` is edited on the Product form, labelled "Default Cost Price" — never bare "Cost
+Price".** `ProductBatch::unit_cost` already owns that exact label on the Add New Batch card sitting
+on the same edit page (what a specific delivery actually cost, purchase-history/traceability, nothing
+downstream computes profit from it), so the product-level default needed a name that couldn't be
+mistaken for it. Optional for the same reason `unit_cost` is: a cost isn't always in hand when a
+product is first keyed in, and blocking the form on data nobody has yet would stop a legitimate new
+product over paperwork. Bounded by `Controller::MAX_MONEY`, same as `selling_price`. Covered by
+`Feature\Inventory\ProductFormTest` (the ceiling, and that a product saves fine with none set) and
+`Feature\Reports\DashboardKpiTest` (the profit arithmetic itself, including the "no cost set"
+exclusion).
+
+Two traps in the injector, both in
 `dashboard/index.blade.php`: **`innerHTML` never executes `<script>`**, so the body's Chart.js block
 has to be re-created node by node or all nine charts come up blank; and those scripts must run **one
 at a time in order**, because the inline block calls `new Chart(...)` at parse time and would throw
@@ -1707,6 +2025,19 @@ tagged `class="js-confirm"`; the handler in `layouts/app.blade.php` intercepts `
 `data-confirm-title` / `-body` / `-label`, `data-confirm-icon`, `data-confirm-tone="neutral"` for
 reversible actions, and `data-on-success` (`remove-row` / `toggle` / `reload` / `none`). Adding one
 costs attributes, not another copy of the markup.
+
+**`data-confirm-reasons` (a JSON `{value: label}` map) replaces the single generic Confirm button
+with one button per reason** — User Management's Archive (`User::ARCHIVE_REASONS`: Resigned/Fired)
+and the sales detail page's Void (`Sale::VOID_REASONS`) both use it. The form still needs a plain
+`<input type="hidden" name="reason">` for whichever button gets clicked to fill in before the same
+`fetch` submission every other confirm uses. Picking a reason both answers "are you sure?" and
+supplies the field the server requires in one click, rather than a `<select>` filled in beforehand and
+a second click to confirm it — and it is why `submitConfirmed()` in `layouts/app.blade.php` takes
+`busyBtn` as a parameter: the button that gets disabled and (for the plain Confirm case) relabelled
+"Working…" is whichever one was actually clicked. **`#confirmModalConfirm[hidden]` has its own CSS
+rule** — `.btn` sets `display: inline-flex` as an AUTHOR rule, which beats the `hidden` attribute's
+UA-stylesheet `display: none` regardless of selector specificity, so hiding it via the JS `hidden`
+property alone left it fully visible and clickable behind the reason buttons.
 
 **The confirm dialog has to read BOTH 422 shapes.** A controller refusal answers
 `{success:false, error}`; a Laravel VALIDATION failure answers `{message, errors:{field:[...]}}` with

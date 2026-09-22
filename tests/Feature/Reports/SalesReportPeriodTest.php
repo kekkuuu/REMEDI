@@ -74,4 +74,34 @@ class SalesReportPeriodTest extends TestCase
             ->get('/reports/sales?period=fortnightly')
             ->assertSessionHasErrors('period');
     }
+
+    public function test_atv_is_pos_total_over_pos_transactions(): void
+    {
+        [$atv] = ReportController::atvAtc(3000.0, 4, '2026-09-01', '2026-09-07');
+
+        $this->assertSame(750.0, $atv);
+    }
+
+    public function test_atv_is_null_with_no_transactions_rather_than_zero(): void
+    {
+        [$atv] = ReportController::atvAtc(0.0, 0, '2026-09-01', '2026-09-07');
+
+        $this->assertNull($atv);
+    }
+
+    public function test_atc_is_transactions_per_day_across_the_whole_period_not_just_days_with_one(): void
+    {
+        // 7-day period (inclusive), only 4 transactions total -- ATC must
+        // divide by all 7 days, not by however many of them had a sale.
+        [, $atc] = ReportController::atvAtc(3000.0, 4, '2026-09-01', '2026-09-07');
+
+        $this->assertSame(0.6, $atc);
+    }
+
+    public function test_atc_on_a_single_day_range_divides_by_one(): void
+    {
+        [, $atc] = ReportController::atvAtc(1000.0, 5, '2026-09-01', '2026-09-01');
+
+        $this->assertSame(5.0, $atc);
+    }
 }

@@ -1752,6 +1752,54 @@
         .remedi-modal__actions { display: flex; gap: 10px; }
         .remedi-modal__actions .btn { flex: 1; justify-content: center; }
 
+        /* Reason picker -- see confirmModalReasons above. Side by side reads
+           right for exactly two short options (Resigned/Fired); anything
+           much longer than that would want to stack instead. */
+        .remedi-modal__reasons { display: flex; gap: 10px; margin: -6px 0 18px; }
+
+        .remedi-modal__reason-btn {
+            flex: 1;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+            background: #fff;
+            color: var(--ink);
+            font-family: inherit;
+            font-size: 13.5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background .14s ease, border-color .14s ease;
+        }
+
+        .remedi-modal__reason-btn:hover { background: #fef2f2; border-color: #fca5a5; }
+        .remedi-modal__reason-btn:focus-visible { outline: 2px solid #b91c1c; outline-offset: 1px; }
+        .remedi-modal__reason-btn:disabled { opacity: .6; cursor: default; }
+
+        /* .btn sets its own `display: inline-flex`, an AUTHOR rule -- so it
+           beats the `hidden` attribute's UA-stylesheet `display: none`
+           regardless of selector specificity. Confirm needs this explicit
+           override, or hiding it while the reason picker is open (see
+           confirmModal's JS) leaves it sitting there fully visible. */
+        #confirmModalConfirm[hidden] { display: none; }
+
+        /* Manager passcode -- see confirmModalPasscode above (staff voiding a
+           sale). Deliberately its own block, above the reasons, so entering
+           the code reads as the first step rather than one more field beside
+           the reason buttons. */
+        .remedi-modal__passcode { text-align: left; margin: -6px 0 18px; }
+        .remedi-modal__passcode[hidden] { display: none; }
+        .remedi-modal__passcode label {
+            display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-soft);
+            margin-bottom: 6px;
+        }
+        .remedi-modal__passcode input {
+            width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #e2e8f0;
+            font-size: 18px; letter-spacing: .3em; text-align: center; font-family: inherit;
+        }
+        .remedi-modal__passcode input:focus {
+            border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); outline: none;
+        }
+
         /* ── Alert detail modal ──
            The named rows behind a count, fetched when the modal opens. Capped
            in height rather than in rows: "645 products" cannot be listed, but
@@ -1983,6 +2031,16 @@
             background: #fef2f2;
             color: #991b1b;
             border: 0.5px solid #fecaca;
+        }
+
+        /* Attention, not failure -- the amber this app already uses for "needs
+           action soon" (low-stock/expiring), never the red reserved for
+           expired stock and refusals. Used once, for the "you're on a
+           temporary password" banner on /profile. */
+        .alert-warning {
+            background: #fffbeb;
+            color: #92400e;
+            border: 0.5px solid #fde68a;
         }
 
         .alert ul { margin: 4px 0 0; padding-left: 16px; }
@@ -3307,17 +3365,27 @@
                 <a href="{{ route('reports.index') }}" class="{{ request()->routeIs('reports.*') ? 'active' : '' }}">
                     <i class="ti ti-chart-bar" aria-hidden="true"></i> Reports
                 </a>
-                <a href="{{ route('forecast.index') }}" class="{{ request()->routeIs('forecast.*') ? 'active' : '' }}">
-                    <i class="ti ti-trending-up" aria-hidden="true"></i> Demand Forecasting
+                {{-- Demand and Sales Forecasting merged into one page/tab
+                     2026-09-22 -- both were built from the same sales data
+                     and per-product forecast, so two nav entries pointed at
+                     two views of one thing. /sales-forecast still resolves
+                     (redirects here) so an old bookmark or link keeps
+                     working. --}}
+                <a href="{{ route('forecast.index') }}" class="{{ request()->routeIs('forecast.*') || request()->routeIs('sales-forecast.*') ? 'active' : '' }}">
+                    <i class="ti ti-trending-up" aria-hidden="true"></i> Forecasting
                 </a>
-                <a href="{{ route('sales-forecast.index') }}" class="{{ request()->routeIs('sales-forecast.*') ? 'active' : '' }}">
-                    <i class="ti ti-chart-line" aria-hidden="true"></i> Sales Forecasting
-                </a>
-                {{-- Between Sales Forecasting and the audit trail: the two
+                {{-- Between Forecasting and the audit trail: the two
                      administrative tabs sit together at the foot of the Admin
                      group, after the four that are about stock and trade. --}}
                 <a href="{{ route('users.index') }}" class="{{ request()->routeIs('users.*') ? 'active' : '' }}">
                     <i class="ti ti-users" aria-hidden="true"></i> User management
+                </a>
+                {{-- Settings: store-wide config an admin sets through the UI --
+                     currently just the POS void passcode. Last in the Admin
+                     group, after the audit trail, since it's the one entry
+                     that isn't about day-to-day work. --}}
+                <a href="{{ route('settings.edit') }}" class="{{ request()->routeIs('settings.*') ? 'active' : '' }}">
+                    <i class="ti ti-settings" aria-hidden="true"></i> Settings
                 </a>
                 <a href="{{ route('audit.index') }}" class="{{ request()->routeIs('audit.*') ? 'active' : '' }}">
                     <i class="ti ti-list-check" aria-hidden="true"></i> Audit trail
@@ -3542,6 +3610,32 @@
             </div>
             <h3 id="confirmModalTitle">Are you sure?</h3>
             <p id="confirmModalBody"></p>
+            {{-- Populated only when the form carries data-confirm-passcode="1"
+                 (staff voiding a sale -- see sales/show.blade.php). Every
+                 button below (reasons, or Confirm itself) stays disabled
+                 until exactly 6 digits are entered, and the value is copied
+                 into the form's own [name="passcode"] field the same way a
+                 chosen reason is -- see the reason-button and confirmBtn
+                 handlers below. --}}
+            <div class="remedi-modal__passcode" id="confirmModalPasscode" hidden>
+                <label for="confirmModalPasscodeInput">Manager passcode</label>
+                {{-- type="password", not "text" -- this is a credential
+                     someone else's screen or shoulder can be watching, same
+                     as any other password field. inputmode/pattern still
+                     bring up a numeric keypad on mobile; a password input
+                     supports both. --}}
+                <input type="password" inputmode="numeric" pattern="[0-9]*" autocomplete="off" maxlength="6"
+                       id="confirmModalPasscodeInput" placeholder="6-digit code">
+            </div>
+            {{-- Populated only when the form carries data-confirm-reasons (a
+                 JSON {value: label} map, e.g. User::ARCHIVE_REASONS) — one
+                 button per reason, replacing the single generic Confirm
+                 button below. Choosing one both answers "are you sure?" and
+                 supplies the field the server requires, in one click rather
+                 than a dropdown filled in beforehand and a second click to
+                 confirm it. Empty and hidden for every other js-confirm
+                 form, which keeps the single-button behaviour unchanged. --}}
+            <div class="remedi-modal__reasons" id="confirmModalReasons" hidden></div>
             <div class="remedi-modal__actions">
                 <button type="button" class="btn btn-secondary" id="confirmModalCancel">Cancel</button>
                 <button type="button" class="btn btn-danger" id="confirmModalConfirm">Confirm</button>
@@ -5246,6 +5340,9 @@
         const iconWrap = document.getElementById('confirmModalIcon');
         const titleEl = document.getElementById('confirmModalTitle');
         const bodyEl = document.getElementById('confirmModalBody');
+        const reasonsWrap = document.getElementById('confirmModalReasons');
+        const passcodeWrap = document.getElementById('confirmModalPasscode');
+        const passcodeInput = document.getElementById('confirmModalPasscodeInput');
         const confirmBtn = document.getElementById('confirmModalConfirm');
         const cancelBtn = document.getElementById('confirmModalCancel');
         let unlockScroll = null;
@@ -5254,6 +5351,35 @@
         let lastFocus = null;
         let submitting = false;
         let defaultLabel = 'Confirm';
+        // Rebuilt fresh on every open() -- see data-confirm-reasons below.
+        // Empty whenever a form has no reason picker, which is every form
+        // except the ones that opt in.
+        let reasonButtons = [];
+
+        // See data-confirm-passcode below (staff voiding a sale). False for
+        // every other js-confirm form, which is why the gate this drives is
+        // a no-op for them.
+        let passcodeRequired = false;
+
+        function passcodeValid() {
+            return !passcodeRequired || /^\d{6}$/.test(passcodeInput.value);
+        }
+
+        // Every button the picker currently offers -- reason buttons if
+        // there are any, else the plain Confirm button -- stays disabled
+        // until the code is complete. Re-run on every keystroke.
+        function syncPasscodeGate() {
+            const ready = passcodeValid();
+            (reasonButtons.length ? reasonButtons : [confirmBtn]).forEach(function (b) {
+                b.disabled = !ready;
+            });
+        }
+
+        passcodeInput.addEventListener('input', function () {
+            // Digits only -- a 6-digit code, not free text.
+            passcodeInput.value = passcodeInput.value.replace(/\D/g, '').slice(0, 6);
+            syncPasscodeGate();
+        });
 
         function open(target) {
             const d = target.dataset;
@@ -5276,9 +5402,62 @@
             confirmBtn.classList.toggle('btn-danger', d.confirmTone !== 'neutral');
             confirmBtn.classList.toggle('btn-primary', d.confirmTone === 'neutral');
 
+            // data-confirm-reasons: a JSON {value: label} map (e.g.
+            // User::ARCHIVE_REASONS). When present, the single generic
+            // Confirm button is replaced by one button per reason -- picking
+            // one both answers the dialog and supplies the form field the
+            // server requires (see the [name="reason"] lookup below), so
+            // there's no separate "choose, then confirm" step.
+            reasonsWrap.innerHTML = '';
+            reasonButtons = [];
+            let reasons = null;
+            if (d.confirmReasons) {
+                try { reasons = JSON.parse(d.confirmReasons); } catch (e) { reasons = null; }
+            }
+
+            if (reasons) {
+                confirmBtn.hidden = true;
+                reasonsWrap.hidden = false;
+
+                Object.keys(reasons).forEach(function (value) {
+                    const btn = document.createElement('button');
+                    btn.type = 'button';
+                    btn.className = 'remedi-modal__reason-btn';
+                    btn.textContent = reasons[value];
+                    btn.addEventListener('click', function () {
+                        const field = form.querySelector('[name="reason"]');
+                        if (field) field.value = value;
+                        // Only when THIS dialog opened with the passcode
+                        // gate -- a form can have its own unrelated field
+                        // named "passcode" (Settings' own "New passcode"),
+                        // and copying an always-empty gate value into that
+                        // would silently blank it out on every submit.
+                        if (passcodeRequired) {
+                            const pc = form.querySelector('[name="passcode"]');
+                            if (pc) pc.value = passcodeInput.value;
+                        }
+                        submitConfirmed(btn);
+                    });
+                    reasonsWrap.appendChild(btn);
+                    reasonButtons.push(btn);
+                });
+            } else {
+                confirmBtn.hidden = false;
+                reasonsWrap.hidden = true;
+            }
+
+            // data-confirm-passcode="1": a manager passcode gates whichever
+            // buttons the block above just built. Reset on every open --
+            // this is a fresh sale each time, not a code to remember across
+            // clicks.
+            passcodeRequired = d.confirmPasscode === '1';
+            passcodeWrap.hidden = !passcodeRequired;
+            passcodeInput.value = '';
+            syncPasscodeGate();
+
             modal.classList.add('is-open');
             unlockScroll = REMEDI.lockScroll();
-            confirmBtn.focus({ preventScroll: true });
+            (passcodeRequired ? passcodeInput : (reasonButtons[0] || confirmBtn)).focus({ preventScroll: true });
         }
 
         function close() {
@@ -5293,6 +5472,14 @@
             confirmBtn.disabled = false;
             cancelBtn.disabled = false;
             confirmBtn.textContent = defaultLabel;
+            reasonButtons.forEach(function (b) { b.disabled = false; });
+            // Cleared, not left standing, so a failed attempt (wrong code,
+            // already voided) starts the next one from a blank field rather
+            // than a stale code sitting in the box.
+            if (passcodeRequired) {
+                passcodeInput.value = '';
+                syncPasscodeGate();
+            }
         }
 
         /* What to SAY when a confirmed action is refused.
@@ -5372,11 +5559,28 @@
             if (e.key === 'Escape') { close(); return; }
             if (e.key === 'Tab') {
                 e.preventDefault();
-                (document.activeElement === confirmBtn ? cancelBtn : confirmBtn).focus({ preventScroll: true });
+
+                // Cancel plus whichever the reason picker replaced Confirm
+                // with -- one item when there's no picker, one per reason
+                // when there is -- plus the passcode field first, when one
+                // is showing. Cycles either way with Shift.
+                const items = (passcodeRequired ? [passcodeInput] : [])
+                    .concat([cancelBtn], reasonButtons.length ? reasonButtons : [confirmBtn]);
+                const idx = items.indexOf(document.activeElement);
+                const next = e.shiftKey
+                    ? items[(idx <= 0 ? items.length : idx) - 1]
+                    : items[(idx + 1) % items.length];
+                next.focus({ preventScroll: true });
             }
         });
 
-        confirmBtn.addEventListener('click', function () {
+        /* Shared by the plain Confirm button and every reason button --
+           picking a reason both answers the dialog and supplies the field,
+           so from here on it's the same request either way. `busyBtn` is
+           whichever button was actually clicked, so "Working…" (or, for a
+           reason button, a disabled state -- its label IS the reason, so
+           overwriting it would lose that) appears where the click landed. */
+        function submitConfirmed(busyBtn) {
             if (!form || submitting) return;
             const target = form;
             const mode = target.dataset.onSuccess || 'reload';
@@ -5384,7 +5588,8 @@
             submitting = true;
             confirmBtn.disabled = true;
             cancelBtn.disabled = true;
-            confirmBtn.textContent = 'Working…';
+            reasonButtons.forEach(function (b) { b.disabled = true; });
+            if (busyBtn === confirmBtn) confirmBtn.textContent = 'Working…';
 
             // FormData carries the form's own CSRF token and its method-spoofing
             // _method field, so this is byte-for-byte the request the plain form
@@ -5436,6 +5641,15 @@
                     submitting = true;
                     target.submit();
                 });
+        }
+
+        confirmBtn.addEventListener('click', function () {
+            // Same guard as the reason-button handler above.
+            if (passcodeRequired) {
+                const pc = form.querySelector('[name="passcode"]');
+                if (pc) pc.value = passcodeInput.value;
+            }
+            submitConfirmed(confirmBtn);
         });
 
         /* Activate/deactivate flips one badge and one button label, so the row

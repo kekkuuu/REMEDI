@@ -243,6 +243,77 @@
 
     </div>
 
+    {{-- Sales by Category + Sales by Staff --}}
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:1.5rem;">
+
+        {{-- Sales by Category — merges sales_history with the till the same
+             way Top-Selling above does (ReportController::buildAnalyticsReportData). --}}
+        <div style="border:0.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;">
+            <div style="padding:14px 16px;border-bottom:0.5px solid #e5e7eb;">
+                <span style="font-size:14px;font-weight:500;color:#111;">Sales by Category</span>
+            </div>
+            <div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead>
+                    <tr style="background:#f9fafb;">
+                        <th style="width:38px;padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">#</th>
+                        <th style="padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Category</th>
+                        <th style="width:80px;padding:9px 14px;text-align:right;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Qty</th>
+                        <th style="width:110px;padding:9px 14px;text-align:right;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Revenue</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($salesByCategory as $cat)
+                    <tr style="border-bottom:0.5px solid #e5e7eb;">
+                        <td style="padding:10px 14px;color:#9ca3af;font-size:12px;">{{ $loop->iteration }}</td>
+                        <td style="padding:10px 14px;font-weight:500;color:#111;">{{ $cat->name }}</td>
+                        <td style="padding:10px 14px;text-align:right;color:#6b7280;">{{ number_format($cat->total_qty) }}</td>
+                        <td style="padding:10px 14px;text-align:right;font-weight:500;color:#16a34a;">₱{{ number_format($cat->total_revenue, 2) }}</td>
+                    </tr>
+                    @empty
+                    <tr>
+                        <td colspan="4" style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">No sales data.</td>
+                    </tr>
+                    @endforelse
+                </tbody>
+            </table></div>
+        </div>
+
+        {{-- Sales by Staff — POS-only: sales_history has no cashier column at
+             all (it predates this terminal), so this reflects only what has
+             been rung up here, in the selected window. --}}
+        <div style="border:0.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;">
+            <div style="padding:14px 16px;border-bottom:0.5px solid #e5e7eb;display:flex;align-items:center;gap:8px;">
+                <span style="font-size:14px;font-weight:500;color:#111;">Sales by Staff</span>
+                <span style="font-size:11px;color:#94a3b8;">this terminal's POS transactions only</span>
+            </div>
+            <div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead>
+                    <tr style="background:#f9fafb;">
+                        <th style="width:38px;padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">#</th>
+                        <th style="padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Cashier</th>
+                        <th style="width:100px;padding:9px 14px;text-align:right;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Transactions</th>
+                        <th style="width:110px;padding:9px 14px;text-align:right;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Revenue</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @forelse($salesByStaff as $staffRow)
+                    <tr style="border-bottom:0.5px solid #e5e7eb;">
+                        <td style="padding:10px 14px;color:#9ca3af;font-size:12px;">{{ $loop->iteration }}</td>
+                        <td style="padding:10px 14px;font-weight:500;color:#111;">{{ $staffRow->name }}</td>
+                        <td style="padding:10px 14px;text-align:right;color:#6b7280;">{{ number_format($staffRow->transactions) }}</td>
+                        <td style="padding:10px 14px;text-align:right;font-weight:500;color:#16a34a;">₱{{ number_format($staffRow->revenue, 2) }}</td>
+                    </tr>
+                    @empty
+                    <tr>
+                        <td colspan="4" style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">No POS transactions in this period.</td>
+                    </tr>
+                    @endforelse
+                </tbody>
+            </table></div>
+        </div>
+
+    </div>
+
     {{-- Sales Trend --}}
     <div style="border:0.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;">
         <div style="padding:14px 16px;border-bottom:0.5px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;">

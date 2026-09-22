@@ -69,9 +69,16 @@
                 @endif
             </div>
 
-            {{-- Keeps Role alone on its row, so the two password fields pair up
-                 on the next one. --}}
-            <div class="form-field" aria-hidden="true"></div>
+            {{-- Optional, same rule as ProfileUpdateRequest's own phone field
+                 (nullable, max:40). --}}
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip"><i class="ti ti-phone" aria-hidden="true"></i></span>
+                    <label for="phone">Phone Number</label>
+                </div>
+                <input type="text" id="phone" name="phone" value="{{ old('phone', $user->phone) }}"
+                       placeholder="+63 912 345 6789">
+            </div>
 
             <div class="form-field">
                 <div class="form-field-head">

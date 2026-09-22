@@ -106,7 +106,7 @@ class DestructiveGuardsTest extends TestCase
         $product = $this->product();
         $sale = $this->sell($cashier, $product, $this->batch($product), 'TXN-GUARD-1');
 
-        $this->actingAs($admin)->delete('/users/'.$cashier->id)->assertSessionHasNoErrors();
+        $this->actingAs($admin)->delete('/users/'.$cashier->id, ['reason' => 'resigned'])->assertSessionHasNoErrors();
 
         $this->assertFalse(User::whereKey($cashier->id)->exists(), 'the account leaves the list');
         $this->assertNotNull(User::withTrashed()->find($cashier->id)?->archived_at, 'but the row stays, stamped');

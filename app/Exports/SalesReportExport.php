@@ -45,6 +45,16 @@ class SalesReportExport implements FromCollection, ShouldAutoSize, WithHeadings,
 
     public function title(): string
     {
-        return 'Sales Report';
+        if (! $this->data['scopeLabel']) {
+            return 'Sales Report';
+        }
+
+        // Excel sheet names cap at 31 characters and reject :\/?*[] -- a
+        // product name can carry any of those (this catalogue has products
+        // with "/" and "%" in their names) and easily runs past the limit.
+        $label = str_replace([':', '\\', '/', '?', '*', '[', ']'], '-', $this->data['scopeLabel']);
+        $suffix = ' — '.$label;
+
+        return 'Sales Report'.substr($suffix, 0, 31 - strlen('Sales Report'));
     }
 }

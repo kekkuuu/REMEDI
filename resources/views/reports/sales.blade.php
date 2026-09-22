@@ -186,6 +186,59 @@
                    min="{{ $dataStart }}" max="{{ min($dataEnd, now()->toDateString()) }}"
                    onchange="this.form.month.value='';" class="report-select">
         </div>
+
+        {{-- Category / Product -- narrows every figure on the page to sales
+             of just that category or product (see
+             ReportController::buildSalesReportData()'s $isScoped branch).
+             A product picked here wins over a category, both client-side
+             (picking one clears the other) and server-side, so the two can
+             never fight over which narrows the report. --}}
+        <div class="report-field">
+            <label for="category_id">Category</label>
+            <select name="category_id" id="category_id" class="report-select"
+                    onchange="this.form.product_sku.value=''; this.form.submit();">
+                <option value="">All categories</option>
+                @foreach($categories as $cat)
+                    <option value="{{ $cat->id }}" {{ $scopeCategory?->id === $cat->id ? 'selected' : '' }}>{{ $cat->name }}</option>
+                @endforeach
+            </select>
+        </div>
+        <div class="report-field">
+            <label for="product_sku">Product</label>
+            {{-- <datalist>, not a <select>: this catalogue runs ~2,600
+                 products, and this app's only search component
+                 (REMEDI.attachSuggest) live-filters a page's own list rather
+                 than resolving a pick to a field -- there's no autocomplete-
+                 with-selection component to reuse. The option VALUE is the
+                 SKU (what the server actually filters on) with the product
+                 NAME as its visible label, so picking a suggestion writes
+                 the SKU into the input directly with no extra JS needed to
+                 resolve a label back to an id. --}}
+            <input type="text" name="product_sku" id="product_sku" class="report-select" list="productSkuOptions"
+                   value="{{ $scopeProduct->sku ?? '' }}" placeholder="Search by name or SKU…" autocomplete="off"
+                   onchange="this.form.category_id.value=''; this.form.submit();">
+            <datalist id="productSkuOptions">
+                @foreach($productOptions as $p)
+                    <option value="{{ $p->sku }}">{{ $p->name }}</option>
+                @endforeach
+            </datalist>
+        </div>
+
+        {{-- Cashier -- a separate filter dimension from Category/Product:
+             sales_history has no cashier at all, so this narrows only the
+             POS-only figures the page already keeps apart from the merged
+             Total Sales identity (see ReportController::buildSalesReportData()'s
+             $scopeCashier comment). A plain <select>, not a typeahead -- the
+             staff list is small, unlike the product catalogue. --}}
+        <div class="report-field">
+            <label for="cashier_id">Cashier</label>
+            <select name="cashier_id" id="cashier_id" class="report-select" onchange="this.form.submit();">
+                <option value="">All cashiers</option>
+                @foreach($cashiers as $cashier)
+                    <option value="{{ $cashier->id }}" {{ $scopeCashier?->id === $cashier->id ? 'selected' : '' }}>{{ $cashier->name }}</option>
+                @endforeach
+            </select>
+        </div>
         {{-- flex-wrap: this row held Generate/Clear/Print before -- three
              buttons that fit one line even at 375px. Adding Excel/PDF pushed
              it to five, and without wrap the last one (PDF) ran off the
@@ -196,7 +249,7 @@
             <button type="submit" class="btn btn-primary btn-sm">
                 <i class="ti ti-refresh" aria-hidden="true"></i> Generate
             </button>
-            @if($month || $period || request('start_date') || request('end_date'))
+            @if($month || $period || request('start_date') || request('end_date') || $isScoped || $scopeCashier)
                 <a href="{{ route('reports.sales') }}" class="btn btn-secondary btn-sm">Clear</a>
             @endif
             {{-- No inline window.print(): see the script at the foot of this
@@ -216,14 +269,53 @@
                  document to replace the page, which never arrives, and the
                  pill is stuck until the next real navigation. Same reason
                  audit.export and admin.backup both carry it. --}}
-            <a href="{{ route('reports.sales.export', ['format' => 'xlsx', 'start_date' => $start, 'end_date' => $end]) }}" class="btn btn-secondary btn-sm" data-no-skeleton>
+            @php
+                // The already-resolved range PLUS whichever filter is
+                // driving the page, so an export can never disagree with
+                // what's on screen -- same reasoning $start/$end get passed
+                // explicitly rather than re-read from the request.
+                $exportParams = ['start_date' => $start, 'end_date' => $end]
+                    + ($scopeProduct ? ['product_sku' => $scopeProduct->sku] : [])
+                    + ($scopeCategory ? ['category_id' => $scopeCategory->id] : [])
+                    + ($scopeCashier ? ['cashier_id' => $scopeCashier->id] : []);
+            @endphp
+            <a href="{{ route('reports.sales.export', ['format' => 'xlsx'] + $exportParams) }}" class="btn btn-secondary btn-sm" data-no-skeleton>
                 <i class="ti ti-file-spreadsheet" aria-hidden="true"></i> Excel
             </a>
-            <a href="{{ route('reports.sales.export', ['format' => 'pdf', 'start_date' => $start, 'end_date' => $end]) }}" class="btn btn-secondary btn-sm" data-no-skeleton>
+            <a href="{{ route('reports.sales.export', ['format' => 'pdf'] + $exportParams) }}" class="btn btn-secondary btn-sm" data-no-skeleton>
                 <i class="ti ti-file-type-pdf" aria-hidden="true"></i> PDF
             </a>
         </div>
     </form>
+
+    {{-- Filtered-by banner. Every figure below narrows to this the moment
+         it's set -- see ReportController::buildSalesReportData()'s
+         $isScoped branch and $scopeCashier comment. --}}
+    @if($isScoped || $scopeCashier)
+        <div style="margin-bottom:16px;padding:10px 14px;border-radius:8px;background:#eff6ff;border:1px solid #bfdbfe;font-size:13px;color:#1e40af;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+            <i class="ti ti-filter" aria-hidden="true"></i>
+            <span>
+                Showing sales for
+                @if($isScoped)
+                    <strong>{{ $scopeProduct ? $scopeProduct->name : $scopeCategory->name }}</strong>
+                    @if($scopeProduct) <span style="color:#64748b;">(SKU {{ $scopeProduct->sku }})</span> @endif
+                @endif
+                @if($isScoped && $scopeCashier) rung up by @endif
+                @if($scopeCashier) <strong>{{ $scopeCashier->name }}</strong> @endif
+                only.
+                @if($isScoped)
+                    Average Transaction Value/Count and the hourly chart describe THIS TERMINAL's
+                    whole till and are hidden here, since they'd otherwise read as if they were about
+                    just this {{ $scopeProduct ? 'product' : 'category' }}.
+                @elseif($scopeCashier)
+                    Total Sales above still covers every cashier and the imported record -- only
+                    Average Transaction Value/Count, the hourly chart and the transaction list below
+                    narrow to this cashier, since sales_history has no cashier to filter by.
+                @endif
+            </span>
+            <a href="{{ route('reports.sales', ['start_date' => $start, 'end_date' => $end]) }}" style="margin-left:auto;white-space:nowrap;">Clear filter</a>
+        </div>
+    @endif
 
     {{-- Stat cards. Uses the shared .kpi primitive from layouts/app.blade.php,
          the same one the Dashboard uses, so the two pages read as one system
@@ -268,6 +360,33 @@
             <span class="kpi-value">&#8369;{{ $activeDays > 0 ? number_format($totalSales / $activeDays, 2) : '0.00' }}</span>
             <span class="kpi-sub">per trading day</span>
         </div>
+
+        {{-- ATV/ATC are scoped to POS transactions -- sales_history rows are
+             imported units with no discrete transaction to divide by, so
+             these two describe THIS TERMINAL's till activity, same caveat
+             Total Sales already carries for its POS half. Hidden while a
+             Category/Product filter is active -- see the banner above. --}}
+        @unless($isScoped)
+        <div class="kpi" style="--kpi-accent:#ef4444;">
+            <div class="kpi-head">
+                <i class="ti ti-receipt-2" aria-hidden="true"></i>
+                <span class="kpi-label">Avg. Transaction Value</span>
+            </div>
+            <span class="kpi-value">{!! $atv !== null ? '&#8369;'.number_format($atv, 2) : '&mdash;' !!}</span>
+            <span class="kpi-sub">
+                {{ $atv !== null ? 'per '.($scopeCashier ? $scopeCashier->name.'\'s ' : '').'POS transaction' : 'no POS transactions in range' }}
+            </span>
+        </div>
+
+        <div class="kpi" style="--kpi-accent:#0ea5e9;">
+            <div class="kpi-head">
+                <i class="ti ti-chart-bar" aria-hidden="true"></i>
+                <span class="kpi-label">Avg. Transaction Count</span>
+            </div>
+            <span class="kpi-value">{{ number_format($atc, 1) }}</span>
+            <span class="kpi-sub">{{ $scopeCashier ? $scopeCashier->name.'\'s ' : '' }}POS transactions/day over the range</span>
+        </div>
+        @endunless
 
         <div class="kpi" style="--kpi-accent:#8b5cf6;">
             <div class="kpi-head">
@@ -366,6 +485,36 @@
     </div>
     @endif
 
+    {{-- Hourly Sales / Transaction Volume -- POS-only (see buildSalesReportData:
+         sales_history carries a DATE per row, never a time, so this is honestly
+         this terminal's own pattern, not the four-year imported record's). Peak-
+         hour identification is what this exists for, so it stays visible even on
+         a quiet range rather than being hidden behind an "if any sales" guard --
+         a flat row of zeros IS the answer on a range with no POS activity.
+
+         Hidden while scoped: $hourlyBreakdown is deliberately empty then (see
+         the banner above), and this is a whole-till metric same as ATV/ATC. --}}
+    @unless($isScoped)
+    <div style="border:0.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;margin-bottom:1.5rem;">
+        <div style="padding:14px 16px;border-bottom:0.5px solid #e5e7eb;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+            <span style="font-size:14px;font-weight:500;color:#111;">
+                <i class="ti ti-clock" style="font-size:14px;vertical-align:-1px;margin-right:6px;color:#185FA5;"></i>
+                Hourly Sales &amp; Transaction Volume
+            </span>
+            <span style="font-size:12px;color:#6b7280;">
+                {{ $scopeCashier ? $scopeCashier->name.'\'s POS activity only' : 'this terminal\'s POS activity only' }}
+            </span>
+        </div>
+        @if($totalTransactions > 0)
+            <div style="padding:16px;">
+                <canvas id="hourlySalesChart" height="80"></canvas>
+            </div>
+        @else
+            <p style="color:#9ca3af;font-size:13px;text-align:center;padding:24px 0;">No POS transactions in this date range.</p>
+        @endif
+    </div>
+    @endunless
+
 </div>{{-- end #no-print --}}
 
 
@@ -379,7 +528,7 @@
             <div style="font-size:12px;color:#6b7280;margin-top:2px;">Point of Sale System</div>
         </div>
         <div style="text-align:right;">
-            <div style="font-size:18px;font-weight:600;color:#111;">Sales Report</div>
+            <div style="font-size:18px;font-weight:600;color:#111;">Sales Report{{ $scopeLabel ? ' — '.$scopeLabel : '' }}</div>
             <div style="font-size:12px;color:#6b7280;margin-top:2px;">
                 {{ \Carbon\Carbon::parse($start)->format('M d, Y') }} — {{ \Carbon\Carbon::parse($end)->format('M d, Y') }}
             </div>
@@ -478,8 +627,69 @@
     {{-- PRINT TABLE 2: the POS transactions, and ONLY when there are some.
          An empty "No transactions found" table under a report full of figures
          is what made the printout look broken; a period whose sales are all
-         imported simply has no terminal section. --}}
-    @if($sales->isNotEmpty())
+         imported simply has no terminal section.
+
+         Scoped mode (Category/Product filter) prints LINE ITEMS instead of
+         whole transactions -- $scopedItemsForPrint, not $salesForPrint -- a
+         transaction can carry OTHER products too, and listing its full total
+         here would overstate what this product/category actually earned. --}}
+    @if($isScoped)
+        @if($scopedItems->isNotEmpty())
+        <div class="print-section-title" style="font-size:13px;font-weight:500;color:#111;margin-bottom:10px;">
+            Line items for {{ $scopeProduct ? $scopeProduct->name : $scopeCategory->name }} &mdash; {{ \Carbon\Carbon::parse($start)->format('M d, Y') }} to {{ \Carbon\Carbon::parse($end)->format('M d, Y') }}
+            @if($totalTransactions > 0)
+                <span style="color:#6b7280;font-weight:400;">(across {{ number_format($totalTransactions) }} {{ Str::plural('transaction', $totalTransactions) }})</span>
+            @endif
+            @if($scopedItems->count() > $scopedItemsForPrint->count())
+                <span style="color:#6b7280;font-weight:400;">(the first {{ number_format($scopedItemsForPrint->count()) }} of {{ number_format($scopedItems->count()) }}; the total below covers all of them)</span>
+            @endif
+        </div>
+
+        <div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:12px;">
+            <thead>
+                <tr style="background:#f3f4f6;">
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">#</th>
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Transaction No</th>
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Date</th>
+                    @unless($scopeProduct)
+                        <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Product</th>
+                    @endunless
+                    <th style="padding:9px 12px;text-align:left;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Cashier</th>
+                    <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Qty</th>
+                    <th style="padding:9px 12px;text-align:right;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Subtotal</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach($scopedItemsForPrint as $item)
+                <tr style="{{ $loop->even ? 'background:#f9fafb;' : 'background:#fff;' }}">
+                    <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#9ca3af;font-size:11px;">{{ $loop->iteration }}</td>
+                    <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#111;font-weight:500;">{{ $item->sale->transaction_no }}</td>
+                    <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;">{{ $item->sale->created_at->format('M d, Y h:i A') }}</td>
+                    @unless($scopeProduct)
+                        <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;">{{ $item->product->name ?? 'N/A' }}</td>
+                    @endunless
+                    <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;">{{ $item->sale->user->name ?? 'N/A' }}</td>
+                    <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#6b7280;text-align:right;">{{ number_format($item->quantity) }}</td>
+                    <td style="padding:8px 12px;border:1px solid #e5e7eb;color:#16a34a;font-weight:500;text-align:right;">₱{{ number_format($item->subtotal, 2) }}</td>
+                </tr>
+                @endforeach
+            </tbody>
+            <tfoot>
+                <tr style="background:#f3f4f6;">
+                    {{-- $listedPosTotal, not $posTotal or a sum of the PRINTED
+                         rows: the list is capped and the total is not, and
+                         $posTotal is the whole (cashier-blind) scope total --
+                         this footer must equal what's actually listed above
+                         it, narrowed to the cashier filter when one is set. --}}
+                    <td colspan="{{ $scopeProduct ? 5 : 6 }}" style="padding:9px 12px;font-weight:600;font-size:12px;color:#111;border:1px solid #e5e7eb;text-align:right;">
+                        Grand Total &mdash; all {{ number_format($scopedItems->count()) }} {{ Str::plural('line item', $scopedItems->count()) }}
+                    </td>
+                    <td style="padding:9px 12px;font-weight:600;font-size:13px;color:#16a34a;border:1px solid #e5e7eb;text-align:right;">&#8369;{{ number_format($listedPosTotal, 2) }}</td>
+                </tr>
+            </tfoot>
+        </table></div>
+        @endif
+    @elseif($sales->isNotEmpty())
     <div class="print-section-title" style="font-size:13px;font-weight:500;color:#111;margin-bottom:10px;">
         Point-of-sale transactions recorded on this terminal &mdash; {{ \Carbon\Carbon::parse($start)->format('M d, Y') }} to {{ \Carbon\Carbon::parse($end)->format('M d, Y') }}
         @if($totalTransactions > $salesForPrint->count())
@@ -511,12 +721,12 @@
         @if($totalTransactions > 0)
         <tfoot>
             <tr style="background:#f3f4f6;">
-                {{-- $posTotal, not a sum of the PRINTED rows: the list is capped
-                     and the total is not. --}}
+                {{-- $listedPosTotal, not $posTotal: see the comment on the
+                     Line items footer above -- same reasoning, unscoped. --}}
                 <td colspan="4" style="padding:9px 12px;font-weight:600;font-size:12px;color:#111;border:1px solid #e5e7eb;text-align:right;">
                     Grand Total &mdash; all {{ number_format($totalTransactions) }} {{ Str::plural('transaction', $totalTransactions) }}
                 </td>
-                <td style="padding:9px 12px;font-weight:600;font-size:13px;color:#16a34a;border:1px solid #e5e7eb;text-align:right;">&#8369;{{ number_format($posTotal, 2) }}</td>
+                <td style="padding:9px 12px;font-weight:600;font-size:13px;color:#16a34a;border:1px solid #e5e7eb;text-align:right;">&#8369;{{ number_format($listedPosTotal, 2) }}</td>
             </tr>
         </tfoot>
         @endif
@@ -607,6 +817,71 @@
                 },
                 x: {
                     ticks: { color: '#374151', font: { size: 11 } },
+                    grid: { display: false },
+                },
+            },
+        },
+    });
+    @endif
+
+    {{-- Hourly Sales / Transaction Volume -- same bar+trend-line treatment as
+         Daily Sales above: it is a time-ordered series (hour 0-23), which is
+         exactly the shape that convention exists for. Transaction count rides
+         along as a tooltip line rather than a second dataset, since a trend
+         line belongs over the SAME series it summarises, not a different
+         metric plotted at a different scale. Guarded on the canvas existing,
+         not just $totalTransactions>0: the canvas itself is gone while
+         scoped (see the HTML above), and $totalTransactions there counts
+         distinct scoped SALES, which can be >0 with $hourlyBreakdown empty. --}}
+    @if($totalTransactions > 0 && ! $isScoped)
+    const hourlyLabels = {!! json_encode($hourlyBreakdown->pluck('label')) !!};
+    const hourlyRevenue = {!! json_encode($hourlyBreakdown->pluck('revenue')) !!};
+    const hourlyTransactions = {!! json_encode($hourlyBreakdown->pluck('transactions')) !!};
+
+    new Chart(document.getElementById('hourlySalesChart'), {
+        type: 'bar',
+        data: {
+            labels: hourlyLabels,
+            datasets: [{
+                label: 'Revenue',
+                data: hourlyRevenue,
+                backgroundColor: (ctx) => chartGradient(ctx, '#0ea5e9', false),
+                borderRadius: 4,
+                maxBarThickness: 28,
+                order: 1,
+            }, {
+                type: 'line',
+                label: 'Trend',
+                data: hourlyRevenue,
+                borderColor: '#0369a1',
+                backgroundColor: '#0369a1',
+                borderWidth: 2,
+                tension: 0.35,
+                pointRadius: 2,
+                pointBackgroundColor: '#0369a1',
+                fill: false,
+                order: 0,
+            }],
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: (ctx) => '₱' + ctx.parsed.y.toLocaleString(undefined, { minimumFractionDigits: 2 }),
+                        afterLabel: (ctx) => hourlyTransactions[ctx.dataIndex] + ' transaction(s)',
+                    },
+                },
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: { color: '#9ca3af', font: { size: 11 }, callback: (v) => '₱' + v.toLocaleString() },
+                    grid: { color: '#f1f5f9' },
+                },
+                x: {
+                    ticks: { color: '#374151', font: { size: 10 } },
                     grid: { display: false },
                 },
             },
