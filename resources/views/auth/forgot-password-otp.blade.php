@@ -29,8 +29,63 @@
         <button type="submit" class="btn btn-primary">Verify code</button>
     </form>
 
-    <div style="margin-top:14px; font-size:.85rem; display:flex; justify-content:space-between; gap:10px;">
-        <a href="{{ route('password.request') }}">Send a new code</a>
-        <a href="{{ route('login') }}">Back to sign in</a>
-    </div>
+    {{-- A real resend, not a link back to the email form: the session already
+         knows the account, so retyping the address was pure friction. Its own
+         form rather than a second submit button inside the verify form, so
+         the code field's `required` can't block it and so it still works with
+         no JavaScript. --}}
+    <form method="POST" action="{{ route('password.otp.resend') }}" id="resend-form"
+          style="margin-top:14px; display:flex; justify-content:space-between; align-items:center; gap:10px;">
+        @csrf
+        <button type="submit" id="resend-btn"
+                style="background:none; border:0; padding:0; font:inherit; font-size:.85rem; color:#047857; cursor:pointer; text-decoration:underline;">
+            Resend code
+        </button>
+        <a href="{{ route('login') }}" style="font-size:.85rem;">Back to sign in</a>
+    </form>
+
+    <script>
+        /* A short cooldown so a double-click or an impatient tap can't spend
+           two SMS credits. The REAL limit is server-side (5 per account per
+           10 minutes, shared with the email form) -- this only stops the
+           obvious waste, and the page works fine without it. */
+        (function () {
+            var form = document.getElementById('resend-form');
+            var btn = document.getElementById('resend-btn');
+            if (!form || !btn) return;
+
+            var COOLDOWN = 30;
+            var label = btn.textContent.trim();
+
+            form.addEventListener('submit', function () {
+                // sessionStorage, so the cooldown survives the redirect this
+                // submit is about to cause -- the page that comes back is a
+                // fresh document and a timer here would die with this one.
+                try { sessionStorage.setItem('remedi.resendAt', String(Date.now())); } catch (e) {}
+            });
+
+            function tick() {
+                var at = 0;
+                try { at = parseInt(sessionStorage.getItem('remedi.resendAt') || '0', 10); } catch (e) {}
+                if (!at) return;
+
+                var left = COOLDOWN - Math.floor((Date.now() - at) / 1000);
+                if (left <= 0) {
+                    btn.disabled = false;
+                    btn.style.opacity = '';
+                    btn.style.cursor = 'pointer';
+                    btn.textContent = label;
+                    return;
+                }
+
+                btn.disabled = true;
+                btn.style.opacity = '.55';
+                btn.style.cursor = 'default';
+                btn.textContent = label + ' (' + left + 's)';
+                setTimeout(tick, 1000);
+            }
+
+            tick();
+        })();
+    </script>
 </x-guest-layout>

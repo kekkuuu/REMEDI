@@ -130,14 +130,23 @@ class PasswordResetRequestController extends Controller
         }
     }
 
-    /** The admin path: mint a code, text it, and move to the verify screen. */
-    private function sendOtp(Request $request, User $user): RedirectResponse
+    /**
+     * The admin path: mint a code, text it, and move to the verify screen.
+     *
+     * $isResend only changes how it SPEAKS, never what it does -- a resend is
+     * the same act, and deliberately shares the one rate limiter so that
+     * pressing the button on the code screen cannot buy sends the email form
+     * would have refused. The error is keyed to a field the page in question
+     * actually has: the first screen has an email box, the code screen does
+     * not.
+     */
+    private function sendOtp(Request $request, User $user, bool $isResend = false): RedirectResponse
     {
         $key = 'password-otp:'.$user->id;
 
         if (RateLimiter::tooManyAttempts($key, self::SEND_LIMIT)) {
             throw ValidationException::withMessages([
-                'email' => 'Too many codes requested. Try again in '.ceil(RateLimiter::availableIn($key) / 60).' minute(s).',
+                $isResend ? 'code' : 'email' => 'Too many codes requested. Try again in '.ceil(RateLimiter::availableIn($key) / 60).' minute(s).',
             ]);
         }
 
@@ -162,7 +171,33 @@ class PasswordResetRequestController extends Controller
             return back()->with('status', 'The code could not be sent to the number on file. Check the number, or ask another admin to reset it from User Management.');
         }
 
-        return redirect()->route('password.otp')->with('status', 'A 6-digit code has been sent to the mobile number on this account.');
+        return redirect()->route('password.otp')->with('status', $isResend
+            // Say the old one died. Issuing a code replaces the outstanding
+            // one (User::issuePasswordOtp), so somebody who resent while the
+            // first text was still in flight would otherwise keep trying the
+            // code that arrived first and wonder why it is refused.
+            ? 'A new code has been sent. The previous code no longer works.'
+            : 'A 6-digit code has been sent to the mobile number on this account.');
+    }
+
+    /**
+     * Resend to the account the session is already holding -- no retyping an
+     * email address, which is what the old "send a new code" link cost.
+     *
+     * It re-reads the account rather than trusting the session for anything
+     * but the address, so an account that lost its number, its admin role or
+     * its active flag mid-flow cannot be texted by pressing a button on a
+     * page that was rendered before any of that changed.
+     */
+    public function resendOtp(Request $request): RedirectResponse
+    {
+        $user = $this->pendingUser($request);
+
+        if (! $user || ! $user->isAdmin() || trim((string) $user->phone) === '') {
+            return redirect()->route('password.request');
+        }
+
+        return $this->sendOtp($request, $user, true);
     }
 
     /** Step 2: type the code. */

@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (275 passed, 851 assertions — measured 2026-09-23) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (278 passed, 864 assertions — measured 2026-09-23) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -182,7 +182,7 @@ cost a false "security bug" during a QA pass; `DeactivationTest` carries the war
   admin with NO number falls back to the staff path rather than dead-ending, and then wrong / expired
   / guessed-too-many-times codes are each refused (with the right code dying alongside the burned
   one), the password form can't be reached without verifying, the code form can't be reached with
-  nothing pending, and sending is rate limited. Note the test reads the code out of
+  nothing pending, sending is rate limited, and the resend button issues a fresh code, kills the old one, needs a pending request, and shares that one limit. Note the test reads the code out of
   `SmsService::fake()` — it is stored hashed, so there is no other way to get it, which is the point.
 
 Forecasting is the one area still uncovered — neither pipeline, neither service, neither page.
@@ -541,9 +541,18 @@ reset them, and the message says which of the two things was missing rather than
 an admin has been notified. That still leaves a genuine gap on a single-admin install with no number
 saved, and the honest fix is to save a number.
 
-Three steps, three guest routes (`password.otp` / `password.otp.verify` / `password.otp.reset` /
+Three steps, four guest routes (`password.otp` / `password.otp.verify` / `password.otp.reset` /
 `password.otp.update`), and **each re-checks the session itself rather than trusting the step
-before**. The verified identity rides in the SESSION as an EMAIL -- never a user id in the URL,
+before**. **`password.otp.resend` is a fifth**: a real resend on the code screen, not a link back to
+the email form (which is what it was, and which cost a retyped address). It re-reads the account
+rather than trusting the rendered page, so one that lost its number, its admin role or its active
+flag mid-flow cannot be texted by a button that was drawn before any of that changed, and it
+**shares the one rate limiter** so the button cannot buy sends the email form would have refused.
+Issuing a code replaces the outstanding one, so the resend says the previous code has stopped
+working -- otherwise somebody who resent while the first text was still in flight keeps trying the
+code that arrived first and cannot see why it is refused. Its 30-second button cooldown is in
+`sessionStorage`, not a timer, because the submit it guards causes a redirect that would kill a
+timer; it is a courtesy against double-clicks spending two credits, never the real limit. The verified identity rides in the SESSION as an EMAIL -- never a user id in the URL,
 which would let anyone skip to "set a new password" for any account they can name, and never a user
 object, so an account archived or deactivated mid-flow stops resolving and the flow simply ends. The
 session is regenerated on successful verification (so an id captured beforehand can't be replayed as

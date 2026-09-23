@@ -179,6 +179,51 @@ class AdminOtpPasswordResetTest extends TestCase
         $this->post('/forgot-password/code', ['code' => '123456'])->assertRedirect(route('password.request'));
     }
 
+    public function test_resending_issues_a_new_code_and_kills_the_old_one(): void
+    {
+        $admin = $this->adminWithPhone();
+        $first = $this->requestCodeFor($admin);
+
+        $this->post('/forgot-password/code/resend')
+            ->assertRedirect(route('password.otp'));
+
+        preg_match('/\b(\d{6})\b/', SmsService::lastMessage(), $m);
+        $second = $m[1];
+
+        // The old code must stop working the moment a new one is issued, or
+        // two live codes double the guessing surface.
+        $this->post('/forgot-password/code', ['code' => $first])
+            ->assertSessionHasErrors('code');
+
+        $this->post('/forgot-password/code', ['code' => $second])
+            ->assertRedirect(route('password.otp.reset'));
+    }
+
+    public function test_resending_needs_no_email_retyped_but_does_need_a_pending_request(): void
+    {
+        // Nothing in the session: the button cannot be used to text an
+        // account the visitor has not already named on the first screen.
+        $this->post('/forgot-password/code/resend')
+            ->assertRedirect(route('password.request'));
+
+        $this->assertSame([], SmsService::captured());
+    }
+
+    public function test_resending_shares_the_send_limit_with_the_email_form(): void
+    {
+        $admin = $this->adminWithPhone();
+        $this->requestCodeFor($admin);
+
+        // Four more by button: five sends total, which is the cap.
+        for ($i = 0; $i < 4; $i++) {
+            $this->post('/forgot-password/code/resend');
+        }
+
+        // The button must not buy sends the email form would have refused.
+        $this->post('/forgot-password/code/resend')
+            ->assertSessionHasErrors('code');
+    }
+
     public function test_sending_codes_is_rate_limited(): void
     {
         $admin = $this->adminWithPhone();
