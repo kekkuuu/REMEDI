@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (264 passed, 832 assertions — measured 2026-09-23) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (275 passed, 851 assertions — measured 2026-09-23) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -61,7 +61,7 @@ rule below: `/` redirects to login, `/register` is the admin Add User form (a gu
 staff get 403, and an admin who creates a user **stays signed in as themselves**), and staff may
 change their name but not their email. **Never change the app to satisfy a test; fix the test.**
 
-Beyond Breeze there are now twenty suites covering the things REMEDI.md says must never regress:
+Beyond Breeze there are now twenty-one suites covering the things REMEDI.md says must never regress:
 
 - `Feature\DestructiveGuardsTest` — the refusals standing between an ordinary click and lost data,
   each one a thing that happened here or was one request away: a cashier with sales deleted, an admin
@@ -168,6 +168,13 @@ cost a false "security bug" during a QA pass; `DeactivationTest` carries the war
   the POS void passcode `Feature\Pos\VoidTest` covers spending: staff can't reach `/settings` at all
   (403), an admin can set and later replace it, the 6-digit and confirmation rules are enforced, and
   replacing one invalidates the old code immediately.
+
+- `Feature\SmsServiceTest` — `App\Services\SmsService`, on `Http::fake()` throughout so no test ever
+  reaches semaphore.co (which would spend real credits and text a real handset). The cases that earn
+  their keep are the ones where nothing was sent but a naive integration would say otherwise: a
+  `Failed` status inside a 200, an HTTP error, a missing API key (which must not even call out), and
+  a gateway that throws. Plus number normalisation, the sender name being withheld unless
+  configured, and `delivers()` following the driver rather than being set by hand.
 
 - `Feature\Auth\AdminOtpPasswordResetTest` — the ADMIN half of "Forgot your password?", the shortest
   path in the app between an email address and an admin account, so it is mostly REFUSALS: a staff
@@ -554,18 +561,37 @@ with **one** message, since which of the three it was is information a guesser c
 itself is never written to the audit trail -- that trail is readable by every admin, which would
 turn it into a way to take over a colleague's account; only "Password reset code sent: {name}" is.
 
-**`App\Services\SmsService` is the one place a text leaves the app, and there is no gateway behind
-it yet.** That is deliberate, not unfinished: a gateway costs money per message and needs
-credentials only the shop can create. The driver is config (`config/sms.php`, `SMS_DRIVER`), and the
-default `log` driver writes the message to `storage/logs/laravel.log` instead of sending it, so the
-whole flow is exercisable today. **`SmsService::delivers()` is what the OTP screen reads** to decide
-whether to tell the person the code is in the log rather than claiming a text reached a handset that
-will never ring -- that notice removes itself the moment a real driver is set. Wiring one up is a
-branch in `send()` plus credentials, with nothing else in the app changing. Note the `log` driver
-writes the code in full, which is the only way to read it without a phone and also means that log
-file can hand somebody an admin reset code: it belongs on a dev machine, not a shop floor.
-`SmsService::fake()` is the test seam, and tests genuinely need it -- the code is hashed at rest, so
-there is no other way to read one back.
+**`App\Services\SmsService` is the one place a text leaves the app**, and it has two drivers
+(`config/sms.php`, `SMS_DRIVER`). `log` writes the message to `storage/logs/laravel.log` instead of
+sending it, so the whole flow is exercisable with no account and no credits -- it is the right
+setting for a dev machine, and note it writes the code IN FULL, which is both the only way to read
+one without a phone and a reason that log file can hand somebody an admin reset. `semaphore`
+(semaphore.co, the usual Philippine gateway) sends real texts and costs credits per message.
+**`SmsService::delivers()` is what the OTP screen reads** to decide whether to tell the person the
+code is in the log rather than claiming a text reached a handset that will never ring -- that notice
+removes itself when the driver moves, so it can never disagree with reality.
+
+Four things about the Semaphore driver, each of which is a way an integration looks fine and sends
+nothing. **A 200 does not mean delivered**: Semaphore answers with an ARRAY of per-message objects,
+and a message it refuses (bad number, no credits) arrives inside a successful response carrying
+`status: Failed` -- so the statuses are read, and `Failed`/`Refunded` come back false. **The sender
+name is blank by default and must stay that way until it is registered**: Semaphore REJECTS an
+unapproved sender name, so setting `SEMAPHORE_SENDER_NAME=REMEDI` before registering it fails every
+message; blank lets Semaphore use its own. **Numbers are normalised** (`+63 945 455 3998`,
+`0945-455-3998` and `9454553998` are one handset, and a profile field collects all three). And
+**nothing about this driver logs the message body**, unlike `log` -- that body carries the reset
+code, and a configured gateway means a real shop floor where the log is not a private dev file.
+A missing key, an HTTP error and a gateway that throws all return false rather than raising, because
+the caller turns false into "we could not text you, use another way" and a login screen must not 500
+because a gateway is having a bad day.
+
+**`SmsService::fake()` is the test seam and tests genuinely need it** -- the code is hashed at rest,
+so there is no other way to read one back. It is STATIC, and `Tests\TestCase::setUp()` calls
+`stopFaking()` before every test for that reason: PHPUnit runs a suite in one process, so one class
+calling `fake()` otherwise leaves every later test faking too. That is not hypothetical -- it turned
+eight `Feature\SmsServiceTest` cases green-alone and red-in-suite, because `send()` short-circuited
+into the capture branch and never reached the gateway the test was checking. Same family as the
+guard memoisation `DeactivationTest` documents: state that outlives the test that set it.
 
 **The admin side is `UserController::resetPassword()` (`PATCH /users/{user}/reset-password`,
 `role:admin`), not gated on a pending request existing** -- an admin can act on a phone call or
