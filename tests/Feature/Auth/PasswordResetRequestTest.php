@@ -132,6 +132,59 @@ class PasswordResetRequestTest extends TestCase
         $this->actingAs($user)->get('/profile')->assertOk();
     }
 
+    /**
+     * READING the profile page is allowed; WRITING to it is not.
+     *
+     * The exemption used to cover the whole `/profile*` path, so a locked
+     * account could still PATCH itself -- and the phone is where an admin's
+     * SMS reset code is sent (PasswordResetRequestController), so somebody
+     * holding the shared default password could point it at their own handset
+     * and turn a temporary password into a permanent way in.
+     */
+    public function test_a_locked_account_cannot_edit_its_own_profile(): void
+    {
+        $user = User::factory()->create([
+            'must_change_password' => true,
+            'name' => 'Original Name',
+            'phone' => null,
+        ]);
+
+        $this->actingAs($user)
+            ->patch('/profile', [
+                'name' => 'Changed Name',
+                'phone' => '09999999999',
+                'email' => $user->email,
+            ])
+            ->assertRedirect(route('profile.edit'));
+
+        $user->refresh();
+        $this->assertSame('Original Name', $user->name, 'a locked account must not rename itself');
+        $this->assertNull($user->phone, 'the SMS reset number must not be movable while locked');
+    }
+
+    public function test_a_locked_account_cannot_delete_itself_either(): void
+    {
+        $user = User::factory()->create(['must_change_password' => true]);
+
+        $this->actingAs($user)->delete('/profile')->assertRedirect(route('profile.edit'));
+
+        $this->assertNotNull($user->fresh(), 'the account should still exist');
+    }
+
+    public function test_editing_the_profile_works_again_once_the_password_is_set(): void
+    {
+        // The block is about the temporary password, not about the profile
+        // form -- it has to lift completely once the flag clears.
+        $user = User::factory()->create(['must_change_password' => false, 'name' => 'Original Name']);
+
+        $this->actingAs($user)->patch('/profile', [
+            'name' => 'Changed Name',
+            'email' => $user->email,
+        ]);
+
+        $this->assertSame('Changed Name', $user->fresh()->name);
+    }
+
     public function test_an_ajax_request_is_locked_out_too_not_just_full_page_loads(): void
     {
         // "You can't enter the system unless you change it" -- a hard block,

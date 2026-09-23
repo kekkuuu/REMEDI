@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (278 passed, 864 assertions — measured 2026-09-23) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (281 passed, 872 assertions — measured 2026-09-23) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -620,6 +620,19 @@ system unless you change it" means the bell's poll and an in-progress checkout t
 page navigation. `/profile*` is the one exemption -- where the password form lives, and where the
 Change Password card's own AJAX submit needs to keep reaching `/password` (a separate route in
 routes/auth.php's OWN `['auth','active']` group, so it was never gated by this in the first place).
+
+**That exemption is for SAFE (GET/HEAD) requests ONLY, as of 2026-09-23** (`isMethodSafe()`). It
+covered the whole path at first, which let a locked account WRITE to itself: `PATCH /profile` went
+straight through, so somebody holding the shared `staff123` could edit that account's name and phone
+without ever setting a new password. **The phone is what makes that more than untidy** -- it is
+where an admin's SMS reset code is sent, so pointing it at another handset turns a temporary
+password into a permanent way in, which is the exact escalation `must_change_password` exists to
+prevent. Changing the password is unaffected (different route, different group). The Personal
+Information form is `<fieldset disabled>` while the flag is set so the UI agrees with the endpoint --
+but the ENDPOINT is the guard, per this file's standing rule that a gated button is not a gated
+endpoint. Covered by three tests in `Feature\Auth\PasswordResetRequestTest`: a locked account can't
+rename itself, can't move its phone, can't delete itself, and editing works again the moment the
+flag clears.
 The flag is cleared in exactly one place, `PasswordController::update()`, so the account holder's
 current password IS the temporary one and they type it as `current_password` like anyone else
 changing their password. `/profile`

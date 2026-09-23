@@ -712,6 +712,20 @@
             </p>
         @endunless
 
+        {{-- An account still on the admin-issued default password may READ this
+             page but not write to it -- EnsureUserSetsNewPassword refuses
+             PATCH /profile until the password is changed. The form is disabled
+             to match, because one that always fails is worse than one that
+             isn't offered. The endpoint is the real guard; this is only the
+             UI agreeing with it (a gated button is not a gated endpoint). --}}
+        @if($user->must_change_password)
+            <div class="alert alert-warning" style="margin-bottom:16px;">
+                <i class="ti ti-lock" aria-hidden="true"></i>
+                <span>Set a new password below before editing your details.</span>
+            </div>
+        @endif
+
+        <fieldset @disabled($user->must_change_password) style="border:0; padding:0; margin:0; {{ $user->must_change_password ? 'opacity:.55;' : '' }}">
         <form method="POST" action="{{ route('profile.update') }}"
           class="js-confirm" data-confirm-tone="neutral" data-confirm-icon="ti-user-edit"
           data-confirm-title="Save profile changes?" data-confirm-body="Your personal information will be updated."
@@ -784,6 +798,7 @@
                 </button>
             </div>
         </form>
+        </fieldset>
     </div>
 
     {{-- ── Account activity ──
