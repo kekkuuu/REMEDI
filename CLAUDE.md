@@ -624,7 +624,12 @@ The flag is cleared in exactly one place, `PasswordController::update()`, so the
 current password IS the temporary one and they type it as `current_password` like anyone else
 changing their password. `/profile`
 carries an amber banner (`session('status') === 'must-change-password'`) that also auto-opens the
-Change Password dialog -- same trigger condition the pre-existing "a validation error means open
+Change Password dialog. **The AJAX success handler REMOVES that banner** (it is the one element
+carrying `data-open-password-change`): the request that just succeeded is the request that cleared
+the flag, and nothing re-renders the banner away because the change goes over AJAX and the page
+never reloads -- so leaving it up states something that stopped being true a moment earlier. The
+auto-open check reads the same attribute, but on load, long before any success, so removing it
+afterwards costs nothing -- same trigger condition the pre-existing "a validation error means open
 straight onto it" case uses, and note the `setTimeout(openModal, 0)` on that path: this content
 script runs where `@yield('content')` sits, AHEAD of the layout's own trailing scripts that build
 `window.REMEDI`, so calling `REMEDI.lockScroll()` synchronously here throws before those scripts have

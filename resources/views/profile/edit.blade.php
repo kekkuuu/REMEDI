@@ -667,6 +667,16 @@
                         if (r.ok && r.data.success) {
                             notify('success', r.data.message || 'Password updated.');
 
+                            /* The "you're on a temporary password" banner was
+                               rendered by EnsureUserSetsNewPassword before this
+                               request, and this request is what cleared the
+                               flag -- so leaving it on screen states something
+                               that stopped being true a moment ago. Nothing
+                               re-renders it away, because the change goes over
+                               AJAX and the page never reloads. */
+                            document.querySelectorAll('[data-open-password-change]')
+                                .forEach(function (el) { el.remove(); });
+
                             // Close the dialog: the job is done, and leaving
                             // three empty password boxes open invites a second
                             // change nobody asked for. The message lands on the
