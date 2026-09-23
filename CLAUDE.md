@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (281 passed, 872 assertions — measured 2026-09-23) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (291 passed, 916 assertions — measured 2026-09-24) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -165,7 +165,7 @@ cost a false "security bug" during a QA pass; `DeactivationTest` carries the war
   clears the flag) lifts it.
 
 - `Feature\SettingsTest` — store-wide settings (`SettingsController`, `Setting` model), currently just
-  the POS void passcode `Feature\Pos\VoidTest` covers spending: staff can't reach `/settings` at all
+  the POS void passcode `Feature\Pos\VoidTest` covers spending: staff can't reach `/safeguard` at all
   (403), an admin can set and later replace it, the 6-digit and confirmation rules are enforced, and
   replacing one invalidates the old code immediately.
 
@@ -633,6 +633,12 @@ but the ENDPOINT is the guard, per this file's standing rule that a gated button
 endpoint. Covered by three tests in `Feature\Auth\PasswordResetRequestTest`: a locked account can't
 rename itself, can't move its phone, can't delete itself, and editing works again the moment the
 flag clears.
+**Editing your own profile is audited** (`ProfileController::update`, 2026-09-24) — it was the one
+account mutation that wrote nothing. The entry is `Updated own user account: {name} (phone, name…)`:
+field NAMES only, never values, because the trail is readable by every admin and `personal_email` is
+where an admin's reset code goes. Dirty fields are captured BEFORE `save()` (afterwards the model is
+clean), and a save that changed nothing writes nothing. The wording contains "user account" so
+`AlertService`'s `$isAccount` predicate files it with the other account changes.
 The flag is cleared in exactly one place, `PasswordController::update()`, so the account holder's
 current password IS the temporary one and they type it as `current_password` like anyone else
 changing their password. `/profile`
@@ -879,8 +885,25 @@ manager passcode.** `role:admin` was "the closest thing this app has to restrict
 `Setting` is a new plain key/value table (`settings`: `key` unique, `value`) for store-wide config an
 admin sets through the UI rather than `.env`/`config()` (which would need a redeploy) — the void
 passcode (`Setting::VOID_PASSCODE_KEY`) is its first and so far only user, stored HASHED
-(`Hash::make`/`Hash::check`, same as any other credential) via `SettingsController` at `/settings`
-(`role:admin`, its own sidebar entry after Audit trail). A void with no passcode set at all, or the
+(`Hash::make`/`Hash::check`, same as any other credential) via `SettingsController` at `/safeguard`
+(`role:admin`, its own sidebar entry).
+
+**The page is called SAFEGUARD, not Settings, as of 2026-09-24, and opening it asks for the LOGIN
+password first.** Both routes (`safeguard.edit`, `safeguard.void-passcode.update`) sit behind Laravel's
+`password.confirm` middleware, so a signed-in admin screen left open at the counter is not enough to
+change the code that authorises voids; confirmation lasts `auth.password_timeout` (3 hours) per session.
+`/settings` is a `Route::redirect` for old bookmarks. **The prompt is a POP-UP, never a separate
+sign-in screen** (asked for explicitly): `#passwordGateModal` in `layouts/app.blade.php`. The sidebar
+link carries `data-password-gate="required|confirmed"` from the session's confirmation stamp; a
+CAPTURE-phase click handler opens the dialog for `required` — capture, because the navigation-skeleton
+handler bails on `defaultPrevented` and would otherwise paint a skeleton behind a dialog that has not
+navigated. The dialog posts over fetch to `password.confirm`, which answers `{success:true}` for JSON
+(`ConfirmablePasswordController`) and a normal 422 validation error for a wrong password. Reaching a
+gated URL directly lands on `auth/confirm-password.blade.php`, which is now just the app shell — the
+layout auto-opens the same dialog there (`data-auto-open`, keyed on `routeIs('password.confirm')`) and
+Cancel leaves for the dashboard. The confirm POST is `throttle:6,1`: it checks a password from inside
+a signed-in session, so unmetered it is a guesser for whoever finds a screen left open. The dialog
+only saves a round trip — the middleware is the guard, per "a gated button is not a gated endpoint". A void with no passcode set at all, or the
 wrong one, is refused with a message naming which (`actionFailed`, so it reads the same both-422-shapes
 way every other confirm-dialog refusal does).
 
@@ -898,7 +921,7 @@ field name `passcode` for something else needs to know this. The passcode `<inpu
 `inputmode="numeric"` for a numeric keypad on mobile despite not being `type="number"`.
 
 Covered by `Feature\SettingsTest` (setting/replacing the passcode, the 6-digit and confirmation rules,
-staff locked out of `/settings` itself) and `Feature\Pos\VoidTest` (no passcode set at all, the wrong
+staff locked out of `/safeguard` itself) and `Feature\Pos\VoidTest` (no passcode set at all, the wrong
 one, the correct one restocking exactly like an admin's void, staff blocked from someone else's sale
 even with the right code, an admin needing none of it).
 

@@ -36,6 +36,6 @@ class SettingsController extends Controller
 
         AuditTrail::log('Updated', 'Set the POS void passcode');
 
-        return $this->actionOk($request, 'Void passcode updated.', redirect()->route('settings.edit'));
+        return $this->actionOk($request, 'Void passcode updated.', redirect()->route('safeguard.edit'));
     }
 }

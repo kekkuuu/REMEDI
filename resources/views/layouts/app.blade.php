@@ -2960,29 +2960,21 @@
 
         .remedi-table td.col-actions { white-space: nowrap; vertical-align: middle; }
 
-        /* Fallback for tables that don't declare their own .actions-cell.
-           In practice this is User Management, the only table carrying FOUR
-           row actions (Edit / Reset password / Deactivate / Archive) -- laid
-           out on one line they made the Actions column 495px, 36% of the
-           table, which pushed Status and Actions off-screen behind a
-           horizontal scroll at 1366px. Wrapping them into two rows gives that
-           width back.
+        /* Row actions sit BESIDE each other on one line, in every table
+           (2026-09-24, at the user's request). User Management briefly wrapped
+           its four (Edit / Reset password / Deactivate / Archive) into two
+           rows under a 250px max-width to fit a 1366px screen; that stacked
+           them, which is what was asked to go. The table scrolls sideways
+           inside .table-scroll instead where it does not fit.
 
-           `max-width` is what makes the wrap happen at all: a table cell grows
-           to fit its content, so flex-wrap alone never triggers. 250px is
-           above what the two-action tables (products, inventory ~215px) need,
-           so they are untouched and stay on one line.
-
-           `white-space: nowrap` STAYS -- it keeps each label intact
-           ("Reset password" must not break across two lines); it is the flex
-           container that wraps, not the text. */
+           The gap is 8px, not 14px: four buttons carry three gaps, and that
+           is width a one-line row cannot give back. `white-space: nowrap`
+           keeps "Reset password" from breaking across two lines. */
         .remedi-table .actions-cell {
             display: flex;
             align-items: center;
-            gap: 14px;
-            row-gap: 8px;
-            flex-wrap: wrap;
-            max-width: 250px;
+            gap: 8px;
+            flex-wrap: nowrap;
             white-space: nowrap;
         }
 
@@ -3399,12 +3391,19 @@
                 <a href="{{ route('users.index') }}" class="{{ request()->routeIs('users.*') ? 'active' : '' }}">
                     <i class="ti ti-users" aria-hidden="true"></i> User management
                 </a>
-                {{-- Settings: store-wide config an admin sets through the UI --
-                     currently just the POS void passcode. Last in the Admin
-                     group, after the audit trail, since it's the one entry
-                     that isn't about day-to-day work. --}}
-                <a href="{{ route('settings.edit') }}" class="{{ request()->routeIs('settings.*') ? 'active' : '' }}">
-                    <i class="ti ti-settings" aria-hidden="true"></i> Settings
+                {{-- Safeguard (renamed from Settings 2026-09-24): store-wide
+                     config an admin sets through the UI -- currently just the
+                     POS void passcode. Opening it asks for the login password
+                     first (`password.confirm`, routes/web.php). --}}
+                {{-- data-password-gate: clicking opens #passwordGateModal
+                     (a pop-up asking for the login password) instead of
+                     navigating, unless this session already confirmed one
+                     inside `auth.password_timeout`. The server gate
+                     (`password.confirm`) is what actually protects the page;
+                     this only saves a trip through it. --}}
+                <a href="{{ route('safeguard.edit') }}" class="{{ request()->routeIs('safeguard.*') ? 'active' : '' }}"
+                   data-password-gate="{{ (time() - (int) session('auth.password_confirmed_at', 0)) < (int) config('auth.password_timeout', 10800) ? 'confirmed' : 'required' }}">
+                    <i class="ti ti-shield-lock" aria-hidden="true"></i> Safeguard
                 </a>
                 <a href="{{ route('audit.index') }}" class="{{ request()->routeIs('audit.*') ? 'active' : '' }}">
                     <i class="ti ti-list-check" aria-hidden="true"></i> Audit trail
@@ -3609,6 +3608,40 @@
                 <button type="button" class="btn btn-danger" id="logoutConfirm">Log out</button>
             </div>
         </div>
+    </div>
+
+    {{-- Login-password pop-up guarding Safeguard (routes/web.php,
+         `password.confirm`). Opened by the sidebar link's click, and opened on
+         load by auth/confirm-password.blade.php when someone reaches the page
+         directly -- so it is the SAME dialog either way, never a separate
+         sign-in screen. A real POST form: with JavaScript off it still submits
+         to password.confirm and the server redirects onward. --}}
+    <div class="remedi-modal" id="passwordGateModal" role="dialog" aria-modal="true"
+         aria-labelledby="passwordGateTitle" aria-describedby="passwordGateBody"
+         data-target="{{ route('safeguard.edit') }}"
+         @if(request()->routeIs('password.confirm'))
+             data-auto-open="1"
+             data-intended="{{ session('url.intended', route('safeguard.edit')) }}"
+             data-cancel-href="{{ route('dashboard') }}"
+         @endif>
+        <form class="remedi-modal__panel" id="passwordGateForm" method="POST" action="{{ route('password.confirm') }}">
+            @csrf
+            <div class="remedi-modal__icon is-neutral"><i class="ti ti-shield-lock" aria-hidden="true"></i></div>
+            <h3 id="passwordGateTitle">Confirm it's you</h3>
+            <p id="passwordGateBody">
+                Safeguard holds the store's security controls. Enter your login password to continue.
+            </p>
+            <div class="remedi-modal__passcode">
+                <label for="passwordGateInput">Login password</label>
+                <input type="password" name="password" id="passwordGateInput" autocomplete="current-password" required>
+                <p id="passwordGateError" role="alert" @if(! $errors->has('password')) hidden @endif
+                   style="margin:8px 0 0; font-size:12.5px; color:#b91c1c;">{{ $errors->first('password') }}</p>
+            </div>
+            <div class="remedi-modal__actions">
+                <button type="button" class="btn btn-secondary" id="passwordGateCancel">Cancel</button>
+                <button type="submit" class="btn btn-primary" id="passwordGateConfirm">Continue</button>
+            </div>
+        </form>
     </div>
 
     {{-- Shared confirm dialog for every destructive or state-changing action:
@@ -5786,6 +5819,115 @@
                     form.submit();
                 });
         });
+    })();
+
+    /* -- Safeguard password pop-up -------------------------------------
+       Intercepts the sidebar link in the CAPTURE phase so it runs before the
+       navigation-skeleton handler, which bails on defaultPrevented -- without
+       that the skeleton would paint behind a dialog that has not navigated.
+       Success is only ever the server's answer: the page itself is gated by
+       `password.confirm`, so nothing here can open it on a wrong password. */
+    (function () {
+        const modal = document.getElementById('passwordGateModal');
+        if (!modal) return;
+
+        const form = document.getElementById('passwordGateForm');
+        const input = document.getElementById('passwordGateInput');
+        const error = document.getElementById('passwordGateError');
+        const okBtn = document.getElementById('passwordGateConfirm');
+        const cancelBtn = document.getElementById('passwordGateCancel');
+        let target = modal.dataset.target;
+        let cancelHref = null;      // set when opened on the confirm page itself
+        let unlockScroll = null;
+        let busy = false;
+
+        function showError(msg) {
+            error.textContent = msg;
+            error.hidden = !msg;
+        }
+
+        function open(keepError) {
+            if (!keepError) showError('');
+            input.value = '';
+            modal.classList.add('is-open');
+            unlockScroll = REMEDI.lockScroll();
+            setTimeout(function () { input.focus({ preventScroll: true }); }, 0);
+        }
+
+        function close() {
+            if (busy) return;
+            if (cancelHref) { window.location.href = cancelHref; return; }
+            modal.classList.remove('is-open');
+            if (unlockScroll) { unlockScroll(); unlockScroll = null; }
+        }
+
+        document.addEventListener('click', function (e) {
+            const link = e.target.closest('a[data-password-gate="required"]');
+            if (!link) return;
+            if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            e.preventDefault();
+            target = link.href;
+            open(false);
+        }, true);
+
+        cancelBtn.addEventListener('click', close);
+        modal.addEventListener('mousedown', function (e) {
+            if (!form.contains(e.target)) close();
+        });
+        document.addEventListener('keydown', function (e) {
+            if (modal.classList.contains('is-open') && e.key === 'Escape') close();
+        });
+
+        form.addEventListener('submit', function (e) {
+            e.preventDefault();
+            if (busy || !input.value) return;
+            busy = true;
+            okBtn.disabled = true;
+            cancelBtn.disabled = true;
+            okBtn.textContent = 'Checking...';
+            showError('');
+
+            fetch(form.action, {
+                method: 'POST',
+                body: new FormData(form),
+                credentials: 'same-origin',
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            })
+                .then(function (res) {
+                    return res.json().catch(function () { return {}; }).then(function (data) {
+                        return { status: res.status, data: data };
+                    });
+                })
+                .then(function (r) {
+                    if (r.status === 200 && r.data.success) {
+                        window.location.href = target;
+                        return;
+                    }
+                    busy = false;
+                    okBtn.disabled = false;
+                    cancelBtn.disabled = false;
+                    okBtn.textContent = 'Continue';
+                    // Validation 422 is {message, errors:{password:[...]}};
+                    // the throttle answers 429 with a message only.
+                    const msg = (r.data.errors && r.data.errors.password && r.data.errors.password[0])
+                        || (r.status === 429 ? 'Too many attempts. Wait a minute and try again.' : r.data.message)
+                        || 'That password could not be checked. Please try again.';
+                    showError(msg);
+                    input.value = '';
+                    input.focus({ preventScroll: true });
+                })
+                .catch(function () { form.submit(); });
+        });
+
+        // auth/confirm-password.blade.php -- where someone lands on reaching
+        // a gated URL directly. It opens this same pop-up over the app, and
+        // Cancel leaves for the dashboard rather than revealing an empty page
+        // behind the dialog.
+        if (modal.dataset.autoOpen === '1') {
+            target = modal.dataset.intended || target;
+            cancelHref = modal.dataset.cancelHref || null;
+            open(true);
+        }
     })();
 
     /* -- Alert toasts ---------------------------------------------------

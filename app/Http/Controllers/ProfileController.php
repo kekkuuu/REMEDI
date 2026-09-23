@@ -46,7 +46,23 @@ class ProfileController extends Controller
             $request->user()->email_verified_at = null;
         }
 
+        // Captured BEFORE save(): afterwards the model is clean and
+        // getDirty() is empty. Field NAMES only, never values -- the trail is
+        // readable by every admin, and personal_email is where an admin's
+        // reset code is sent.
+        $changed = array_keys($request->user()->getDirty());
+
         $request->user()->save();
+
+        // Every other account mutation logs; this one did not, so a person
+        // editing their own name, phone or email left no trace at all. Worded
+        // "own user account" so AlertService's $isAccount predicate files it
+        // with the other account changes. A save that changed nothing writes
+        // nothing -- there is no event to record.
+        if ($changed !== []) {
+            $labels = array_map(fn ($f) => str_replace('_', ' ', $f), array_diff($changed, ['email_verified_at']));
+            AuditTrail::log('Updated', "Updated own user account: {$request->user()->name} (".implode(', ', $labels).')');
+        }
 
         // Branching here rather than through actionOk(): the non-AJAX path has
         // its own banner keyed on session('status'), and actionOk would also

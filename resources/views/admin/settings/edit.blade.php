@@ -1,12 +1,12 @@
 @extends('layouts.app')
 
-@section('title', 'Settings')
+@section('title', 'Safeguard')
 
 @section('content')
 <div class="page-head">
     <div class="page-head-text">
-        <h3>Settings</h3>
-        <p>Store-wide configuration.</p>
+        <h3>Safeguard</h3>
+        <p>Store-wide security controls. This page asks for your login password before it opens.</p>
     </div>
 </div>
 
@@ -30,7 +30,7 @@
         @endif
     </p>
 
-    <form method="POST" action="{{ route('settings.void-passcode.update') }}"
+    <form method="POST" action="{{ route('safeguard.void-passcode.update') }}"
           class="js-confirm" data-confirm-tone="neutral" data-confirm-icon="ti-lock"
           data-confirm-title="{{ $voidPasscodeSet ? 'Replace the void passcode?' : 'Set the void passcode?' }}"
           data-confirm-body="{{ $voidPasscodeSet ? 'Staff currently using the old code will need the new one.' : 'Staff will be able to void a sale they rang up once this is set.' }}"

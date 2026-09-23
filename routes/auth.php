@@ -59,7 +59,11 @@ Route::middleware(['auth', 'active'])->group(function () {
         ->name('verification.send');
     Route::get('confirm-password', [ConfirmablePasswordController::class, 'show'])
         ->name('password.confirm');
-    Route::post('confirm-password', [ConfirmablePasswordController::class, 'store']);
+    // Throttled: this checks a password from inside a signed-in session, so
+    // without a limit it is an unmetered guesser for whoever finds a screen
+    // left open.
+    Route::post('confirm-password', [ConfirmablePasswordController::class, 'store'])
+        ->middleware('throttle:6,1');
     Route::put('password', [PasswordController::class, 'update'])->name('password.update');
     Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])
         ->name('logout');

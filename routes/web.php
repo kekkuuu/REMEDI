@@ -90,9 +90,19 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
     // ===== ADMIN-ONLY routes =====
     Route::middleware('role:admin')->group(function () {
 
-        // Store-wide settings -- currently just the POS void passcode above.
-        Route::get('/settings', [SettingsController::class, 'edit'])->name('settings.edit');
-        Route::put('/settings/void-passcode', [SettingsController::class, 'updateVoidPasscode'])->name('settings.void-passcode.update');
+        // Safeguard (was "Settings" until 2026-09-24) -- store-wide config,
+        // currently just the POS void passcode above. BOTH routes sit behind
+        // `password.confirm`: an admin re-types their LOGIN password before
+        // this page opens, so a signed-in admin screen left unattended at the
+        // counter is not enough to change the code that authorises voids.
+        // The PUT carries it too -- a gated page is not a gated endpoint.
+        // Confirmation lasts `auth.password_timeout` (3 hours) per session.
+        Route::middleware('password.confirm')->group(function () {
+            Route::get('/safeguard', [SettingsController::class, 'edit'])->name('safeguard.edit');
+            Route::put('/safeguard/void-passcode', [SettingsController::class, 'updateVoidPasscode'])->name('safeguard.void-passcode.update');
+        });
+        // The old address keeps working for a bookmark.
+        Route::redirect('/settings', '/safeguard');
 
         // User management (+ register acts as "Add User" form)
         Route::get('/register', [RegisteredUserController::class, 'create'])->name('register');

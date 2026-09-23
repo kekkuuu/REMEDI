@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\AuditTrail;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -105,6 +106,43 @@ class ProfileTest extends TestCase
         $this->assertSame('Test Admin', $admin->name);
         $this->assertSame('test@example.com', $admin->email);
         $this->assertNull($admin->email_verified_at);
+    }
+
+    /**
+     * Every other account mutation logs; a person editing their OWN profile
+     * used to leave no trace at all. The entry names the fields, never the
+     * values -- the trail is readable by every admin.
+     */
+    public function test_updating_your_own_profile_is_written_to_the_audit_trail(): void
+    {
+        $user = User::factory()->create(['name' => 'Old Name', 'phone' => null]);
+
+        $this->actingAs($user)->patch('/profile', [
+            'name' => 'New Name',
+            'email' => $user->email,
+            'phone' => '09171234567',
+            'personal_email' => 'secret@gmail.com',
+        ])->assertSessionHasNoErrors();
+
+        $row = AuditTrail::where('user_id', $user->id)->where('action', 'Updated')->latest('id')->first();
+
+        $this->assertNotNull($row, 'a profile edit must be audited');
+        $this->assertStringContainsString('Updated own user account: New Name', $row->details);
+        $this->assertStringContainsString('phone', $row->details);
+        $this->assertStringNotContainsString('09171234567', $row->details);
+        $this->assertStringNotContainsString('secret@gmail.com', $row->details);
+    }
+
+    public function test_a_profile_save_that_changes_nothing_writes_no_audit_row(): void
+    {
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->patch('/profile', [
+            'name' => $user->name,
+            'email' => $user->email,
+        ])->assertSessionHasNoErrors();
+
+        $this->assertSame(0, AuditTrail::where('user_id', $user->id)->where('action', 'Updated')->count());
     }
 
     public function test_email_verification_status_is_unchanged_when_the_email_address_is_unchanged(): void
