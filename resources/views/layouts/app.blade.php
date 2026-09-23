@@ -2123,13 +2123,6 @@
             font-size: 13px;
         }
 
-        /* Opt-in for the widest tables (User Management, eight columns), where
-           the default 16px side padding is the difference between fitting a
-           1366px laptop and hiding the last columns behind a sideways scroll.
-           Opt-in rather than global: every other table has room, and making
-           them all denser to solve one page is the wrong trade. */
-        table.remedi-table.is-dense th,
-        table.remedi-table.is-dense td { padding-left: 11px; padding-right: 11px; }
 
         /* ── Buttons ── */
         /* ── Form pages ───────────────────────────────────────────────
@@ -2984,7 +2977,7 @@
            ("Reset password" must not break across two lines); it is the flex
            container that wraps, not the text. */
         .remedi-table .actions-cell {
-            display: inline-flex;
+            display: flex;
             align-items: center;
             gap: 14px;
             row-gap: 8px;

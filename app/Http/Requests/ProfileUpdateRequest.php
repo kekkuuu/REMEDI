@@ -29,6 +29,12 @@ class ProfileUpdateRequest extends FormRequest
         $rules = [
             'name' => ['required', 'string', 'max:255'],
             'phone' => ['nullable', 'string', 'max:40'],
+            // Editable by EVERY role, unlike `email` below which only an admin
+            // may change. It is a personal inbox, not an identity: it is where
+            // a password reset code is sent, so an account that cannot change
+            // it after switching providers would discover that at the exact
+            // moment it needed the address to work.
+            'personal_email' => ['nullable', 'string', 'email', 'max:255'],
         ];
 
         if ($this->user()->isAdmin()) {

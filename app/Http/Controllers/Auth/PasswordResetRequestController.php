@@ -3,12 +3,14 @@
 namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
+use App\Mail\PasswordResetCodeMail;
 use App\Models\AuditTrail;
 use App\Models\User;
-use App\Services\SmsService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -90,20 +92,22 @@ class PasswordResetRequestController extends Controller
         $email = (string) $request->input('email');
         $user = User::where('email', $email)->first();
 
-        // An admin with a number on file proves themselves by SMS; everyone
-        // else asks an admin. isAdmin() alone is not the test -- a number is
-        // what makes the SMS path possible at all.
-        if ($user->isAdmin() && trim((string) $user->phone) !== '') {
+        // An admin with a PERSONAL address on file proves themselves by
+        // emailed code; everyone else asks an admin. isAdmin() alone is not
+        // the test -- an address is what makes the code path possible at all,
+        // and it must be the personal one: `users.email` is the @remedi.com
+        // account they cannot currently get into.
+        if ($user->isAdmin() && trim((string) $user->personal_email) !== '') {
             return $this->sendOtp($request, $user);
         }
 
         if ($user->isAdmin()) {
             // Say which of the two things is missing. "An admin has been
             // notified" would be an odd thing to tell the admin, and would
-            // hide the reason the text never arrived.
+            // hide the reason the email never arrived.
             $this->flagForAdmin($user);
 
-            return back()->with('status', 'No mobile number is saved on this admin account, so no code could be texted. Another admin can reset it for you from User Management.');
+            return back()->with('status', 'No personal email is saved on this admin account, so no code could be sent. Another admin can reset it for you from User Management.');
         }
 
         $this->flagForAdmin($user);
@@ -154,10 +158,20 @@ class PasswordResetRequestController extends Controller
 
         $code = $user->issuePasswordOtp();
 
-        $sent = SmsService::send(
-            $user->phone,
-            'REMEDI: your password reset code is '.$code.'. It expires in '.User::OTP_TTL_MINUTES.' minutes. If you did not ask for it, ignore this message.'
-        );
+        // Mail::send throws on a refused connection or bad credentials, and a
+        // login screen must not 500 because the mail host is having a bad day
+        // -- the caller needs a false it can explain, same contract the SMS
+        // driver had.
+        $sent = true;
+        try {
+            Mail::to($user->personal_email)->send(
+                new PasswordResetCodeMail($user, $code, User::OTP_TTL_MINUTES)
+            );
+        } catch (\Throwable $e) {
+            // Never log the code itself, only that delivery failed.
+            Log::error('[password-otp] Could not email the reset code: '.$e->getMessage());
+            $sent = false;
+        }
 
         // The code itself is never written to the audit trail -- the trail is
         // readable by every admin, which would make it a way to take over
@@ -168,16 +182,16 @@ class PasswordResetRequestController extends Controller
         $request->session()->forget(self::SESSION_VERIFIED);
 
         if (! $sent) {
-            return back()->with('status', 'The code could not be sent to the number on file. Check the number, or ask another admin to reset it from User Management.');
+            return back()->with('status', 'The code could not be emailed to the address on file. Check it, or ask another admin to reset it from User Management.');
         }
 
         return redirect()->route('password.otp')->with('status', $isResend
             // Say the old one died. Issuing a code replaces the outstanding
             // one (User::issuePasswordOtp), so somebody who resent while the
-            // first text was still in flight would otherwise keep trying the
+            // first email was still in flight would otherwise keep trying the
             // code that arrived first and wonder why it is refused.
             ? 'A new code has been sent. The previous code no longer works.'
-            : 'A 6-digit code has been sent to the mobile number on this account.');
+            : 'A 6-digit code has been sent to the personal email on this account.');
     }
 
     /**
@@ -193,7 +207,7 @@ class PasswordResetRequestController extends Controller
     {
         $user = $this->pendingUser($request);
 
-        if (! $user || ! $user->isAdmin() || trim((string) $user->phone) === '') {
+        if (! $user || ! $user->isAdmin() || trim((string) $user->personal_email) === '') {
             return redirect()->route('password.request');
         }
 
@@ -211,9 +225,13 @@ class PasswordResetRequestController extends Controller
 
         return view('auth.forgot-password-otp', [
             // Enough to confirm the code went somewhere expected, without
-            // printing a number to whoever typed the email address.
-            'maskedPhone' => $this->maskPhone($user->phone),
-            'smsDelivers' => SmsService::delivers(),
+            // printing the whole address to whoever typed the work email.
+            'maskedEmail' => $this->maskEmail($user->personal_email),
+            // `log` writes the message to storage/logs/laravel.log instead of
+            // sending it, so the screen must say so rather than claim an email
+            // reached an inbox that will never see one. Reads config, so the
+            // notice removes itself the moment a real mailer is configured.
+            'mailDelivers' => ! in_array(config('mail.default'), ['log', 'array'], true),
         ]);
     }
 
@@ -317,15 +335,31 @@ class PasswordResetRequestController extends Controller
         return $this->pendingUser($request);
     }
 
-    /** "09171234567" -> "•••• •••4567", enough to recognise, not to dial. */
-    private function maskPhone(?string $phone): string
+    /**
+     * "red.remediii@gmail.com" -> "r•••••••••i@gmail.com": enough for the
+     * owner to recognise their own address, not enough for a stranger who
+     * typed somebody's work email to learn where the code just went.
+     *
+     * The DOMAIN is left intact deliberately -- it is the part that tells you
+     * which inbox to go and look in, and it gives away far less than the local
+     * part does.
+     */
+    private function maskEmail(?string $email): string
     {
-        $digits = preg_replace('/\D/', '', (string) $phone);
+        $email = trim((string) $email);
+        $at = strpos($email, '@');
 
-        if (strlen((string) $digits) < 4) {
-            return 'the number on file';
+        if ($at === false || $at < 1) {
+            return 'the address on file';
         }
 
-        return '•••• •••'.substr((string) $digits, -4);
+        $local = substr($email, 0, $at);
+        $domain = substr($email, $at);
+
+        if (strlen($local) <= 2) {
+            return str_repeat('•', strlen($local)).$domain;
+        }
+
+        return $local[0].str_repeat('•', strlen($local) - 2).$local[strlen($local) - 1].$domain;
     }
 }

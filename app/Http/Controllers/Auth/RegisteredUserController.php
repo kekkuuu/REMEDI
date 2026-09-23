@@ -52,10 +52,19 @@ class RegisteredUserController extends Controller
             // the rule UserController::update uses -- role is fillable, so a
             // tampered post would otherwise mass-assign anything.
             'role' => ['required', 'in:admin,staff'],
-            // Same rule as ProfileUpdateRequest's phone field and the column's
-            // own limit (40) -- optional, since not every account is created
-            // with a number in hand.
-            'phone' => ['nullable', 'string', 'max:40'],
+            // REQUIRED here as of 2026-09-23, at the user's request, unlike
+            // ProfileUpdateRequest's own phone field which stays nullable --
+            // an admin creating an account has the person in front of them (or
+            // on the phone) and can ask, whereas making it required on the
+            // profile form would lock an existing account out of saving any
+            // change until it supplied one. Same max as the column (40).
+            'phone' => ['required', 'string', 'max:40'],
+            // Optional even though the fields beside it are not: this is a
+            // PERSONAL inbox, an admin may genuinely not have it at the
+            // counter, and an account with none simply falls back to asking
+            // another admin for a reset. Not `unique` -- two people may share
+            // a household address, and `users.email` is the identity column.
+            'personal_email' => ['nullable', 'string', 'email', 'max:255'],
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
         ]);
 
@@ -63,7 +72,8 @@ class RegisteredUserController extends Controller
             'name' => $validated['name'],
             'email' => $validated['email'],
             'role' => $validated['role'],
-            'phone' => $validated['phone'] ?? null,
+            'phone' => $validated['phone'],
+            'personal_email' => $validated['personal_email'] ?? null,
             'password' => Hash::make($validated['password']),
         ]);
 

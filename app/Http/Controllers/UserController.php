@@ -150,6 +150,11 @@ class UserController extends Controller
             // is, not a looser one just because this form has no other use
             // for FormRequest.
             'phone' => 'nullable|string|max:40',
+            // Where a password reset code is emailed -- a personal inbox the
+            // account holder can reach while locked OUT, unlike the
+            // @remedi.com address above. Not unique: two people may share a
+            // household address, and `users.email` is the identity column.
+            'personal_email' => 'nullable|string|email|max:255',
             'password' => 'nullable|confirmed|min:8',
         ]);
 
@@ -162,6 +167,7 @@ class UserController extends Controller
         $user->email = $validated['email'];
         $user->role = $validated['role'];
         $user->phone = $validated['phone'] ?? null;
+        $user->personal_email = $validated['personal_email'] ?? null;
 
         if (! empty($validated['password'])) {
             $user->password = Hash::make($validated['password']);

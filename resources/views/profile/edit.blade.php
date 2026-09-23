@@ -755,6 +755,24 @@
                     @endif
                 </div>
 
+                {{-- Editable by the account holder, unlike the work address
+                     above: this is a personal inbox they can reach when they
+                     are locked OUT of the system, and it is where a password
+                     reset code is emailed. Keeping it self-service matters --
+                     an address only an admin could change is one the person
+                     cannot fix after switching providers, and they would
+                     discover that at the exact moment they needed it. --}}
+                <div class="field">
+                    <label for="personal_email">Personal Email</label>
+                    <input id="personal_email" type="email" name="personal_email"
+                           value="{{ old('personal_email', $user->personal_email) }}"
+                           placeholder="name@gmail.com" autocomplete="off">
+                    <p class="hint" style="margin:6px 0 0; font-size:12px; color:#64748b;">
+                        Used to send you a password reset code. Optional.
+                    </p>
+                    @error('personal_email')<p class="err">{{ $message }}</p>@enderror
+                </div>
+
                 <div class="field">
                     <label for="phone">Phone Number</label>
                     <input id="phone" type="text" name="phone" value="{{ old('phone', $user->phone) }}"

@@ -50,11 +50,13 @@ class RegistrationTest extends TestCase
             'password' => 'password',
             'password_confirmation' => 'password',
             'role' => 'staff',
+            'phone' => '+63 912 345 6789',
         ]);
 
         $this->assertDatabaseHas('users', [
             'email' => 'test@example.com',
             'role' => 'staff',
+            'phone' => '+63 912 345 6789',
         ]);
 
         // Still the admin, not the new account.
@@ -84,6 +86,7 @@ class RegistrationTest extends TestCase
             'password' => 'password',
             'password_confirmation' => 'password',
             'role' => 'staff',
+            'phone' => '+63 912 345 6789',
         ], [
             'Accept' => 'application/json',
             'X-Requested-With' => 'XMLHttpRequest',
@@ -94,6 +97,7 @@ class RegistrationTest extends TestCase
         $this->assertDatabaseHas('users', [
             'email' => 'ajax@example.com',
             'role' => 'staff',
+            'phone' => '+63 912 345 6789',
         ]);
         $this->assertAuthenticatedAs($admin);
     }

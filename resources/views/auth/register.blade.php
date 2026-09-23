@@ -139,13 +139,29 @@
                 @error('role')<p class="err">{{ $message }}</p>@enderror
             </div>
 
-            {{-- Optional, same rule as ProfileUpdateRequest's own phone field
-                 (nullable, max:40) -- not every account is created with a
-                 number in hand. --}}
+            {{-- The address above is the @remedi.com one this account signs in
+                 with, and it only exists inside the system. This is a personal
+                 one the person can actually read when they are locked OUT --
+                 it is where an admin's password-reset code is emailed (see
+                 PasswordResetRequestController). Optional, because an account
+                 can be created before you have it; an admin with none saved
+                 just falls back to asking another admin. --}}
             <div class="field">
-                <label for="phone">Phone Number <span style="font-weight:400; color:#94a3b8;">(optional)</span></label>
+                <label for="personal_email">Personal Email <span style="font-weight:400; color:#94a3b8;">(optional &mdash; used for password resets)</span></label>
+                <input type="email" id="personal_email" name="personal_email" value="{{ old('personal_email') }}"
+                       placeholder="name@gmail.com" autocomplete="off">
+                @error('personal_email')<p class="err">{{ $message }}</p>@enderror
+            </div>
+
+            {{-- REQUIRED on this form as of 2026-09-23, at the user's request
+                 -- an admin creating an account has the person in front of
+                 them and can ask. It stays nullable on the PROFILE form, where
+                 requiring it would block an existing account from saving any
+                 change until it supplied one. --}}
+            <div class="field">
+                <label for="phone">Phone Number</label>
                 <input type="text" id="phone" name="phone" value="{{ old('phone') }}"
-                       placeholder="+63 912 345 6789">
+                       placeholder="+63 912 345 6789" required>
                 @error('phone')<p class="err">{{ $message }}</p>@enderror
             </div>
 

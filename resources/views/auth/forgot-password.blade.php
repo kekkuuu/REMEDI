@@ -8,8 +8,8 @@
          accounts. See PasswordResetRequestController::store(). --}}
     <div style="margin-bottom:12px; font-size:.9rem; color:#6b7280;">
         Enter your email. Staff accounts are reset by an admin &mdash; you'll be notified and given a
-        temporary password to sign in with. Admin accounts get a 6-digit code by text to the mobile
-        number on the account.
+        temporary password to sign in with. Admin accounts get a 6-digit code emailed to the personal
+        email address on the account.
     </div>
 
     <form method="POST" action="{{ route('password.email') }}">

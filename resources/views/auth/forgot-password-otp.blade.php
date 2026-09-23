@@ -2,18 +2,18 @@
     {{-- The layout renders session('status') and $errors itself (see
          layouts/guest.blade.php), so neither is repeated here. --}}
     <div style="margin-bottom:12px; font-size:.9rem; color:#6b7280;">
-        Enter the 6-digit code sent to <strong>{{ $maskedPhone }}</strong>.
+        Enter the 6-digit code sent to <strong>{{ $maskedEmail }}</strong>.
         It expires in {{ \App\Models\User::OTP_TTL_MINUTES }} minutes.
     </div>
 
-    @unless($smsDelivers)
-        {{-- No gateway is wired in yet (config/sms.php), so the code went to
-             the log rather than a handset. Saying so is the difference
-             between a flow that looks broken and one that is simply not
-             connected yet -- and it disappears on its own the moment
-             SMS_DRIVER is set, because SmsService::delivers() decides it. --}}
+    @unless($mailDelivers)
+        {{-- MAIL_MAILER is `log`, so the message went to the log file rather
+             than an inbox. Saying so is the difference between a flow that
+             looks broken and one that is simply not connected yet -- and it
+             disappears on its own once a real mailer is configured, because
+             the controller reads config('mail.default') to decide. --}}
         <div style="margin-bottom:12px; padding:10px; border:1px dashed #f59e0b; border-radius:8px; background:#fffbeb; font-size:.82rem; color:#92400e;">
-            No SMS gateway is connected yet, so no text was actually sent.
+            Email delivery isn't configured yet, so no message was actually sent.
             The code is in <code>storage/logs/laravel.log</code>.
         </div>
     @endunless

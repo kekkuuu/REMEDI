@@ -2,10 +2,11 @@
 
 namespace Tests\Feature\Auth;
 
+use App\Mail\PasswordResetCodeMail;
 use App\Models\User;
-use App\Services\SmsService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\RateLimiter;
 use Tests\TestCase;
 
@@ -28,10 +29,10 @@ class AdminOtpPasswordResetTest extends TestCase
     {
         parent::setUp();
 
-        // Capture texts instead of sending them -- and note this is the ONLY
-        // way a test can learn the code, because it is stored hashed and the
-        // plain value lives only inside the request that sent it.
-        SmsService::fake();
+        // Capture mail instead of sending it -- and note this is the ONLY way
+        // a test can learn the code, because it is stored hashed and the plain
+        // value lives only inside the request that sent it.
+        Mail::fake();
 
         // The send limiter is keyed on user id, and RefreshDatabase reissues
         // the same ids to every test -- without this, one test's sends count
@@ -41,26 +42,31 @@ class AdminOtpPasswordResetTest extends TestCase
         }
     }
 
-    private function adminWithPhone(): User
+    private function adminWithEmail(): User
     {
-        return User::factory()->admin()->create(['phone' => '09171234567']);
+        return User::factory()->admin()->create(['personal_email' => 'someone@gmail.com']);
     }
 
-    /** Ask for a code, and read it out of the text that was sent. */
+    /** Ask for a code, and read it off the mail that was sent. */
     private function requestCodeFor(User $admin): string
     {
         $this->post('/forgot-password', ['email' => $admin->email]);
 
-        preg_match('/\b(\d{6})\b/', SmsService::lastMessage(), $m);
+        $code = null;
+        Mail::assertSent(PasswordResetCodeMail::class, function ($mail) use (&$code) {
+            $code = $mail->code;
 
-        $this->assertNotEmpty($m, 'the text should carry a 6-digit code');
+            return true;
+        });
 
-        return $m[1];
+        $this->assertNotNull($code, 'a reset-code email should have been sent');
+
+        return $code;
     }
 
     public function test_a_staff_request_still_notifies_an_admin_and_issues_no_code(): void
     {
-        $staff = User::factory()->create(['phone' => '09171234567']);
+        $staff = User::factory()->create(['personal_email' => 'someone@gmail.com']);
 
         $this->post('/forgot-password', ['email' => $staff->email]);
 
@@ -71,7 +77,7 @@ class AdminOtpPasswordResetTest extends TestCase
 
     public function test_an_admin_with_a_number_is_sent_a_code(): void
     {
-        $admin = $this->adminWithPhone();
+        $admin = $this->adminWithEmail();
 
         $this->post('/forgot-password', ['email' => $admin->email])
             ->assertRedirect(route('password.otp'));
@@ -85,7 +91,7 @@ class AdminOtpPasswordResetTest extends TestCase
 
     public function test_an_admin_with_no_number_falls_back_to_asking_another_admin(): void
     {
-        $admin = User::factory()->admin()->create(['phone' => null]);
+        $admin = User::factory()->admin()->create(['personal_email' => null]);
 
         $this->post('/forgot-password', ['email' => $admin->email]);
 
@@ -96,7 +102,7 @@ class AdminOtpPasswordResetTest extends TestCase
 
     public function test_the_correct_code_lets_the_admin_set_a_new_password(): void
     {
-        $admin = $this->adminWithPhone();
+        $admin = $this->adminWithEmail();
         $code = $this->requestCodeFor($admin);
 
         $this->post('/forgot-password/code', ['code' => $code])
@@ -116,7 +122,7 @@ class AdminOtpPasswordResetTest extends TestCase
 
     public function test_a_wrong_code_is_refused(): void
     {
-        $admin = $this->adminWithPhone();
+        $admin = $this->adminWithEmail();
         $code = $this->requestCodeFor($admin);
         $wrong = $code === '000000' ? '111111' : '000000';
 
@@ -128,7 +134,7 @@ class AdminOtpPasswordResetTest extends TestCase
 
     public function test_an_expired_code_is_refused(): void
     {
-        $admin = $this->adminWithPhone();
+        $admin = $this->adminWithEmail();
         $code = $this->requestCodeFor($admin);
 
         $this->travel(User::OTP_TTL_MINUTES + 1)->minutes();
@@ -141,7 +147,7 @@ class AdminOtpPasswordResetTest extends TestCase
 
     public function test_the_code_is_burned_after_too_many_wrong_guesses(): void
     {
-        $admin = $this->adminWithPhone();
+        $admin = $this->adminWithEmail();
         $code = $this->requestCodeFor($admin);
         $wrong = $code === '000000' ? '111111' : '000000';
 
@@ -158,7 +164,7 @@ class AdminOtpPasswordResetTest extends TestCase
 
     public function test_the_password_form_cannot_be_reached_without_verifying(): void
     {
-        $admin = $this->adminWithPhone();
+        $admin = $this->adminWithEmail();
         $this->requestCodeFor($admin);
 
         // A code was sent, but never entered.
@@ -181,14 +187,20 @@ class AdminOtpPasswordResetTest extends TestCase
 
     public function test_resending_issues_a_new_code_and_kills_the_old_one(): void
     {
-        $admin = $this->adminWithPhone();
+        $admin = $this->adminWithEmail();
         $first = $this->requestCodeFor($admin);
 
         $this->post('/forgot-password/code/resend')
             ->assertRedirect(route('password.otp'));
 
-        preg_match('/\b(\d{6})\b/', SmsService::lastMessage(), $m);
-        $second = $m[1];
+        // Mail::fake() accumulates, so the newest send is the last one.
+        $codes = [];
+        Mail::assertSent(PasswordResetCodeMail::class, function ($mail) use (&$codes) {
+            $codes[] = $mail->code;
+
+            return true;
+        });
+        $second = end($codes);
 
         // The old code must stop working the moment a new one is issued, or
         // two live codes double the guessing surface.
@@ -206,12 +218,12 @@ class AdminOtpPasswordResetTest extends TestCase
         $this->post('/forgot-password/code/resend')
             ->assertRedirect(route('password.request'));
 
-        $this->assertSame([], SmsService::captured());
+        Mail::assertNothingSent();
     }
 
     public function test_resending_shares_the_send_limit_with_the_email_form(): void
     {
-        $admin = $this->adminWithPhone();
+        $admin = $this->adminWithEmail();
         $this->requestCodeFor($admin);
 
         // Four more by button: five sends total, which is the cap.
@@ -226,7 +238,7 @@ class AdminOtpPasswordResetTest extends TestCase
 
     public function test_sending_codes_is_rate_limited(): void
     {
-        $admin = $this->adminWithPhone();
+        $admin = $this->adminWithEmail();
 
         for ($i = 0; $i < 5; $i++) {
             $this->post('/forgot-password', ['email' => $admin->email]);

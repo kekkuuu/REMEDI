@@ -69,6 +69,21 @@
                 @endif
             </div>
 
+            {{-- Where a password-reset code is emailed, so it must be an
+                 address reachable while LOCKED OUT -- not the @remedi.com one
+                 above, which only exists inside the system. --}}
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip"><i class="ti ti-mail-heart" aria-hidden="true"></i></span>
+                    <label for="personal_email">Personal Email</label>
+                </div>
+                <input type="email" id="personal_email" name="personal_email"
+                       value="{{ old('personal_email', $user->personal_email) }}"
+                       placeholder="name@gmail.com" autocomplete="off">
+                <p class="hint">Used to send password reset codes. Optional.</p>
+                @error('personal_email')<p class="err">{{ $message }}</p>@enderror
+            </div>
+
             {{-- Optional, same rule as ProfileUpdateRequest's own phone field
                  (nullable, max:40). --}}
             <div class="form-field">
