@@ -30,3 +30,8 @@ cj.txt
 
 .vercel
 .env*
+
+# Scratch output from Claude Code sessions -- working notes and generated
+# files, not project source. Predates any of it being tracked, so it stays
+# out rather than arriving in a commit by accident.
+Claude outputs/
