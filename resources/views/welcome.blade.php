@@ -376,6 +376,12 @@
 
         .field { margin-bottom: 18px; }
 
+        /* Sits between the password field and the submit button, right-aligned
+           to match the standalone /login page. */
+        .forgot-row { margin: -6px 0 16px; text-align: right; font-size: .85rem; }
+        .forgot-row a { color: var(--brand-dark); text-decoration: none; }
+        .forgot-row a:hover { text-decoration: underline; }
+
         input[type="email"],
         input[type="password"] {
             width: 100%;
@@ -581,6 +587,16 @@
                 <div class="field">
                     <label for="password">Password</label>
                     <input id="password" type="password" name="password" required autocomplete="current-password">
+                </div>
+
+                {{-- This page carries its OWN login form, so it needs its own
+                     copy of this link: logging out redirects to `/`, not to
+                     `/login`, so for anyone who has just signed out THIS is the
+                     sign-in screen and the one on auth/login.blade.php is never
+                     seen. Without it, "Forgot your password?" simply did not
+                     exist after a logout. Right-aligned to match that page. --}}
+                <div class="forgot-row">
+                    <a href="{{ route('password.request') }}">Forgot your password?</a>
                 </div>
 
                 <button type="submit" class="btn-submit">Log in</button>
