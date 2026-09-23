@@ -29,7 +29,11 @@
     };
 @endphp
 
-<div class="table-scroll"><table class="remedi-table">
+{{-- `is-dense`: eight columns is the widest table in the app, and even with
+     the action buttons wrapped it still ran ~79px past a 1366px laptop screen.
+     Trimming the horizontal cell padding closes that, and is scoped to this
+     table so the roomier spacing everywhere else is untouched. --}}
+<div class="table-scroll"><table class="remedi-table is-dense">
     <thead>
         <tr>
             @foreach(['id', 'name'] as $key)

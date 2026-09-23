@@ -2123,6 +2123,14 @@
             font-size: 13px;
         }
 
+        /* Opt-in for the widest tables (User Management, eight columns), where
+           the default 16px side padding is the difference between fitting a
+           1366px laptop and hiding the last columns behind a sideways scroll.
+           Opt-in rather than global: every other table has room, and making
+           them all denser to solve one page is the wrong trade. */
+        table.remedi-table.is-dense th,
+        table.remedi-table.is-dense td { padding-left: 11px; padding-right: 11px; }
+
         /* ── Buttons ── */
         /* ── Form pages ───────────────────────────────────────────────
            Add Product, Add User, Edit User. One vocabulary so the three read
@@ -2959,11 +2967,29 @@
 
         .remedi-table td.col-actions { white-space: nowrap; vertical-align: middle; }
 
-        /* Fallback for tables that don't declare their own .actions-cell. */
+        /* Fallback for tables that don't declare their own .actions-cell.
+           In practice this is User Management, the only table carrying FOUR
+           row actions (Edit / Reset password / Deactivate / Archive) -- laid
+           out on one line they made the Actions column 495px, 36% of the
+           table, which pushed Status and Actions off-screen behind a
+           horizontal scroll at 1366px. Wrapping them into two rows gives that
+           width back.
+
+           `max-width` is what makes the wrap happen at all: a table cell grows
+           to fit its content, so flex-wrap alone never triggers. 250px is
+           above what the two-action tables (products, inventory ~215px) need,
+           so they are untouched and stay on one line.
+
+           `white-space: nowrap` STAYS -- it keeps each label intact
+           ("Reset password" must not break across two lines); it is the flex
+           container that wraps, not the text. */
         .remedi-table .actions-cell {
             display: inline-flex;
             align-items: center;
             gap: 14px;
+            row-gap: 8px;
+            flex-wrap: wrap;
+            max-width: 250px;
             white-space: nowrap;
         }
 
