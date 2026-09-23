@@ -1,4 +1,4 @@
-@extends('layouts.app')
+﻿@extends('layouts.app')
 
 @section('title', 'Inventory Monitoring')
 
@@ -176,11 +176,19 @@
      visible (see focusEntryField()'s offsetParent check just below), so
      nothing else needed to change.
 
-     Quick Restock lives inside this card and is only ever revealed by a
-     successful scan (see showQuickRestock) -- it comes back with the
-     scanner. `autofocus` stays dropped: it was removed for the hidden
-     state, and this field is one of several entry points on a busy page, so
-     stealing focus on every load would be its own kind of surprise. --}}
+     As of 2026-09-23, a successful scan by an ADMIN navigates straight to
+     that product's Manage Product page (products.edit) rather than opening
+     an inline Quick Restock card -- the user's own request, and it also
+     drops a second, narrower copy of "add a batch" in favour of the one
+     already on that page (the Add New Batch card, same `addBatch` endpoint).
+     The inline card and its `openQuickRestock`/`closeQuickRestock` functions
+     are gone with it, since nothing else ever called them. A STAFF scan still
+     searches the list in place -- role:admin gates products.edit, so sending
+     a staff scan there would just trade one dead end for a 403; searching is
+     the useful thing a non-admin scan can still do. `autofocus` stays
+     dropped: it was removed for the hidden state, and this field is one of
+     several entry points on a busy page, so stealing focus on every load
+     would be its own kind of surprise. --}}
 <div class="card" style="margin-bottom:16px; border:2px solid #4f46e5;">
     <label style="font-weight:600; font-size:.85rem;">Scan Barcode</label>
     <input
@@ -189,64 +197,11 @@
         placeholder="Click here, then scan a product's barcode to look it up..."
         autocomplete="off"
         style="width:100%; padding:12px; border:1px solid #d1d5db; border-radius:6px; font-size:1.1rem; margin-top:6px;">
+    {{-- The camera scans too, with no preview shown -- hold a barcode up to it
+         and it opens Manage Product like a gun scan. Renders nothing here; see
+         the partial. --}}
+    @include('partials._barcode-camera')
     <div id="barcode-status" style="margin-top:6px; font-size:.85rem; min-height:1.2em;"></div>
-
-    @if(auth()->user()->isAdmin())
-        <div id="quick-restock-card" style="display:none; margin-top:14px; padding-top:14px; border-top:1px solid #e5e7eb;">
-            <h4 style="margin:0 0 8px;">Quick Restock: <span id="qr-product-name"></span></h4>
-            <p style="margin:0 0 10px; font-size:.85rem; color:#6b7280;">
-                Current stock: <strong id="qr-current-stock"></strong>
-            </p>
-            <form method="POST" id="quick-restock-form" style="display:flex; gap:10px; flex-wrap:wrap; align-items:end;">
-                @csrf
-                {{-- Assigned by ProductBatch::nextBatchNumber() from the
-                     product and the received date, the same rule the Add New
-                     Batch form follows. Readonly and deliberately not previewed
-                     here: this card is revealed by a barcode scan, so the
-                     product -- and therefore the letters and the sequence
-                     already issued for that day -- is not known until the scan
-                     lands, and a number shown before the server has counted
-                     would be a guess. Kept in the form rather than removed so
-                     the field still explains itself. --}}
-                <div>
-                    <label style="font-size:.8rem;">Batch Number</label><br>
-                    {{-- The blocked cursor on hover is the cue, not an icon in
-                         the label -- see .form-field input[readonly] in the
-                         layout. cursor:default here would override it, so it
-                         is dropped in favour of that shared rule. --}}
-                    <input type="text" name="batch_number" id="qr-batch-number" readonly aria-readonly="true" tabindex="-1"
-                           placeholder="Assigned automatically"
-                           style="padding:8px; border:1px solid #d1d5db; border-radius:6px; background:#f8fafc;">
-                </div>
-                <div>
-                    <label style="font-size:.8rem;">Quantity</label><br>
-                    <input type="number" name="quantity" id="qr-quantity" min="1" required style="padding:8px; border:1px solid #d1d5db; border-radius:6px; width:100px;">
-                </div>
-                <div>
-                    <label style="font-size:.8rem;">Received Date</label><br>
-                    <input type="date" name="received_date" id="qr-received-date" value="{{ now()->format('Y-m-d') }}" max="{{ now()->toDateString() }}" required style="padding:8px; border:1px solid #d1d5db; border-radius:6px;">
-                </div>
-                <div>
-                    <label style="font-size:.8rem;">Expiry Date</label><br>
-                    <input type="date" name="expiry_date" id="qr-expiry-date" required style="padding:8px; border:1px solid #d1d5db; border-radius:6px;">
-                </div>
-                <div>
-                    <label style="font-size:.8rem;">Cost Price <span style="font-weight:400; color:#9ca3af;">(optional)</span></label><br>
-                    <input type="number" name="unit_cost" id="qr-unit-cost" min="0" step="0.01" style="padding:8px; border:1px solid #d1d5db; border-radius:6px; width:110px;">
-                </div>
-                <div>
-                    <label style="font-size:.8rem;">DR Number <span style="font-weight:400; color:#9ca3af;">(optional)</span></label><br>
-                    <input type="text" name="dr_no" id="qr-dr-no" maxlength="100" style="padding:8px; border:1px solid #d1d5db; border-radius:6px; width:130px;">
-                </div>
-                <div>
-                    <label style="font-size:.8rem;">Supplier <span style="font-weight:400; color:#9ca3af;">(optional)</span></label><br>
-                    <input type="text" name="supplier" id="qr-supplier" maxlength="150" style="padding:8px; border:1px solid #d1d5db; border-radius:6px; width:140px;">
-                </div>
-                <button type="submit" class="btn btn-success">Add Batch</button>
-                <button type="button" class="btn btn-secondary" onclick="closeQuickRestock()">Cancel</button>
-            </form>
-        </div>
-    @endif
 </div>
 
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
@@ -396,6 +351,8 @@
     const barcodeInput = document.getElementById('barcode-input');
     const barcodeStatus = document.getElementById('barcode-status');
     const isAdmin = @json(auth()->user()->isAdmin());
+    // Only reached for an admin scan -- see the fetch handler below.
+    const productEditUrlBase = "{{ url('/products') }}";
 
     /* Keep the scanner armed WITHOUT dragging the page around.
        This refocuses a field that sits at the top of the page, and a plain
@@ -434,12 +391,12 @@
     });
     focusEntryField();
 
-    barcodeInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            const code = barcodeInput.value.trim();
-            barcodeInput.value = '';
-
+    /* One lookup path for BOTH ways a code arrives: a scanner gun typing into
+       the field and pressing Enter, and a camera decode from
+       partials/_barcode-camera. A second copy here is how the two would drift
+       into meaning different things. */
+    window.handleScannedCode = function (code) {
+        {
             if (!code) return;
 
             barcodeStatus.textContent = 'Looking up ' + code + '...';
@@ -452,76 +409,34 @@
                 })
                 .then(function (data) {
                     if (data.found) {
+                        if (isAdmin) {
+                            window.location.href = `${productEditUrlBase}/${data.id}/edit`;
+                            return;
+                        }
                         barcodeStatus.textContent = '\u2705 Found: ' + data.name;
                         barcodeStatus.style.color = '#16a34a';
-
-                        if (isAdmin) {
-                            openQuickRestock(data.id, data.name, data.stock, data.suggested_expiry_date);
-                        } else {
-                            searchInput.value = data.name;
-                            runInventorySearch();
-                        }
+                        searchInput.value = data.name;
+                        runInventorySearch();
                     } else {
                         barcodeStatus.textContent = '\u274C Product not found for code: ' + code;
                         barcodeStatus.style.color = '#dc2626';
-                        closeQuickRestock();
                     }
                 })
                 .catch(function () {
                     barcodeStatus.textContent = '\u274C Product not found for code: ' + code;
                     barcodeStatus.style.color = '#dc2626';
-                    closeQuickRestock();
                 });
+        }
+    };
+
+    barcodeInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const code = barcodeInput.value.trim();
+            barcodeInput.value = '';
+            window.handleScannedCode(code);
         }
     });
 
-    @if(auth()->user()->isAdmin())
-    const batchStoreUrlBase = "{{ url('/products') }}";
-
-    function openQuickRestock(productId, productName, currentStock, suggestedExpiryDate) {
-        document.getElementById('qr-product-name').textContent = productName;
-        document.getElementById('qr-current-stock').textContent = currentStock;
-
-        const form = document.getElementById('quick-restock-form');
-        form.action = `${batchStoreUrlBase}/${productId}/batches`;
-
-        document.getElementById('qr-batch-number').value = '';
-        document.getElementById('qr-quantity').value = '';
-        document.getElementById('qr-unit-cost').value = '';
-        document.getElementById('qr-dr-no').value = '';
-        document.getElementById('qr-supplier').value = '';
-        // Pre-fill from this product's usual shelf life when available
-        // (see PosController::lookupBySku) — still just a starting point,
-        // adjust it if this batch's actual expiry is different.
-        document.getElementById('qr-expiry-date').value = suggestedExpiryDate || '';
-        // LOCAL date parts, never toISOString(): that converts to UTC first,
-        // and this app runs in Asia/Manila (UTC+8), so between midnight and
-        // 08:00 it would stamp the delivery YESTERDAY -- and now that
-        // received_date is capped at today, a date built the wrong way could
-        // also land in the future for a negative-offset workstation and be
-        // refused by the endpoint. Same trap as the audit trail's date presets.
-        (function () {
-            var d = new Date();
-            var pad = function (n) { return String(n).padStart(2, '0'); };
-            document.getElementById('qr-received-date').value =
-                d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-        })();
-
-        const card = document.getElementById('quick-restock-card');
-        card.style.display = 'block';
-
-        // Reveal the card deliberately, then focus without a second (and
-        // differently-aimed) scroll. A bare .focus() here jumped the page to
-        // wherever the field happened to be; scrollIntoView puts the whole card
-        // on screen, which is what someone who just scanned an item wants.
-        card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-        document.getElementById('qr-batch-number').focus({ preventScroll: true });
-    }
-
-    function closeQuickRestock() {
-        document.getElementById('quick-restock-card').style.display = 'none';
-        focusEntryField();
-    }
-    @endif
 </script>
 @endsection

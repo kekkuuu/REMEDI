@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (254 passed, 791 assertions — measured 2026-09-22) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (264 passed, 832 assertions — measured 2026-09-23) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -61,7 +61,7 @@ rule below: `/` redirects to login, `/register` is the admin Add User form (a gu
 staff get 403, and an admin who creates a user **stays signed in as themselves**), and staff may
 change their name but not their email. **Never change the app to satisfy a test; fix the test.**
 
-Beyond Breeze there are now nineteen suites covering the things REMEDI.md says must never regress:
+Beyond Breeze there are now twenty suites covering the things REMEDI.md says must never regress:
 
 - `Feature\DestructiveGuardsTest` — the refusals standing between an ordinary click and lost data,
   each one a thing that happened here or was one request away: a cashier with sales deleted, an admin
@@ -168,6 +168,15 @@ cost a false "security bug" during a QA pass; `DeactivationTest` carries the war
   the POS void passcode `Feature\Pos\VoidTest` covers spending: staff can't reach `/settings` at all
   (403), an admin can set and later replace it, the 6-digit and confirmation rules are enforced, and
   replacing one invalidates the old code immediately.
+
+- `Feature\Auth\AdminOtpPasswordResetTest` — the ADMIN half of "Forgot your password?", the shortest
+  path in the app between an email address and an admin account, so it is mostly REFUSALS: a staff
+  request still notifies an admin and mints no code, an admin with a number on file gets one, an
+  admin with NO number falls back to the staff path rather than dead-ending, and then wrong / expired
+  / guessed-too-many-times codes are each refused (with the right code dying alongside the burned
+  one), the password form can't be reached without verifying, the code form can't be reached with
+  nothing pending, and sending is rate limited. Note the test reads the code out of
+  `SmsService::fake()` — it is stored hashed, so there is no other way to get it, which is the point.
 
 Forecasting is the one area still uncovered — neither pipeline, neither service, neither page.
 
@@ -366,6 +375,8 @@ a surface that needs the same answer, call it rather than re-deriving it.
 | Upper bounds for money and counts | `Controller::MAX_MONEY` / `MAX_COUNT` |
 | Chart gradients; the navigation skeleton | `partials/_chart-gradient`, `partials/_page-skeleton` |
 | Store-wide admin-set config (the POS void passcode so far) | `App\Models\Setting` |
+| Sending a text message; whether one really gets delivered | `App\Services\SmsService::send()` / `delivers()` |
+| An SMS reset code's life: mint, check, burn | `User::issuePasswordOtp()` / `checkPasswordOtp()` / `clearPasswordOtp()` |
 | Who may void a sale, and whether a passcode is needed | `Sale::isVisibleTo()` + `Setting::checkVoidPasscode()` in `SaleController::void()` |
 
 ### Laravel 10-style skeleton on Laravel 12
@@ -512,6 +523,50 @@ admin: `AlertService`'s `$isAccount` detection (see "Notifications" below) now a
 account-change bell/toast pipeline (`ACCOUNT_KIND`, admin-only, linking at `/users`) rather than a
 new notification channel built just for this.
 
+**As of 2026-09-23 that is the STAFF half; `store()` forks on ROLE, because the two roles have
+genuinely different problems.** A cashier always has an admin above them to ask. An admin does not,
+so "an admin has been notified" is circular, and on a one-admin shop it is a lockout. An admin with
+a `phone` on file instead gets a **6-digit code texted to their own number**, verifies it, and sets
+their own password -- possession of the registered handset standing in for the authority a staff
+request borrows. The fork is `isAdmin() && phone !== ''`, not `isAdmin()` alone: **an admin with no
+number saved falls back to the staff path** rather than dead-ending, since another admin can still
+reset them, and the message says which of the two things was missing rather than telling the admin
+an admin has been notified. That still leaves a genuine gap on a single-admin install with no number
+saved, and the honest fix is to save a number.
+
+Three steps, three guest routes (`password.otp` / `password.otp.verify` / `password.otp.reset` /
+`password.otp.update`), and **each re-checks the session itself rather than trusting the step
+before**. The verified identity rides in the SESSION as an EMAIL -- never a user id in the URL,
+which would let anyone skip to "set a new password" for any account they can name, and never a user
+object, so an account archived or deactivated mid-flow stops resolving and the flow simply ends. The
+session is regenerated on successful verification (so an id captured beforehand can't be replayed as
+a verified one) and again after the reset.
+
+**Four things hold this up and none is optional.** The code is stored HASHED
+(`User::issuePasswordOtp()`, `Hash::make`, same as the POS void passcode) and minted with
+`random_int`, not `rand`; issuing a new one replaces any outstanding code and zeroes the attempt
+counter, so two live codes never double the guessing surface. It EXPIRES (`User::OTP_TTL_MINUTES`,
+10) and is BURNED after `OTP_MAX_ATTEMPTS` (5) wrong guesses -- six digits is a million combinations
+and nothing else here is slow enough to be a deterrent. Sending is RATE LIMITED per account (5 per
+10 minutes), because every text costs money once a real gateway is wired in and an unlimited send
+endpoint is both a bill and a way to flood somebody's phone. And wrong / expired / burned all answer
+with **one** message, since which of the three it was is information a guesser can use. The code
+itself is never written to the audit trail -- that trail is readable by every admin, which would
+turn it into a way to take over a colleague's account; only "Password reset code sent: {name}" is.
+
+**`App\Services\SmsService` is the one place a text leaves the app, and there is no gateway behind
+it yet.** That is deliberate, not unfinished: a gateway costs money per message and needs
+credentials only the shop can create. The driver is config (`config/sms.php`, `SMS_DRIVER`), and the
+default `log` driver writes the message to `storage/logs/laravel.log` instead of sending it, so the
+whole flow is exercisable today. **`SmsService::delivers()` is what the OTP screen reads** to decide
+whether to tell the person the code is in the log rather than claiming a text reached a handset that
+will never ring -- that notice removes itself the moment a real driver is set. Wiring one up is a
+branch in `send()` plus credentials, with nothing else in the app changing. Note the `log` driver
+writes the code in full, which is the only way to read it without a phone and also means that log
+file can hand somebody an admin reset code: it belongs on a dev machine, not a shop floor.
+`SmsService::fake()` is the test seam, and tests genuinely need it -- the code is hashed at rest, so
+there is no other way to read one back.
+
 **The admin side is `UserController::resetPassword()` (`PATCH /users/{user}/reset-password`,
 `role:admin`), not gated on a pending request existing** -- an admin can act on a phone call or
 someone standing at the counter, whether or not they used the online form; the per-row "Reset
@@ -642,10 +697,58 @@ refocuses the scanner, the same behavior the page had before it was ever hidden.
 OFF on both scanner inputs regardless: it was dropped when hidden (a hidden input cannot take focus,
 so it was a promise the page could not keep) and was never restored, since autofocusing one of
 several entry points on a busy page on every load would be a surprise of its own — `focusEntryField()`
-already arms it after every sale/restock/click, which is the behavior that actually matters. **Quick
-Restock lives inside Inventory's card** and is only ever revealed by a successful scan, so it comes
-back with the scanner; restocking is also still available on the product edit page either way, which
-posts to the same `ProductController::addBatch`.
+already arms it after every sale/restock/click, which is the behavior that actually matters.
+
+**A scan means a different thing in each module, and as of 2026-09-23 both say so plainly.** In POS
+it rings the item up — `addToCart()`, straight into the sale being built, unchanged. In INVENTORY an
+admin's scan now navigates to that product's Manage Product page (`products.edit`), replacing the
+inline **Quick Restock** card that used to open in place; the card, its form and its
+`openQuickRestock`/`closeQuickRestock` functions are DELETED, not hidden, because the scan handler
+was the only thing that ever called them. That also collapses two copies of "add a batch" into the
+one already on the edit page (the Add New Batch card), which posts to the same
+`ProductController::addBatch` the removed card did — so nothing about restocking was lost, it just
+moved to the page that was already the home for it. A STAFF scan still fills the search box and
+filters the list in place: `products.edit` is `role:admin`, so sending a staff scan there would
+trade a useful lookup for a 403. `isAdmin` in the page's JS is what forks the two, and the branch
+returns early rather than falling through to the search path.
+
+**The CAMERA is a scanner too, as of 2026-09-23 — running, with NO visible preview.**
+`partials/_barcode-camera.blade.php`, included inside both scanner cards. **"Hidden" here means the
+VIDEO, not the feature**: hold a barcode up to the machine's camera and it rings up (POS) or opens
+Manage Product (Inventory), exactly as a gun scan would, while the page still looks like a plain
+text field. It arrived in three shapes in one day and the last is the one to keep — a "Camera"
+button opening a modal (rejected: a gun costs the person nothing, so a camera costing two clicks per
+item is a worse feature, not the same one), then an inline live preview in the card (rejected: the
+counter does not want a picture of itself on screen), then this.
+
+A USB/bluetooth gun never needed code — it presents itself as a KEYBOARD, types into `barcode-input`
+and sends Enter, which is what the keydown handler always read. The camera is the same act without
+the hardware. `html5-qrcode` (cdnjs, the same per-page CDN convention Chart.js and qrcodejs follow)
+decodes off the video and hands the result to **`window.handleScannedCode(code)`** — **the one
+definition of what a scan MEANS**, since the partial owns no lookup logic at all and therefore a
+camera scan and a gun scan cannot drift into doing two different things.
+
+Six things in it are not optional. **The preview is parked off-screen, NOT `display:none`** — the
+decoder reads frames from a real `<video>`, and a `display:none` element stops rendering, which
+stops the scan; CSS size does not change the stream's own resolution, so nothing is lost by moving
+it. **The off-screen wrapper must be a SEPARATE outer element (`#camScanShell`)**: html5-qrcode
+rewrites its own container's `position` to `relative` on init, which silently undid an `absolute`
+set directly on `#camScanReader` and left a 200px hole in the scanner card. Formats are restricted
+to the retail 1D symbologies plus QR — leaving every format on makes ZXing try all of them on every
+frame and visibly drops the frame rate on a mid-range phone. A held barcode decodes on EVERY frame,
+so the same code inside 2.5s is swallowed as ONE physical scan; that matters more with no preview to
+pull away, since an item can sit in view for seconds. `scanner.stop()` REJECTS when it was never
+running (permission refused, no camera), so every caller swallows that or a backgrounded tab logs an
+unhandled rejection. And the camera is released on `visibilitychange` and re-acquired on return,
+which is what makes an always-on scanner affordable at all.
+
+**Every failure is SILENT by design** — a refused permission, no camera, or an insecure origin
+(camera needs https or localhost; a tablet reaching the XAMPP box over `http://<LAN-ip>` has no
+camera API at all). There is no widget to put a message in, and none of them is worth interrupting
+anyone over, because the text field and a scanner gun both keep working regardless. The browser's
+own camera-in-use indicator is what tells the person it is on, and is deliberately not suppressed.
+`$cameraScannerEnabled` at the top of the partial turns the whole thing off — markup, CDN script and
+`getUserMedia` all absent, not merely invisible — if the camera ever needs to stop being used at all.
 
 **Every POS surface must report the same number checkout will honour** — `pos/_grid.blade.php`
 (badge, `is-out` class, `data-true-stock`, and the `addToCart` ceiling) and

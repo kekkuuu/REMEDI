@@ -6,6 +6,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Hash;
 
 class User extends Authenticatable
 {
@@ -69,7 +70,14 @@ class User extends Authenticatable
         'last_login_at' => 'datetime',
         'password_reset_requested_at' => 'datetime',
         'must_change_password' => 'boolean',
+        'password_otp_expires_at' => 'datetime',
     ];
+
+    /** How long a texted reset code stays usable. */
+    public const OTP_TTL_MINUTES = 10;
+
+    /** Wrong guesses allowed before the code is burned and must be re-sent. */
+    public const OTP_MAX_ATTEMPTS = 5;
 
     /**
      * Display id for the profile screen: ADM-001 / STF-004.
@@ -93,6 +101,84 @@ class User extends Authenticatable
     public function sales()
     {
         return $this->hasMany(Sale::class);
+    }
+
+    /**
+     * Mint a 6-digit SMS reset code, store only its HASH, and return the
+     * plain code for the one caller that has to put it in a message.
+     *
+     * `random_int` rather than `rand`/`mt_rand`: this is a credential, and
+     * the others are predictable from prior output. Issuing a new code
+     * REPLACES any code already outstanding and zeroes the attempt counter,
+     * so a re-send is a clean slate and the old code stops working the
+     * instant a new one is asked for -- otherwise two live codes would double
+     * the guessing surface.
+     */
+    public function issuePasswordOtp(): string
+    {
+        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+
+        $this->forceFill([
+            'password_otp_hash' => Hash::make($code),
+            'password_otp_expires_at' => now()->addMinutes(self::OTP_TTL_MINUTES),
+            'password_otp_attempts' => 0,
+        ])->save();
+
+        return $code;
+    }
+
+    /** Is there a code outstanding that has not expired? */
+    public function hasLivePasswordOtp(): bool
+    {
+        return $this->password_otp_hash
+            && $this->password_otp_expires_at
+            && $this->password_otp_expires_at->isFuture();
+    }
+
+    /**
+     * Check a typed code, counting the failures.
+     *
+     * A wrong guess increments the counter and, at OTP_MAX_ATTEMPTS, clears
+     * the code entirely -- 6 digits is a million combinations and nothing
+     * else here is slow enough to make that a deterrent on its own. An
+     * expired code is cleared rather than merely refused, so a stale hash
+     * cannot sit on the row indefinitely.
+     */
+    public function checkPasswordOtp(string $code): bool
+    {
+        if (! $this->hasLivePasswordOtp()) {
+            $this->clearPasswordOtp();
+
+            return false;
+        }
+
+        if ($this->password_otp_attempts >= self::OTP_MAX_ATTEMPTS) {
+            $this->clearPasswordOtp();
+
+            return false;
+        }
+
+        if (! Hash::check($code, $this->password_otp_hash)) {
+            $this->increment('password_otp_attempts');
+
+            if ($this->fresh()->password_otp_attempts >= self::OTP_MAX_ATTEMPTS) {
+                $this->clearPasswordOtp();
+            }
+
+            return false;
+        }
+
+        return true;
+    }
+
+    /** Burn the code. Called on use, on expiry and on too many guesses. */
+    public function clearPasswordOtp(): void
+    {
+        $this->forceFill([
+            'password_otp_hash' => null,
+            'password_otp_expires_at' => null,
+            'password_otp_attempts' => 0,
+        ])->save();
     }
 
     // Helper methods for role checking

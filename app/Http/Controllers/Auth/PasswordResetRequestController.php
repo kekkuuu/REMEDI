@@ -5,9 +5,13 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\AuditTrail;
 use App\Models\User;
+use App\Services\SmsService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 use Illuminate\View\View;
 
 /**
@@ -15,14 +19,50 @@ use Illuminate\View\View;
  * (MAIL_MAILER points at a local mailpit catcher -- see CLAUDE.md).
  * Breeze's own token-by-email flow (PasswordResetLinkController /
  * NewPasswordController, still registered but unreachable from any view)
- * can't deliver anything here, so this replaces it on the same two routes
- * with an in-app request an ADMIN resolves instead of an email: a signed-
- * out account flags itself as locked out, and User Management shows the
- * admin exactly who's waiting (see UserController::resetPassword() and
- * admin/users/_rows.blade.php).
+ * can't deliver anything here.
+ *
+ * It forks on ROLE, because the two roles have genuinely different problems:
+ *
+ * - STAFF ask an admin. There is always an admin above a cashier, so the
+ *   account flags itself and User Management shows who is waiting (see
+ *   UserController::resetPassword()). Unchanged, and still the default for
+ *   anything that is not a reachable admin.
+ *
+ * - ADMINS have nobody above them, so waiting for "an admin" is circular --
+ *   on a one-admin shop it is a lockout. They get a 6-digit code texted to
+ *   the number on their own account, verify it, and set a new password
+ *   themselves. Possession of the registered handset is what stands in for
+ *   the authority a staff request borrows from an admin.
+ *
+ * An admin with NO phone number on file falls back to the staff path rather
+ * than dead-ending: another admin can still reset them. That is a real gap on
+ * a single-admin install with no number saved, and the honest fix is to save
+ * a number, which is why the message says so.
+ *
+ * THREE THINGS HOLD THIS UP and none is optional. The code is stored hashed
+ * (User::issuePasswordOtp); it expires (OTP_TTL_MINUTES) and is burned after
+ * OTP_MAX_ATTEMPTS wrong guesses, since six digits is a million combinations
+ * and nothing else here is slow enough to matter; and sending is rate limited
+ * per email, because every text costs money once a real gateway is wired in
+ * and an unlimited send endpoint is both a bill and a way to flood somebody's
+ * phone.
+ *
+ * The verified identity rides in the SESSION between the three steps, never
+ * in the URL or a form field -- a user id in a query string would let anyone
+ * skip straight to "set a new password" for any account they can name.
  */
 class PasswordResetRequestController extends Controller
 {
+    /** Session keys for the half-finished reset. */
+    private const SESSION_EMAIL = 'password_otp.email';
+
+    private const SESSION_VERIFIED = 'password_otp.verified';
+
+    /** Sends allowed per email before it has to wait. */
+    private const SEND_LIMIT = 5;
+
+    private const SEND_DECAY_SECONDS = 600;
+
     public function create(): View
     {
         return view('auth.forgot-password');
@@ -47,8 +87,33 @@ class PasswordResetRequestController extends Controller
             'email' => ['required', 'string', 'lowercase', 'email', Rule::exists('users', 'email')->whereNull('archived_at')],
         ]);
 
-        $user = User::where('email', $request->input('email'))->first();
+        $email = (string) $request->input('email');
+        $user = User::where('email', $email)->first();
 
+        // An admin with a number on file proves themselves by SMS; everyone
+        // else asks an admin. isAdmin() alone is not the test -- a number is
+        // what makes the SMS path possible at all.
+        if ($user->isAdmin() && trim((string) $user->phone) !== '') {
+            return $this->sendOtp($request, $user);
+        }
+
+        if ($user->isAdmin()) {
+            // Say which of the two things is missing. "An admin has been
+            // notified" would be an odd thing to tell the admin, and would
+            // hide the reason the text never arrived.
+            $this->flagForAdmin($user);
+
+            return back()->with('status', 'No mobile number is saved on this admin account, so no code could be texted. Another admin can reset it for you from User Management.');
+        }
+
+        $this->flagForAdmin($user);
+
+        return back()->with('status', 'If that account exists, an admin has been notified and will reset your password.');
+    }
+
+    /** The staff path, unchanged: flag the account and let the bell do the rest. */
+    private function flagForAdmin(User $user): void
+    {
         // Idempotent: a second click while a request is already pending
         // doesn't reset the clock or write a second audit row (and a second
         // toast) for the same wait. The admin still sees exactly one row to
@@ -63,10 +128,169 @@ class PasswordResetRequestController extends Controller
             // account by reading $user->name out of the details string.
             AuditTrail::log('Requested', "Password reset requested: {$user->name}");
         }
+    }
 
-        // One message regardless of whether the request was already
-        // pending, so a second click reads as "still working on it" rather
-        // than an error.
-        return back()->with('status', 'If that account exists, an admin has been notified and will reset your password.');
+    /** The admin path: mint a code, text it, and move to the verify screen. */
+    private function sendOtp(Request $request, User $user): RedirectResponse
+    {
+        $key = 'password-otp:'.$user->id;
+
+        if (RateLimiter::tooManyAttempts($key, self::SEND_LIMIT)) {
+            throw ValidationException::withMessages([
+                'email' => 'Too many codes requested. Try again in '.ceil(RateLimiter::availableIn($key) / 60).' minute(s).',
+            ]);
+        }
+
+        RateLimiter::hit($key, self::SEND_DECAY_SECONDS);
+
+        $code = $user->issuePasswordOtp();
+
+        $sent = SmsService::send(
+            $user->phone,
+            'REMEDI: your password reset code is '.$code.'. It expires in '.User::OTP_TTL_MINUTES.' minutes. If you did not ask for it, ignore this message.'
+        );
+
+        // The code itself is never written to the audit trail -- the trail is
+        // readable by every admin, which would make it a way to take over
+        // somebody else's account rather than a record of what happened.
+        AuditTrail::log('Requested', "Password reset code sent: {$user->name}");
+
+        $request->session()->put(self::SESSION_EMAIL, $user->email);
+        $request->session()->forget(self::SESSION_VERIFIED);
+
+        if (! $sent) {
+            return back()->with('status', 'The code could not be sent to the number on file. Check the number, or ask another admin to reset it from User Management.');
+        }
+
+        return redirect()->route('password.otp')->with('status', 'A 6-digit code has been sent to the mobile number on this account.');
+    }
+
+    /** Step 2: type the code. */
+    public function showOtpForm(Request $request): View|RedirectResponse
+    {
+        $user = $this->pendingUser($request);
+
+        if (! $user) {
+            return redirect()->route('password.request');
+        }
+
+        return view('auth.forgot-password-otp', [
+            // Enough to confirm the code went somewhere expected, without
+            // printing a number to whoever typed the email address.
+            'maskedPhone' => $this->maskPhone($user->phone),
+            'smsDelivers' => SmsService::delivers(),
+        ]);
+    }
+
+    public function verifyOtp(Request $request): RedirectResponse
+    {
+        $user = $this->pendingUser($request);
+
+        if (! $user) {
+            return redirect()->route('password.request');
+        }
+
+        $request->validate(['code' => ['required', 'digits:6']]);
+
+        if (! $user->checkPasswordOtp((string) $request->input('code'))) {
+            // One message for wrong, expired and burned alike: which of the
+            // three it was is information a guesser can use to tune the next
+            // attempt, and the person who genuinely has the phone needs the
+            // same next step either way.
+            throw ValidationException::withMessages([
+                'code' => 'That code is not valid or has expired. Request a new one.',
+            ]);
+        }
+
+        // Only now is the session allowed near the password form. Regenerate
+        // first so a session id captured before verification cannot be
+        // replayed as a verified one.
+        $request->session()->regenerate();
+        $request->session()->put(self::SESSION_EMAIL, $user->email);
+        $request->session()->put(self::SESSION_VERIFIED, true);
+
+        return redirect()->route('password.otp.reset');
+    }
+
+    /** Step 3: set the new password. */
+    public function showResetForm(Request $request): View|RedirectResponse
+    {
+        if (! $this->verifiedUser($request)) {
+            return redirect()->route('password.request');
+        }
+
+        return view('auth.forgot-password-reset');
+    }
+
+    public function resetPassword(Request $request): RedirectResponse
+    {
+        $user = $this->verifiedUser($request);
+
+        if (! $user) {
+            return redirect()->route('password.request');
+        }
+
+        $request->validate([
+            'password' => ['required', 'confirmed', 'min:8'],
+        ]);
+
+        $user->forceFill([
+            'password' => Hash::make($request->input('password')),
+            // They chose this password themselves, so there is nothing to
+            // force a change of -- unlike UserController::resetPassword(),
+            // which hands out a known shared default and must set the flag.
+            'must_change_password' => false,
+            'password_reset_requested_at' => null,
+        ])->save();
+
+        $user->clearPasswordOtp();
+
+        AuditTrail::log('Reset', "Password reset by SMS code: {$user->name}");
+
+        $request->session()->forget([self::SESSION_EMAIL, self::SESSION_VERIFIED]);
+        // A fresh id again: the reset is finished, and nothing that happens
+        // next should be able to reuse the session that was allowed to do it.
+        $request->session()->regenerate();
+
+        return redirect()->route('login')->with('status', 'Your password has been changed. Sign in with your new password.');
+    }
+
+    /**
+     * The account a half-finished reset belongs to, re-read from the database
+     * every time. The session carries an email, never a user object or a role
+     * -- so an account archived or deactivated mid-flow stops resolving here
+     * and the flow ends, rather than running on a snapshot taken before.
+     */
+    private function pendingUser(Request $request): ?User
+    {
+        $email = $request->session()->get(self::SESSION_EMAIL);
+
+        if (! $email) {
+            return null;
+        }
+
+        return User::where('email', $email)->where('is_active', true)->first();
+    }
+
+    /** As above, but only once the code has actually been verified. */
+    private function verifiedUser(Request $request): ?User
+    {
+        if (! $request->session()->get(self::SESSION_VERIFIED)) {
+            return null;
+        }
+
+        return $this->pendingUser($request);
+    }
+
+    /** "09171234567" -> "•••• •••4567", enough to recognise, not to dial. */
+    private function maskPhone(?string $phone): string
+    {
+        $digits = preg_replace('/\D/', '', (string) $phone);
+
+        if (strlen((string) $digits) < 4) {
+            return 'the number on file';
+        }
+
+        return '•••• •••'.substr((string) $digits, -4);
     }
 }

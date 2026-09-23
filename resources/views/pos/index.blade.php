@@ -260,6 +260,10 @@
         autocomplete="off"
         autofocus
         class="pos-input pos-input-lg">
+    {{-- The camera scans too, with no preview shown -- hold a barcode up to it
+         and it rings up like a gun scan. Renders nothing here; see the
+         partial. --}}
+    @include('partials._barcode-camera')
     <div id="barcode-status" style="margin-top:6px; font-size:.85rem; min-height:1.2em;"></div>
 </div>
 
@@ -1179,12 +1183,12 @@
     });
     focusEntryField();
 
-    barcodeInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            const code = barcodeInput.value.trim();
-            barcodeInput.value = '';
-
+    /* One lookup path for BOTH ways a code arrives: a scanner gun typing into
+       the field and pressing Enter, and a camera decode from
+       partials/_barcode-camera. A second copy here is how the two would drift
+       into meaning different things. */
+    window.handleScannedCode = function (code) {
+        {
             if (!code) return;
 
             barcodeStatus.textContent = 'Looking up ' + code + '...';
@@ -1210,6 +1214,16 @@
                     barcodeStatus.style.color = '#dc2626';
                 });
         }
+    };
+
+    barcodeInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const code = barcodeInput.value.trim();
+            barcodeInput.value = '';
+            window.handleScannedCode(code);
+        }
     });
+
 </script>
 @endsection

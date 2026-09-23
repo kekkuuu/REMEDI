@@ -8,7 +8,7 @@
         <label for="password">Password</label>
         <input id="password" type="password" name="password" required>
 
-        <div style="margin:8px 0 14px; font-size:.85rem;">
+        <div style="margin:8px 0 14px; font-size:.85rem; text-align:right;">
             <a href="{{ route('password.request') }}">Forgot your password?</a>
         </div>
 
