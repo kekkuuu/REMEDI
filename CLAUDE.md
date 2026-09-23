@@ -1043,15 +1043,28 @@ both start at `01`. Covered by `Feature\Inventory\ProductFormTest`.
 
 ### Two sales tables — pick the right one
 - `sales` / `sale_items` — live POS checkouts only.
-- `sales_history` — the imported/synthetic record (**113,960 rows, 2022-09-01 .. 2026-08-15**,
-  re-counted 2026-09-09; the row count read 121,949 right after the 2026-09-02 regeneration and has
-  since dropped, though nothing in this repo's history should touch the table between regenerations —
-  see REMEDI.md "The sales record was rebuilt"). It stops the day before the
-  terminal's first checkout (2026-08-16) on purpose: this is what the books said before REMEDI was
-  installed, and `sales` is the record since. Written **only** by
-  `SalesHistorySeeder`; the POS never touches it. Stores units only, so revenue is always
-  `quantity_sold * products.selling_price`. `SalesHistory` sets `$table` explicitly (Eloquent would
-  resolve `sales_histories`, which does not exist).
+- `sales_history` — the imported record. **REPLACED 2026-09-23 from a real transaction export**
+  (`database/data/sales_transactions_2022-2026.csv`, 114,891 line rows / 79,491 transactions) via
+  `php artisan sales-history:import --file=… --write`. Now **108,542 rows, 2022-07-01 .. 2026-07-31,
+  189,514 units**, against the generated record it replaced (113,960 rows, 2022-09-01 .. 2026-08-15).
+  **The old rows are still in the database**, copied to `sales_history_archive` by that command
+  before anything was deleted and count-verified first; restore with
+  `INSERT INTO sales_history SELECT * FROM sales_history_archive`.
+
+  Two consequences of the swap, both real and neither a bug. **There is now a 16-day hole**: history
+  ends 2026-07-31 and the terminal's first checkout is 2026-08-16, where the generated record used to
+  run to 2026-08-15 and meet it exactly, so any report spanning early August shows nothing for
+  Aug 1–15. And the export is **far more intermittent** — 189,514 units spread over 2,603 products
+  and 49 months, averaging 1.75 units per product-day (max 13), where the generator deliberately
+  concentrated volume on 450 active lines. That is what moved the accuracy figures below, in both
+  directions at once.
+
+  It stops before the terminal's first checkout on purpose: this is what the books said before REMEDI
+  was installed, and `sales` is the record since. The POS never touches it. Stores units only, so
+  revenue is always `quantity_sold * products.selling_price` — the export's prices, discounts,
+  customers and payment types are deliberately NOT imported, since nothing downstream reads them and
+  widening the table would mean re-deriving every revenue aggregate. `SalesHistory` sets `$table`
+  explicitly (Eloquent would resolve `sales_histories`, which does not exist).
 
 Anything plotting a trend over time must read `sales_history`, or it charts an almost-empty table.
 Today's takings and transaction counts correctly read `sales`.
@@ -1568,11 +1581,24 @@ cross-model cascade) → 2.42 (cascade replaced with ONE forced order,
 `SARIMA_CANDIDATES`, still SARIMA-only). RMSE followed the same path: 10.06 → 2.70 → 2.89 → **2.75**.
 sMAPE: 30.1% → 33.3% → **31.8%**. The order search recovered most, not all, of what forcing one order
 had cost — expected, since it still never leaves the SARIMA family the cascade used to range across.
-The grades now read **Normal 721 / Acceptable 233 / Not acceptable 293** over **1,247** scored
-products — back to the cascade's exact coverage (1,247), and closer to its grade split (752/198/297)
-than the single-order run's (690/223/315) was. MAPE is **87.1%** across the **501** products where it
-is defined, which is the honest figure for intermittent demand — being one unit out on a month that
-sold two is a 50% error however good the fit, which is why `ForecastGrade` falls back to sMAPE.
+The grades then read **Normal 721 / Acceptable 233 / Not acceptable 293** over **1,247** scored
+products, and MAPE **87.1%** across the **501** where it is defined.
+
+**All of the above describes the GENERATED record, and is superseded as of 2026-09-23** — those runs
+are kept because they isolate what each MODEL change was worth, which the numbers below cannot. On
+the real transaction export that replaced it (see "Two sales tables"), the same SARIMA-only pipeline
+scores **2,599 products: MAE 1.89 / RMSE 2.34, MAPE 72.8% across the 1,819 where it is defined,
+sMAPE 102.4%**, grading **Normal 581 / Acceptable 644 / Not acceptable 1,374**.
+
+**Read that as two true things at once rather than a regression.** MAE and RMSE IMPROVED (2.31 → 1.89,
+2.75 → 2.34) and MAPE both improved and more than tripled its coverage (501 → 1,819 products). sMAPE
+and the grade split got much worse. Both follow from the same property: the export spreads 189,514
+units over 2,603 products at 1.75 units per product-day, where the generator concentrated volume on
+450 active lines. Smaller absolute numbers are easier to be close to and harder to be close to in
+PERCENTAGE terms — being one unit out on a month that sold two is a 50% error however good the fit,
+which is exactly why `ForecastGrade` falls back to sMAPE and why sMAPE sits structurally higher on
+intermittent demand. **Do not "fix" this by reshaping the data**: the standing rule that a metric is
+only worth having while it is earned applies with more force to a real record than a generated one.
 
 **What moved the FIRST jump (8.43 → 2.28) was the size of the SHELF, not the model.** A first pass
 spread the shop's units across all 2,638 catalogue lines, leaving the median product at 0.73/month
@@ -1588,12 +1614,14 @@ SARIMA model (whichever order won that product's holdout) on its series minus th
 `HOLDOUT_MONTHS` (3) and scores the result against the months it was not allowed to see, writing one
 row per product to `forecast_accuracy` (`--metrics` CSV → `importMetrics()`). Scoring the model
 actually in use is the point; a number from some other model would describe a forecast nobody is
-looking at. Currently 1,247 products scored: **MAE 2.31 / RMSE 2.75** averaged across products
-(measured 2026-09-09, immediately after the SARIMA-order-search run).
+looking at. Currently **2,599 products scored: MAE 1.89 / RMSE 2.34** averaged across products
+(measured 2026-09-23, on the real transaction export -- the 1,247 / 2.31 / 2.75 figures it replaced
+were the generated record, 2026-09-09).
 
 **MAPE is nullable and must stay nullable.** It divides by the actual, so a holdout where the product
 sold nothing has no defined percentage error — and that is the common case here, not an edge case:
-**746 of 1,247** products have no non-zero month to measure against. Null means "not measurable",
+**780 of 2,599** products have no non-zero month to measure against (it was 746 of 1,247 on the
+generated record -- proportionally far better on the real export, which is why MAPE coverage tripled). Null means "not measurable",
 never 0.0, and the views render it as "—" with sMAPE beside it rather than as a perfect score. MAPE
 also runs high on intermittent demand by construction (one unit out on a month that sold two is 50%),
 which is why MAE and sMAPE are shown next to it. Averages are taken ACROSS PRODUCTS, not pooled over
