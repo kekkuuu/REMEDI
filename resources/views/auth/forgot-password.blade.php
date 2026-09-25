@@ -7,9 +7,8 @@
          someone pick would also tell a stranger which addresses are admin
          accounts. See PasswordResetRequestController::store(). --}}
     <div style="margin-bottom:12px; font-size:.9rem; color:#6b7280;">
-        Enter your email. Staff accounts are reset by an admin &mdash; you'll be notified and given a
-        temporary password to sign in with. Admin accounts get a 6-digit code emailed to the personal
-        email address on the account.
+        Enter your REMEDI email. We'll send a 6-digit code to the personal email saved on your account.
+        If none is saved, an admin is notified and will give you a temporary password instead.
     </div>
 
     <form method="POST" action="{{ route('password.email') }}">

@@ -541,6 +541,17 @@ reset them, and the message says which of the two things was missing rather than
 an admin has been notified. That still leaves a genuine gap on a single-admin install with no number
 saved, and the honest fix is to save a number.
 
+**Superseded 2026-09-25, at the user's request: the fork is now on the PERSONAL EMAIL, not the role,
+and the code is EMAILED, not texted.** Any account — staff included — with `users.personal_email`
+saved gets a 6-digit code at that address (`PasswordResetCodeMail`) and sets its own password; an
+account with none (either role) flags itself for an admin as above. `canEmailCode()` in
+`PasswordResetRequestController` is the one test, shared by send and resend. The SMS wording in the
+paragraphs around this is history — the phone/SMS driver (`SmsService`) is still present but no
+longer used by this flow. Live mail goes through Gmail SMTP (`MAIL_*` on Vercel and Railway; the
+App Password is set by the account owner in each dashboard, never through a chat). Covered by
+`Feature\Auth\AdminOtpPasswordResetTest` (staff with an address get a code and finish the reset
+themselves; staff without one still ask an admin).
+
 Three steps, four guest routes (`password.otp` / `password.otp.verify` / `password.otp.reset` /
 `password.otp.update`), and **each re-checks the session itself rather than trusting the step
 before**. **`password.otp.resend` is a fifth**: a real resend on the code screen, not a link back to

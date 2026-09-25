@@ -23,23 +23,20 @@ use Illuminate\View\View;
  * NewPasswordController, still registered but unreachable from any view)
  * can't deliver anything here.
  *
- * It forks on ROLE, because the two roles have genuinely different problems:
+ * It forks on whether the account has a PERSONAL EMAIL saved -- not on role,
+ * as of 2026-09-25 (it used to be admins only, at the user's request staff
+ * now get the same):
  *
- * - STAFF ask an admin. There is always an admin above a cashier, so the
- *   account flags itself and User Management shows who is waiting (see
- *   UserController::resetPassword()). Unchanged, and still the default for
- *   anything that is not a reachable admin.
+ * - WITH one, any role gets a 6-digit code emailed to that address, verifies
+ *   it, and sets a new password themselves. Possession of the personal inbox
+ *   is what stands in for the authority an admin's reset would otherwise
+ *   supply. It must be the PERSONAL address: `users.email` is the @remedi.com
+ *   account they cannot currently get into.
  *
- * - ADMINS have nobody above them, so waiting for "an admin" is circular --
- *   on a one-admin shop it is a lockout. They get a 6-digit code texted to
- *   the number on their own account, verify it, and set a new password
- *   themselves. Possession of the registered handset is what stands in for
- *   the authority a staff request borrows from an admin.
- *
- * An admin with NO phone number on file falls back to the staff path rather
- * than dead-ending: another admin can still reset them. That is a real gap on
- * a single-admin install with no number saved, and the honest fix is to save
- * a number, which is why the message says so.
+ * - WITHOUT one, the account flags itself and User Management shows who is
+ *   waiting (see UserController::resetPassword()) -- the original staff path.
+ *   For an admin that is a real gap on a single-admin install, and the honest
+ *   fix is to save a personal email, which is why the message says so.
  *
  * THREE THINGS HOLD THIS UP and none is optional. The code is stored hashed
  * (User::issuePasswordOtp); it expires (OTP_TTL_MINUTES) and is burned after
@@ -92,12 +89,10 @@ class PasswordResetRequestController extends Controller
         $email = (string) $request->input('email');
         $user = User::where('email', $email)->first();
 
-        // An admin with a PERSONAL address on file proves themselves by
-        // emailed code; everyone else asks an admin. isAdmin() alone is not
-        // the test -- an address is what makes the code path possible at all,
-        // and it must be the personal one: `users.email` is the @remedi.com
-        // account they cannot currently get into.
-        if ($user->isAdmin() && trim((string) $user->personal_email) !== '') {
+        // Anyone with a PERSONAL address on file proves themselves by emailed
+        // code, staff and admins alike; everyone else asks an admin. The
+        // address is what makes the code path possible at all.
+        if ($this->canEmailCode($user)) {
             return $this->sendOtp($request, $user);
         }
 
@@ -112,10 +107,16 @@ class PasswordResetRequestController extends Controller
 
         $this->flagForAdmin($user);
 
-        return back()->with('status', 'If that account exists, an admin has been notified and will reset your password.');
+        return back()->with('status', 'No personal email is saved on this account, so an admin has been notified and will reset your password.');
     }
 
-    /** The staff path, unchanged: flag the account and let the bell do the rest. */
+    /** The one test for the emailed-code path, shared by send and resend. */
+    private function canEmailCode(User $user): bool
+    {
+        return trim((string) $user->personal_email) !== '';
+    }
+
+    /** The no-personal-email path: flag the account and let the bell do the rest. */
     private function flagForAdmin(User $user): void
     {
         // Idempotent: a second click while a request is already pending
@@ -135,7 +136,7 @@ class PasswordResetRequestController extends Controller
     }
 
     /**
-     * The admin path: mint a code, text it, and move to the verify screen.
+     * The emailed-code path: mint a code, email it, and move to the verify screen.
      *
      * $isResend only changes how it SPEAKS, never what it does -- a resend is
      * the same act, and deliberately shares the one rate limiter so that
@@ -182,7 +183,7 @@ class PasswordResetRequestController extends Controller
         $request->session()->forget(self::SESSION_VERIFIED);
 
         if (! $sent) {
-            return back()->with('status', 'The code could not be emailed to the address on file. Check it, or ask another admin to reset it from User Management.');
+            return back()->with('status', 'The code could not be emailed to the address on file. Try again in a moment, or ask an admin to reset it from User Management.');
         }
 
         return redirect()->route('password.otp')->with('status', $isResend
@@ -199,15 +200,15 @@ class PasswordResetRequestController extends Controller
      * email address, which is what the old "send a new code" link cost.
      *
      * It re-reads the account rather than trusting the session for anything
-     * but the address, so an account that lost its number, its admin role or
-     * its active flag mid-flow cannot be texted by pressing a button on a
-     * page that was rendered before any of that changed.
+     * but the address, so an account that lost its personal email or its
+     * active flag mid-flow cannot be emailed by pressing a button on a page
+     * that was rendered before any of that changed.
      */
     public function resendOtp(Request $request): RedirectResponse
     {
         $user = $this->pendingUser($request);
 
-        if (! $user || ! $user->isAdmin() || trim((string) $user->personal_email) === '') {
+        if (! $user || ! $this->canEmailCode($user)) {
             return redirect()->route('password.request');
         }
 
@@ -298,7 +299,7 @@ class PasswordResetRequestController extends Controller
 
         $user->clearPasswordOtp();
 
-        AuditTrail::log('Reset', "Password reset by SMS code: {$user->name}");
+        AuditTrail::log('Reset', "Password reset by email code: {$user->name}");
 
         $request->session()->forget([self::SESSION_EMAIL, self::SESSION_VERIFIED]);
         // A fresh id again: the reset is finished, and nothing that happens

@@ -11,10 +11,10 @@ use Illuminate\Support\Facades\RateLimiter;
 use Tests\TestCase;
 
 /**
- * The ADMIN half of "Forgot your password?": an admin has no admin to ask,
- * so they verify a 6-digit code texted to the number on their own account
- * and set the password themselves. Staff keep the request-an-admin flow,
- * which Feature\Auth\PasswordResetRequestTest already covers.
+ * "Forgot your password?" by EMAILED CODE -- admins, and since 2026-09-25 staff
+ * too, verify a 6-digit code sent to the personal email on their account
+ * and set the password themselves. An account with no personal email keeps
+ * the request-an-admin flow, which PasswordResetRequestTest covers.
  *
  * What is asserted here is mostly the REFUSALS, because this is the shortest
  * path in the app between an email address and an admin account: a wrong
@@ -64,15 +64,52 @@ class AdminOtpPasswordResetTest extends TestCase
         return $code;
     }
 
-    public function test_a_staff_request_still_notifies_an_admin_and_issues_no_code(): void
+    /**
+     * Inverted 2026-09-25, at the user's request: staff with a personal email
+     * now get the same emailed code as an admin, rather than waiting on one.
+     */
+    public function test_staff_with_a_personal_email_are_sent_a_code_too(): void
     {
-        $staff = User::factory()->create(['personal_email' => 'someone@gmail.com']);
+        $staff = User::factory()->create(['personal_email' => 'cashier@gmail.com']);
+
+        $this->post('/forgot-password', ['email' => $staff->email])
+            ->assertRedirect(route('password.otp'));
+
+        Mail::assertSent(PasswordResetCodeMail::class, fn ($mail) => $mail->hasTo('cashier@gmail.com'));
+
+        $staff->refresh();
+        $this->assertNotNull($staff->password_otp_hash);
+        $this->assertNull($staff->password_reset_requested_at, 'the code replaces the admin queue');
+    }
+
+    public function test_staff_can_finish_the_reset_themselves(): void
+    {
+        $staff = User::factory()->create(['personal_email' => 'cashier@gmail.com', 'must_change_password' => true]);
+        $code = $this->requestCodeFor($staff);
+
+        $this->post('/forgot-password/code', ['code' => $code])
+            ->assertRedirect(route('password.otp.reset'));
+
+        $this->post('/forgot-password/new-password', [
+            'password' => 'my-own-choice',
+            'password_confirmation' => 'my-own-choice',
+        ])->assertRedirect(route('login'));
+
+        $staff->refresh();
+        $this->assertTrue(Hash::check('my-own-choice', $staff->password));
+        $this->assertFalse($staff->must_change_password, 'they chose it, so nothing to force');
+    }
+
+    public function test_staff_with_no_personal_email_still_ask_an_admin(): void
+    {
+        $staff = User::factory()->create(['personal_email' => null]);
 
         $this->post('/forgot-password', ['email' => $staff->email]);
 
         $staff->refresh();
-        $this->assertNotNull($staff->password_reset_requested_at, 'staff still flag for an admin');
-        $this->assertNull($staff->password_otp_hash, 'a cashier never gets a code');
+        $this->assertNotNull($staff->password_reset_requested_at, 'flags for an admin');
+        $this->assertNull($staff->password_otp_hash, 'nowhere to send a code');
+        Mail::assertNothingSent();
     }
 
     public function test_an_admin_with_a_number_is_sent_a_code(): void
