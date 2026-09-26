@@ -205,10 +205,18 @@ class SalesHistory extends Model
 
     /**
      * Terminal takings by calendar month, clamped like every other aggregate.
+     *
+     * Voided sales excluded -- this was the one POS aggregate the void work
+     * (2026-09-22) missed, so a voided sale kept counting in the dashboard's
+     * monthly chart, the quarterly Sales Summary ring and the seasonal chart,
+     * all of which read monthlyRevenue(), while every "today" figure beside
+     * them had already dropped it. Raw DB::table, so Eloquent could never have
+     * filtered it; the where has to be written here by hand.
      */
     private static function posMonthlyRevenue(): Collection
     {
         return DB::table('sales')
+            ->where('payment_voided', false)
             ->whereDate('created_at', '<=', static::reportableThrough())
             ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') AS ym, SUM(total_amount) AS total")
             ->groupBy('ym')
