@@ -381,6 +381,20 @@
 
         .nav-sublink.active .nav-sub-count { color: #d1fae5; }
 
+        /* Stock reports waiting on an admin (sidebar). */
+        .nav-pending {
+            margin-left: auto;
+            min-width: 20px;
+            padding: 1px 7px;
+            border-radius: 999px;
+            background: #f59e0b;
+            color: #fff;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 18px;
+            text-align: center;
+        }
+
         /* ── Navigation feedback ──
            Pages are server-rendered, so between the click and the new
            document the browser shows nothing at all — on the heavier pages
@@ -3366,6 +3380,15 @@
             <a href="{{ route('sales.index') }}" class="{{ request()->routeIs('sales.*') ? 'active' : '' }}">
                 <i class="ti ti-receipt" aria-hidden="true"></i> Sales history
             </a>
+            {{-- Stock reports (2026-09-28): staff notify an admin about low or
+                 expired stock, an admin approves. Shared -- staff see their
+                 own. The count is what is WAITING, shown to admins only. --}}
+            <a href="{{ route('stock-reports.index') }}" class="{{ request()->routeIs('stock-reports.*') ? 'active' : '' }}">
+                <i class="ti ti-bell-ringing" aria-hidden="true"></i> Stock reports
+                @if(auth()->user()->isAdmin() && ($stockReportsPending = \App\Models\StockReport::pendingCount()) > 0)
+                    <span class="nav-pending" title="{{ $stockReportsPending }} waiting for approval">{{ $stockReportsPending }}</span>
+                @endif
+            </a>
 
             @if(auth()->user()->isAdmin())
                 <hr>
@@ -3402,7 +3425,7 @@
                      (`password.confirm`) is what actually protects the page;
                      this only saves a trip through it. --}}
                 <a href="{{ route('safeguard.edit') }}" class="{{ request()->routeIs('safeguard.*') ? 'active' : '' }}"
-                   data-password-gate="{{ (time() - (int) session('auth.password_confirmed_at', 0)) < (int) config('auth.password_timeout', 10800) ? 'confirmed' : 'required' }}">
+                   data-password-gate="{{ \App\Support\PasswordGate::state() }}">
                     <i class="ti ti-shield-lock" aria-hidden="true"></i> Safeguard
                 </a>
                 <a href="{{ route('audit.index') }}" class="{{ request()->routeIs('audit.*') ? 'active' : '' }}">
@@ -3629,7 +3652,7 @@
             <div class="remedi-modal__icon is-neutral"><i class="ti ti-shield-lock" aria-hidden="true"></i></div>
             <h3 id="passwordGateTitle">Confirm it's you</h3>
             <p id="passwordGateBody">
-                Safeguard holds the store's security controls. Enter your login password to continue.
+                This area holds the store's security controls and data. Enter your login password to continue.
             </p>
             <div class="remedi-modal__passcode">
                 <label for="passwordGateInput">Login password</label>
@@ -3742,7 +3765,9 @@
         // running low is a standing condition the bell can hold. Sign-ins are
         // excluded at the source (AlertService::ACCOUNT_KIND) -- a card every
         // time anybody logs in would make the stack useless by lunchtime.
-        $toastKinds = ['low_stock', 'expiring', 'expired', 'need_to_return', \App\Services\AlertService::ACCOUNT_KIND];
+        // And a staff member's stock report (STOCK_REPORT_KIND, 2026-09-28):
+        // a colleague waiting on a decision.
+        $toastKinds = ['low_stock', 'expiring', 'expired', 'need_to_return', \App\Services\AlertService::ACCOUNT_KIND, \App\Services\AlertService::STOCK_REPORT_KIND];
 
         // $topbarActivity is ALREADY admin-only -- the view composer resolves it
         // to [] for staff, and AlertController does the same for the polled
@@ -4915,7 +4940,14 @@
         const countEl = document.getElementById('bellCount');
         const stamp = document.getElementById('bellStamp');
 
-        const POLL_MS = 30000;          // matches AlertService::TTL_SECONDS
+        // HALF AlertService::TTL_SECONDS (2026-09-27, was equal to it). Every
+        // stock-moving action clears that cache outright (AlertService::forget),
+        // so the TTL only bounds time-driven changes (a batch expiring at
+        // midnight); what a poll interval bounds is how long a change made on
+        // ANOTHER machine takes to reach this bell. 15s halves that, and every
+        // other poll is served from the cache the first one warmed, so the
+        // expensive rebuild does not run any more often than before.
+        const POLL_MS = 15000;
         const markReadBtn = document.getElementById('bellMarkRead');
 
         // The store above, shared with /notifications.
@@ -5359,7 +5391,27 @@
         // is cleared server-side by those actions (see AlertService::forget),
         // so a poll right after one returns fresh numbers instead of showing
         // the pre-action count until the next tick.
-        window.remediRefreshAlerts = refresh;
+        //
+        // And every OTHER tab of this browser is told too, over a
+        // BroadcastChannel: an admin with the till in one tab and the dashboard
+        // in another sees the sale land in both bells at once, not the second
+        // one up to POLL_MS later. The listener calls refresh() directly, never
+        // this wrapper, so a message can never echo back and forth. Browsers
+        // without BroadcastChannel just keep the poll.
+        let alertChannel = null;
+        try {
+            alertChannel = new BroadcastChannel('remedi-alerts');
+            alertChannel.onmessage = function () {
+                if (!document.hidden) refresh();
+            };
+        } catch (e) { alertChannel = null; }
+
+        window.remediRefreshAlerts = function () {
+            refresh();
+            if (alertChannel) {
+                try { alertChannel.postMessage('refresh'); } catch (e) { /* closed */ }
+            }
+        };
 
         // Paint whatever the server rendered before the first poll lands, so
         // the badge is an unread count from the very first frame.
@@ -5714,7 +5766,21 @@
             const btn = target.querySelector('button');
 
             if (btn) {
-                btn.textContent = state.action;
+                // An icon action (User Management) keeps its icon and swaps
+                // the label inside it; textContent on the button would wipe
+                // the icon out along with the old word.
+                const label = btn.querySelector('.act-label');
+                const icon = btn.querySelector('i.ti');
+                if (label) {
+                    label.textContent = state.action;
+                    btn.setAttribute('aria-label', state.action);
+                    if (icon) {
+                        icon.classList.toggle('ti-user-off', state.is_active);
+                        icon.classList.toggle('ti-user-check', !state.is_active);
+                    }
+                } else {
+                    btn.textContent = state.action;
+                }
                 btn.classList.toggle('btn-warning', state.is_active);
                 btn.classList.toggle('btn-success', !state.is_active);
             }
@@ -5900,7 +5966,23 @@
                 })
                 .then(function (r) {
                     if (r.status === 200 && r.data.success) {
+                        // Every gated link on the page is open now, so the
+                        // next click goes straight through.
+                        document.querySelectorAll('a[data-password-gate]').forEach(function (a) {
+                            a.dataset.passwordGate = 'confirmed';
+                        });
                         window.location.href = target;
+                        // A DOWNLOAD target (Backup Database) never unloads the
+                        // page, which would leave the dialog stuck on
+                        // "Checking...". Close it shortly after; a real
+                        // navigation replaces the page before this fires.
+                        setTimeout(function () {
+                            busy = false;
+                            okBtn.disabled = false;
+                            cancelBtn.disabled = false;
+                            okBtn.textContent = 'Continue';
+                            close();
+                        }, 1200);
                         return;
                     }
                     busy = false;

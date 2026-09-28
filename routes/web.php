@@ -15,6 +15,7 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SalesForecastController;
 use App\Http\Controllers\SettingsController;
+use App\Http\Controllers\StockReportController;
 use App\Http\Controllers\SuggestController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -87,8 +88,17 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
     // neither the scope check nor the passcode -- see SaleController::void().
     Route::patch('/sales/{sale}/void', [SaleController::class, 'void'])->name('sales.void');
 
+    // Stock reports (2026-09-28): staff notify an admin about low or expired
+    // stock. Listing and reporting are shared -- staff see only their own
+    // (StockReportController::index) -- deciding is admin-only, below.
+    Route::get('/stock-reports', [StockReportController::class, 'index'])->name('stock-reports.index');
+    Route::post('/stock-reports', [StockReportController::class, 'store'])->name('stock-reports.store');
+
     // ===== ADMIN-ONLY routes =====
     Route::middleware('role:admin')->group(function () {
+
+        Route::patch('/stock-reports/{stockReport}/approve', [StockReportController::class, 'approve'])->name('stock-reports.approve');
+        Route::patch('/stock-reports/{stockReport}/reject', [StockReportController::class, 'reject'])->name('stock-reports.reject');
 
         // Safeguard (was "Settings" until 2026-09-24) -- store-wide config,
         // currently just the POS void passcode above. BOTH routes sit behind
@@ -100,6 +110,12 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
         Route::middleware('password.confirm')->group(function () {
             Route::get('/safeguard', [SettingsController::class, 'edit'])->name('safeguard.edit');
             Route::put('/safeguard/void-passcode', [SettingsController::class, 'updateVoidPasscode'])->name('safeguard.void-passcode.update');
+
+            // The backup streams the `users` table -- password hashes, reset-code
+            // hashes, personal emails. One click from any admin screen left open
+            // at the counter was enough to walk off with it, so it asks for the
+            // login password the same way Safeguard does.
+            Route::get('/admin/backup', [BackupController::class, 'download'])->name('admin.backup');
         });
         // The old address keeps working for a bookmark.
         Route::redirect('/settings', '/safeguard');
@@ -167,7 +183,6 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
         Route::get('/suggest/users', [SuggestController::class, 'users'])->name('suggest.users');
         Route::get('/suggest/audit', [SuggestController::class, 'audit'])->name('suggest.audit');
         Route::get('/audit/export', [AuditTrailController::class, 'export'])->name('audit.export');
-        Route::get('/admin/backup', [BackupController::class, 'download'])->name('admin.backup');
     });
 });
 

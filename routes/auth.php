@@ -64,7 +64,12 @@ Route::middleware(['auth', 'active'])->group(function () {
     // left open.
     Route::post('confirm-password', [ConfirmablePasswordController::class, 'store'])
         ->middleware('throttle:6,1');
-    Route::put('password', [PasswordController::class, 'update'])->name('password.update');
+    // Throttled for the same reason confirm-password is: it checks
+    // current_password from inside a signed-in session, so unmetered it lets
+    // whoever finds a screen left open guess the password and replace it.
+    Route::put('password', [PasswordController::class, 'update'])
+        ->middleware('throttle:6,1')
+        ->name('password.update');
     Route::post('logout', [AuthenticatedSessionController::class, 'destroy'])
         ->name('logout');
 });

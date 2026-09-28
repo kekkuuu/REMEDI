@@ -951,6 +951,13 @@
                 cart = {};
                 renderCart();
                 fetchProducts(currentProductsUrl, false); // stock just changed
+
+                // The sale may have pushed a product into low stock or out of
+                // it entirely. Checkout already cleared the alert cache, so ask
+                // the bell (and every other open tab) to catch up NOW -- the
+                // till was the one stock-moving action that did not, and waited
+                // out the poll instead, which read as "only after a refresh".
+                if (typeof window.remediRefreshAlerts === 'function') window.remediRefreshAlerts();
             })
             .catch(err => {
                 // Order matters: updatePaymentState() clears the status line,

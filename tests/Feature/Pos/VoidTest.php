@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Pos;
 
+use App\Http\Controllers\SaleController;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductBatch;
@@ -115,6 +116,30 @@ class VoidTest extends TestCase
 
         $this->actingAs($cashier)
             ->patch("/sales/{$sale->id}/void", ['reason' => 'cashier_error', 'passcode' => '000000'])
+            ->assertSessionHasErrors('passcode');
+
+        $this->assertFalse($sale->fresh()->payment_voided);
+    }
+
+    /**
+     * Six digits is a million combinations; without a limit a cashier's
+     * session could script its way to the manager passcode.
+     */
+    public function test_guessing_the_passcode_locks_the_account_out(): void
+    {
+        Setting::setVoidPasscode('112233');
+        [$product] = $this->checkoutProduct();
+        $cashier = $this->cashier();
+        $sale = $this->checkout($cashier, $product, 3, 30);
+
+        for ($i = 0; $i < SaleController::PASSCODE_MAX_ATTEMPTS; $i++) {
+            $this->actingAs($cashier)
+                ->patch("/sales/{$sale->id}/void", ['reason' => 'cashier_error', 'passcode' => '000000']);
+        }
+
+        // Even the RIGHT code is refused now -- that is the point of the lock.
+        $this->actingAs($cashier)
+            ->patch("/sales/{$sale->id}/void", ['reason' => 'cashier_error', 'passcode' => '112233'])
             ->assertSessionHasErrors('passcode');
 
         $this->assertFalse($sale->fresh()->payment_voided);

@@ -11,6 +11,7 @@ use App\Services\AlertService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\RateLimiter;
 
 class SaleController extends Controller
 {
@@ -181,6 +182,11 @@ class SaleController extends Controller
      * (data-confirm-passcode), gating those same buttons until 6 digits are
      * entered.
      */
+    /** Wrong manager-passcode guesses allowed per account before a lockout. */
+    public const PASSCODE_MAX_ATTEMPTS = 5;
+
+    public const PASSCODE_DECAY_SECONDS = 900;
+
     public function void(Request $request, Sale $sale)
     {
         abort_unless($sale->isVisibleTo($request->user()), 403);
@@ -198,6 +204,20 @@ class SaleController extends Controller
         $validated = $request->validate($rules);
 
         if (! $isAdmin) {
+            // Wrong guesses are LIMITED per account. Six digits is a million
+            // combinations and nothing else here is slow, so without this a
+            // cashier's session could script its way to the manager passcode --
+            // and with it, void any of their own sales and pocket the cash.
+            $limiterKey = 'void-passcode:'.$request->user()->id;
+
+            if (RateLimiter::tooManyAttempts($limiterKey, self::PASSCODE_MAX_ATTEMPTS)) {
+                return $this->actionFailed(
+                    $request,
+                    'Too many wrong passcodes. Try again in '.ceil(RateLimiter::availableIn($limiterKey) / 60).' minute(s), or ask an admin to void it.',
+                    'passcode'
+                );
+            }
+
             if (! Setting::voidPasscodeIsSet()) {
                 return $this->actionFailed(
                     $request,
@@ -207,8 +227,12 @@ class SaleController extends Controller
             }
 
             if (! Setting::checkVoidPasscode($validated['passcode'])) {
+                RateLimiter::hit($limiterKey, self::PASSCODE_DECAY_SECONDS);
+
                 return $this->actionFailed($request, 'Incorrect passcode.', 'passcode');
             }
+
+            RateLimiter::clear($limiterKey);
         }
 
         $sale->load('items.batch');

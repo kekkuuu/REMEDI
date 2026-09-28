@@ -28,9 +28,9 @@ class InventoryController extends Controller
             fn ($w) => $w->where('quantity', '>', 0)->orWhereNotNull('returned_at')
         )]);
 
-        if ($request->filled('search')) {
+        if (($search = $this->searchParam($request)) !== null) {
             // likeTerm() escapes the user's own % and _ — see Controller.
-            $like = $this->likeTerm($request->search);
+            $like = $this->likeTerm($search);
             $query->where(function ($q) use ($like) {
                 $q->where('name', 'like', $like)
                     ->orWhere('sku', 'like', $like)
@@ -48,7 +48,9 @@ class InventoryController extends Controller
             $query->where('category_id', $categoryId);
         }
 
-        $filter = $request->get('filter', 'all');
+        // A string or 'all': `?filter[]=x` is an array, which the view then
+        // echoes into its filter-tab links and dies on (a 500).
+        $filter = is_string($request->get('filter')) ? $request->get('filter') : 'all';
 
         // Expiry horizon for the `expiring` filter. Only the two the app
         // actually means are accepted — the dashboards' 30-day action list and
@@ -155,8 +157,14 @@ class InventoryController extends Controller
 
         $products = $products->values();
 
-        $page = (int) $request->get('page', 1);
         $perPage = 10;
+        // Clamped to a page that can exist. (int) of a 20-digit ?page= is
+        // PHP_INT_MAX, and forPage()'s ($page - 1) * $perPage then overflows to
+        // a float that array_slice() rejects -- a 500. Past the end is simply
+        // the last page, which is also friendlier than an empty table.
+        $lastPage = max(1, (int) ceil($products->count() / $perPage));
+        $page = is_numeric($request->get('page')) ? (int) $request->get('page') : 1;
+        $page = min(max(1, $page), $lastPage);
 
         $paginated = new LengthAwarePaginator(
             $products->forPage($page, $perPage)->values(),

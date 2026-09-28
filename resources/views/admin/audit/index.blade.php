@@ -33,7 +33,11 @@
            regenerable ones -- see BackupController::BACKUP_TABLES). No restore
            button by design: this repo's rule for anything that can destroy live
            data is a person with real database access, not a confirm dialog. --}}
-      <a href="{{ route('admin.backup') }}" class="btn btn-secondary btn-sm" data-no-skeleton>
+      {{-- Behind password.confirm (routes/web.php): the dump carries the
+           users table. data-password-gate opens the login-password pop-up in
+           place rather than leaving this page. --}}
+      <a href="{{ route('admin.backup') }}" class="btn btn-secondary btn-sm" data-no-skeleton
+         data-password-gate="{{ \App\Support\PasswordGate::state() }}">
         <i class="ti ti-database-export" style="font-size:14px;"></i> Backup Database
       </a>
     </div>

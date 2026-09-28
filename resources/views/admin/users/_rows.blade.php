@@ -107,7 +107,12 @@
             </td>
             <td>{{ $user->created_at->format('M d, Y') }}</td>
             <td>
-                <div class="actions-cell">
+                {{-- Edit keeps its label; the three after it are ICONS that
+                     stretch to show their label on hover or keyboard focus
+                     (2026-09-28, at the user's request). aria-label carries
+                     the name either way, so a screen reader never meets a
+                     bare glyph. --}}
+                <div class="actions-cell users-actions">
                 @if($archived)
                     <form method="POST" action="{{ route('users.restore', $user) }}"
                           class="js-confirm"
@@ -140,7 +145,7 @@
                               data-confirm-tone="neutral">
                             @csrf
                             @method('PATCH')
-                            <button type="submit" class="btn btn-secondary action-btn"><i class="ti ti-key" aria-hidden="true"></i> Reset password</button>
+                            <button type="submit" class="btn btn-secondary action-btn action-icon" aria-label="Reset password"><i class="ti ti-key" aria-hidden="true"></i><span class="act-label">Reset password</span></button>
                         </form>
 
                         <form method="POST" action="{{ route('users.toggle', $user) }}"
@@ -157,9 +162,8 @@
                               data-on-success="toggle">
                             @csrf
                             @method('PATCH')
-                            <button type="submit" class="btn action-btn action-toggle {{ $user->is_active ? 'btn-warning' : 'btn-success' }}">
-                                <i class="ti {{ $user->is_active ? 'ti-user-off' : 'ti-user-check' }}" aria-hidden="true"></i>
-                                {{ $user->is_active ? 'Deactivate' : 'Activate' }}
+                            <button type="submit" class="btn action-btn action-icon {{ $user->is_active ? 'btn-warning' : 'btn-success' }}" aria-label="{{ $user->is_active ? 'Deactivate' : 'Activate' }}">
+                                <i class="ti {{ $user->is_active ? 'ti-user-off' : 'ti-user-check' }}" aria-hidden="true"></i><span class="act-label">{{ $user->is_active ? 'Deactivate' : 'Activate' }}</span>
                             </button>
                         </form>
 
@@ -192,7 +196,7 @@
                             @csrf
                             @method('DELETE')
                             <input type="hidden" name="reason" value="">
-                            <button type="submit" class="btn btn-danger action-btn"><i class="ti ti-archive" aria-hidden="true"></i> Archive</button>
+                            <button type="submit" class="btn btn-danger action-btn action-icon" aria-label="Archive"><i class="ti ti-archive" aria-hidden="true"></i><span class="act-label">Archive</span></button>
                         </form>
                     @else
                         <span class="badge badge-success">You</span>

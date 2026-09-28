@@ -38,8 +38,11 @@ class ProfileUpdateRequest extends FormRequest
         ];
 
         if ($this->user()->isAdmin()) {
+            // 'bail': without it every rule runs even after 'string' fails, and
+            // `lowercase` calls mb_strtolower() on whatever arrived -- an array
+            // (email[]=x) was an uncaught TypeError, a 500.
             $rules['email'] = [
-                'required', 'string', 'lowercase', 'email', 'max:255',
+                'bail', 'required', 'string', 'lowercase', 'email', 'max:255',
                 Rule::unique(User::class)->ignore($this->user()->id),
             ];
             $rules['department'] = ['nullable', 'string', 'max:255'];

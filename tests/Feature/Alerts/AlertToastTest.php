@@ -194,7 +194,7 @@ class AlertToastTest extends TestCase
         $this->product('Healthy Item', 1, 500, now()->addDays(300)->toDateString());
 
         $this->assertSame(
-            ['low_stock', 'expiring', 'expired', 'need_to_return', AlertService::ACCOUNT_KIND],
+            ['low_stock', 'expiring', 'expired', 'need_to_return', AlertService::ACCOUNT_KIND, AlertService::STOCK_REPORT_KIND],
             $this->toastSeed($this->page())['kinds']
         );
     }

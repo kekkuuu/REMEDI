@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (291 passed, 916 assertions — measured 2026-09-24) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (322 passed, 1027 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -385,6 +385,33 @@ a surface that needs the same answer, call it rather than re-deriving it.
 | Sending a text message; whether one really gets delivered | `App\Services\SmsService::send()` / `delivers()` |
 | An SMS reset code's life: mint, check, burn | `User::issuePasswordOtp()` / `checkPasswordOtp()` / `clearPasswordOtp()` |
 | Who may void a sale, and whether a passcode is needed | `Sale::isVisibleTo()` + `Setting::checkVoidPasscode()` in `SaleController::void()` |
+
+### Bug sweep, 2026-09-26 — what was fixed and the rule each one leaves behind
+
+- **`/admin/backup` streams the `users` table** (password + reset-code hashes, personal emails) and
+  was one click from any open admin screen. It now sits in the `password.confirm` group beside
+  Safeguard; its link carries `data-password-gate` (`App\Support\PasswordGate::state()`, the one
+  definition of "recently confirmed" for views) so the same pop-up opens in place.
+- **The staff void passcode could be guessed without limit** — 6 digits, nothing slow. `void()` now
+  locks an account out after `SaleController::PASSCODE_MAX_ATTEMPTS` (5) wrong codes for 15 minutes;
+  a correct code clears it. `PUT /password` (change password, checks `current_password`) is now
+  `throttle:6,1` like confirm-password.
+- **An array where a string was expected answered 500 on ten routes** — `?search[]=x` on Inventory,
+  POS, Products and Forecast, `?q[]=x` on every `/suggest/*`, `?sku[]=x` on the POS barcode lookup,
+  `?filter[]=x` on Inventory, `?category_id[]=x` on the Inventory report, and `email[]=x` on
+  Forgot Password (guest-facing), Add User and Edit User. Read request input through
+  `Controller::searchParam()` / `normalisedEmail()` rather than casting it, and **never `(string)` a
+  request value** — on an array that is "Array to string conversion". `Feature\SearchInputTest` sends
+  an array for every filter parameter on every list page; add a page to it when you add one.
+- **Second pass (a fuzz of every route × admin/staff/guest × arrays, garbage, huge, negative and
+  impossible dates) found four more 500s, now fixed:** the profile email (`lowercase` runs even after
+  `string` fails — rules that call a string function need `bail`), `current_password` on an array
+  (profile delete, change password, confirm password — `password_verify()` throws; `bail` + `string`
+  first), `/inventory?page=<20 digits>` (the manual paginator's offset overflowed to a float; the page
+  is now clamped to one that exists), and the dead Breeze reset page echoing `?email[]=`. After the
+  fixes the fuzz answered **zero** 500s, and the MySQL-only pages (dashboard, forecast, reports, all
+  27 report exports) were swept the same way against real data with zero 500s. `pos:backfill` now
+  excludes voided sales when counting what a day already has.
 
 ### Laravel 10-style skeleton on Laravel 12
 `bootstrap/app.php` binds `App\Http\Kernel` / `App\Console\Kernel`; middleware aliases live in
@@ -1226,6 +1253,8 @@ only the printed hundred is the same class of bug as a KPI that disagrees with i
 **0.83 MB → 0.39 MB**, footer verified equal to `posTotal`. The screen never renders this table at
 all; it shows the day/month breakdown instead, so this is purely about paper.
 
+**The Sales Report's filters are LIVE as of 2026-09-28 (the user's request) — no Generate button, no Month picker — and this supersedes the three paragraphs below about the month picker, Print regenerating first, and the month `<select>` label.** Every control applies itself: a period button, either date (debounced 350ms), the category, the product (only once it names a real product) and the cashier. `ReportController::sales()` answers an AJAX request with `{html, state}` — `html` is `reports/_sales-body` alone (KPIs, both charts, the breakdown, the print copy), `state` is the RESOLVED range plus filters and export URLs, which the filter bar re-syncs from (a period becomes dates, a reversed pair is reordered, and the address bar records the resolved URL). The partial carries its chart data as a `<script type="application/json">` block and the page's one `renderSalesCharts()` draws from it after every swap, since `innerHTML` never runs a script. Clicks are caught on `#salesReport`, below the layout's document-level skeleton handler, so a refresh paints no navigation skeleton. Print waits for a refresh in flight. `?month=` is still honoured server-side for old bookmarks. Hourly Sales & Transaction Volume now sits ABOVE "Where the total comes from". Measured 2026-09-28: a filter change downloads **18–91 KB instead of 650–760 KB**; the full page went 764 → 472 KB (the product `<datalist>` lists only products that have sold — ~2,300 fewer options — and the body's tables are class-based `.sr-*` instead of inline-styled); the hourly breakdown groups sales once instead of filtering them 24 times (an all-time refresh 242 → 66 ms). The Inventory report's two selects also apply on change now (a plain submit; `<noscript>` keeps an Apply button). The report page is MySQL-only, so none of this is covered by the sqlite suite — verify it in the browser.
+
 **Print must print what you asked for.** The month picker submits on change; the two date inputs do
 not, and wait for Generate — right, since setting a start date should not fire a report before the end
 date is chosen. The cost is that the form and the report can describe different periods: edit the
@@ -1832,6 +1861,22 @@ if the presentation ever changes again, the chime rule has to be re-derived from
 **Two ways in, one queue.** The GREETING plays the alerts that were open when the page rendered,
 once per browser session. LIVE pops are queued from the bell's poll. Both build the same card.
 
+**The bell is live by POLLING, not broadcasting — decided 2026-09-27.** A note asked for Laravel
+Broadcasting/Echo; it was rejected on purpose: Vercel's serverless functions cannot hold a websocket,
+so it would need Pusher (an account and keys) or a second always-on Railway service, for a gain of a
+few seconds at a pharmacy counter. What made it LOOK like "only after a refresh" was that **the POS
+checkout never told the bell** — every confirm-dialog action called `window.remediRefreshAlerts()`,
+the till did not, so a sale that emptied a shelf waited out the poll. Now: (1) checkout calls it;
+(2) `remediRefreshAlerts()` also posts to a `BroadcastChannel('remedi-alerts')`, so every other tab
+of the browser refreshes at once (the listener calls `refresh()` directly, never the wrapper, so a
+message cannot echo — verified: one broadcast, exactly one poll); a HIDDEN tab ignores it, since
+`visibilitychange` already refreshes on return; (3) `POLL_MS` is 15s, HALF `TTL_SECONDS` (30s),
+because every stock change clears the cache (`forget()`) — the TTL only bounds time-driven changes,
+while the poll bounds how long a change on ANOTHER machine takes to arrive, and every other poll hits
+the cache the first one warmed. Do not raise `TTL_SECONDS` to match, or lower it: the rebuild hydrates
+every batch. `Feature\Alerts\LiveAlertTest` pins the server half (the next poll after a checkout
+already carries the new low-stock row; `/alerts` is `no-store`).
+
 **The live watch rides the bell's existing poll; it must never open its own.**
 `window.dispatchEvent(new CustomEvent('remedi:alerts', {detail: data}))` fires from the bell's fetch
 handler and the toast module listens. A second loop would double the request rate against a 30s
@@ -2221,6 +2266,10 @@ two or three per line at ten lines a page, and thirty saturated fills is a block
 with the status badges beside it. The colour still means the same thing, moved into the border and
 label. Defined once in `layouts/app.blade.php` under `.remedi-table .actions-cell`, so users,
 products and inventory read as one pattern.
+
+**User Management's row actions are ICONS that stretch on hover (2026-09-28, at the user's request).** Edit keeps its label; Reset password, Activate/Deactivate and Archive rest as equal icon squares (`.action-icon`) and slide their `.act-label` out on `:hover` / `:focus-visible` (max-width transition — `auto` cannot animate). The cell reserves room for ONE open label (`.users-actions { min-width: 290px }`), so a stretch pushes its neighbours into space already there instead of widening the column and shifting the whole table — verified: every row's actions cell stays 337px wide while one button is open. `aria-label` names each button. `applyToggle()` in the layout swaps the `.act-label` text and the icon rather than setting `textContent` on the button, which used to wipe the icon on every activate/deactivate. The old `.action-toggle` min-width pin is gone (icons are one width).
+
+**Stock reports: staff notify an admin, an admin approves (2026-09-28).** `stock_reports` (`App\Models\StockReport`, `StockReportController`). A staff Inventory row with a real problem — `StockReport::applies()`, the ONE check behind both the button and the endpoint (`is_running_out` for low stock, an unreturned expired batch holding units for expired) — gets a "Notify: Low stock" / "Notify: Expired stock" js-confirm button, then a "notified" marker while a report waits. One pending report per product+type (a second click answers success and writes nothing). The admin is told through the audit trail: details beginning `Stock report` become `AlertService::STOCK_REPORT_KIND` rows in the bell (Alerts tab, "Review" pill, linking at `/stock-reports`) and a toast (added to `$toastKinds`), and the sidebar's "Stock reports" link carries a pending count (`StockReport::pendingCount()`, cached 60s, forgotten on every write). `/stock-reports` is shared — staff see only their own — while approve/reject are `role:admin`, locked-and-rechecked so a report is decided exactly once, and audited as `Approved` / `Rejected` (new `AuditTrail::ACTIONS`). **Approval moves no stock**: it records that the admin authorised the fix, which happens through Add New Batch / Mark Returned / a batch adjustment with its own stock-card row. Needs migration `2026_09_28_000001` on deploy. Covered by `Feature\Inventory\StockReportTest`.
 
 **`.actions-cell` is a SHARED primitive — overriding it from a page needs matching specificity.** The
 layout's selector is `.remedi-table .actions-cell`, two classes; a bare `.actions-cell { gap }` in a

@@ -5,7 +5,7 @@
         <input type="hidden" name="token" value="{{ $request->route('token') }}">
 
         <label for="email">Email</label>
-        <input id="email" type="email" name="email" value="{{ old('email', $request->email) }}" required autofocus>
+        <input id="email" type="email" name="email" value="{{ old('email', is_string($request->email) ? $request->email : '') }}" required autofocus>
 
         <label for="password">New Password</label>
         <input id="password" type="password" name="password" required>

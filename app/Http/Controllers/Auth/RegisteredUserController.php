@@ -40,7 +40,7 @@ class RegisteredUserController extends Controller
         // mention of the capital E. Nobody should be told off for typing a name
         // the way they write it. A stray trailing space came back the same way.
         $request->merge([
-            'email' => strtolower(trim((string) $request->input('email'))),
+            'email' => $this->normalisedEmail($request),
         ]);
 
         $validated = $request->validate([

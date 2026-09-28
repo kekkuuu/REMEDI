@@ -74,7 +74,7 @@ class PasswordResetRequestController extends Controller
         // -- the `lowercase` rule below REJECTS a capitalised address rather
         // than folding it.
         $request->merge([
-            'email' => strtolower(trim((string) $request->input('email'))),
+            'email' => $this->normalisedEmail($request),
         ]);
 
         $request->validate([
@@ -246,7 +246,7 @@ class PasswordResetRequestController extends Controller
 
         $request->validate(['code' => ['required', 'digits:6']]);
 
-        if (! $user->checkPasswordOtp((string) $request->input('code'))) {
+        if (! $user->checkPasswordOtp($request->string('code')->toString())) {
             // One message for wrong, expired and burned alike: which of the
             // three it was is information a guesser can use to tune the next
             // attempt, and the person who genuinely has the phone needs the

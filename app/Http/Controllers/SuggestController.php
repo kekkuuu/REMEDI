@@ -8,6 +8,7 @@ use App\Models\Sale;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
 /**
  * Typeahead sources for the search boxes across the app.
@@ -28,7 +29,9 @@ class SuggestController extends Controller
     /** Minimum term length; shorter queries match too much to be useful. */
     private function term(Request $request): ?string
     {
-        $q = trim((string) $request->get('q', ''));
+        // searchParam(): `?q[]=x` is an array, and the (string) cast this
+        // used to do on it raised "Array to string conversion" -- a 500.
+        $q = trim((string) $this->searchParam($request, 'q'));
 
         return mb_strlen($q) >= 2 ? $q : null;
     }
@@ -55,7 +58,7 @@ class SuggestController extends Controller
                 ->orWhere('barcode', 'like', $like))
             // Prefix matches first: typing "bio" should surface BIOGESIC
             // before something that merely contains "bio" mid-string.
-            ->orderByRaw('CASE WHEN name LIKE ? THEN 0 ELSE 1 END', [$q . '%'])
+            ->orderByRaw('CASE WHEN name LIKE ? THEN 0 ELSE 1 END', [$q.'%'])
             ->orderBy('name')
             ->limit(self::LIMIT)
             ->get();
@@ -116,7 +119,7 @@ class SuggestController extends Controller
         return response()->json([
             'results' => $rows->map(fn ($s) => [
                 'label' => $s->transaction_no,
-                'meta' => ($s->user->name ?? 'N/A') . ' · ' . $s->created_at->format('M d, Y'),
+                'meta' => ($s->user->name ?? 'N/A').' · '.$s->created_at->format('M d, Y'),
                 'value' => $s->transaction_no,
                 'id' => $s->id,
             ])->values(),
@@ -169,7 +172,7 @@ class SuggestController extends Controller
         return response()->json([
             'results' => $rows->map(fn ($a) => [
                 'label' => $a->username,
-                'meta' => \Illuminate\Support\Str::limit((string) $a->details, 44),
+                'meta' => Str::limit((string) $a->details, 44),
                 'value' => $a->username,
             ])->unique('label')->values(),
         ]);

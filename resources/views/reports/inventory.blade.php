@@ -136,12 +136,14 @@
         </div>
     </div>
 
-    {{-- Filter Form --}}
+    {{-- Filter Form. Each control applies itself on change (2026-09-28) --
+         no Apply button, same as the Sales Report. The <noscript> button is
+         the floor: without JavaScript a <select> cannot submit on its own. --}}
     <form method="GET" action="{{ route('reports.inventory') }}"
           style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:1.5rem;">
         <div style="display:flex;flex-direction:column;gap:4px;">
             <label>Category</label>
-            <select name="category_id" class="report-select">
+            <select name="category_id" class="report-select" onchange="this.form.submit();">
                 <option value="">All categories</option>
                 @foreach($categories as $cat)
                     <option value="{{ $cat->id }}" {{ (string) $categoryId === (string) $cat->id ? 'selected' : '' }}>{{ $cat->name }}</option>
@@ -159,7 +161,7 @@
              KPIs above disagreed about. A single select cannot express it. --}}
         <div style="display:flex;flex-direction:column;gap:4px;">
             <label for="report-status">Status</label>
-            <select name="status" id="report-status" class="report-select">
+            <select name="status" id="report-status" class="report-select" onchange="this.form.submit();">
                 <option value="">All stock</option>
                 <option value="low_stock" {{ $lowStockOnly ? 'selected' : '' }}>Low stock only</option>
                 <option value="expired" {{ $expiredOnly ? 'selected' : '' }}>Expired only</option>
@@ -169,9 +171,11 @@
              row -- Apply/Clear/Print fit one line at 375px, Excel+PDF pushed
              it past that with no way to reach the last button. --}}
         <div style="display:flex;flex-wrap:wrap;gap:8px;">
-            <button type="submit" class="btn btn-primary btn-sm">
-                <i class="ti ti-filter" style="font-size:14px;"></i> Apply
-            </button>
+            <noscript>
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="ti ti-filter" style="font-size:14px;"></i> Apply
+                </button>
+            </noscript>
             @if($categoryId || $lowStockOnly || $expiredOnly)
                 <a href="{{ route('reports.inventory') }}" class="btn btn-secondary btn-sm">
                     Clear

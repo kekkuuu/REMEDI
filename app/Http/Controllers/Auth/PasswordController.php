@@ -24,7 +24,9 @@ class PasswordController extends Controller
     public function update(Request $request): RedirectResponse|JsonResponse
     {
         $validated = $request->validateWithBag('updatePassword', [
-            'current_password' => ['required', 'current_password'],
+            // 'bail' + 'string': see ProfileController::destroy -- an array
+            // reached password_verify() and threw.
+            'current_password' => ['bail', 'required', 'string', 'current_password'],
             'password' => ['required', Password::defaults(), 'confirmed'],
         ]);
 

@@ -137,7 +137,7 @@ class UserController extends Controller
         // pass some other path would sit inconsistent with the rest of the
         // app treating addresses as lowercase.
         $request->merge([
-            'email' => strtolower(trim((string) $request->input('email'))),
+            'email' => $this->normalisedEmail($request),
         ]);
 
         $validated = $request->validate([

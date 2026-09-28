@@ -20,9 +20,9 @@ class PosController extends Controller
     {
         $query = Product::with('batches');
 
-        if ($request->filled('search')) {
+        if (($search = $this->searchParam($request)) !== null) {
             // likeTerm() escapes the user's own % and _ — see Controller.
-            $like = $this->likeTerm($request->search);
+            $like = $this->likeTerm($search);
             $query->where(function ($q) use ($like) {
                 $q->where('name', 'like', $like)
                     ->orWhere('sku', 'like', $like)
@@ -49,7 +49,8 @@ class PosController extends Controller
      */
     public function lookupBySku(Request $request)
     {
-        $code = trim($request->query('sku', ''));
+        // searchParam(): `?sku[]=x` is an array, and trim() on it is a TypeError.
+        $code = trim((string) $this->searchParam($request, 'sku'));
 
         if ($code === '') {
             return response()->json(['found' => false], 404);

@@ -45,9 +45,9 @@ class ProductController extends Controller
             ? Product::onlyTrashed()->with('category')
             : Product::with('category', 'batches');
 
-        if ($request->filled('search')) {
+        if (($search = $this->searchParam($request)) !== null) {
             // likeTerm() escapes the user's own % and _ — see Controller.
-            $like = $this->likeTerm($request->search);
+            $like = $this->likeTerm($search);
             $query->where(function ($q) use ($like) {
                 $q->where('name', 'like', $like)
                     ->orWhere('sku', 'like', $like)

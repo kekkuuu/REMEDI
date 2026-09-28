@@ -63,6 +63,14 @@ class AlertService
     public const ACCOUNT_KIND = 'user_account';
 
     /**
+     * A staff member's stock report (App\Models\StockReport) waiting on an
+     * admin. Its own kind so the toast stack pops it: a colleague asking for
+     * a decision is exactly the shape of thing a pop-up is for. Admin-only by
+     * construction, like ACCOUNT_KIND -- it comes from activity().
+     */
+    public const STOCK_REPORT_KIND = 'stock_report';
+
+    /**
      * How many per kind the full notifications page lists.
      *
      * Not "all": low stock alone runs to 645 products, and a page that dumps
@@ -450,7 +458,13 @@ class AlertService
                     // events worth a pop, same shape as (de)activation.
                     || str_starts_with($row->details, 'Password reset');
 
-                $isReport = str_contains($row->details, 'Report');
+                // "Stock report: ..." / "Stock report approved: ..." --
+                // written only by StockReportController. Checked before
+                // $isReport, whose 'Report' would otherwise claim it.
+                $isStockReport = str_starts_with($row->details, 'Stock report');
+                $stockReportCls = str_contains($row->details, 'Expired stock') ? 'is-expired' : 'is-low';
+
+                $isReport = ! $isStockReport && str_contains($row->details, 'Report');
 
                 // A sign-in is not a change to an account. Both belong in
                 // System, but only the second is something to interrupt anyone
@@ -459,6 +473,9 @@ class AlertService
                 $isSession = in_array($row->action, ['Login', 'Logout'], true);
 
                 [$group, $icon, $cls, $title] = match (true) {
+                    $isStockReport && $row->action === 'Requested' => ['alerts', 'ti-bell-ringing', $stockReportCls, 'Stock report from staff'],
+                    $isStockReport && $row->action === 'Approved' => ['updates', 'ti-circle-check', 'is-update', 'Stock report approved'],
+                    $isStockReport && $row->action === 'Rejected' => ['updates', 'ti-circle-x', 'is-update', 'Stock report rejected'],
                     $isAccount && $row->action === 'Login' => ['system', 'ti-login', 'is-system', 'Signed in'],
                     $isAccount && $row->action === 'Logout' => ['system', 'ti-logout', 'is-system', 'Signed out'],
                     $isAccount && $row->action === 'Created' => ['system', 'ti-user-plus', 'is-system', 'New user added'],
@@ -490,7 +507,11 @@ class AlertService
                     // popping a card every time someone logs in would make the
                     // stack useless by lunchtime. Nothing filters the bell on
                     // `kind` -- its tabs read `group` -- so this is free there.
-                    'kind' => $isAccount && ! $isSession ? self::ACCOUNT_KIND : 'activity',
+                    'kind' => match (true) {
+                        $isStockReport && $row->action === 'Requested' => self::STOCK_REPORT_KIND,
+                        $isAccount && ! $isSession => self::ACCOUNT_KIND,
+                        default => 'activity',
+                    },
                     'cls' => $cls,
                     'icon' => $icon,
                     'title' => $title,
@@ -525,14 +546,20 @@ class AlertService
                     // `topbar_activity`, and an absolute URL bakes in whichever
                     // host warmed the cache -- warm from 127.0.0.1, read from
                     // localhost, and the session cookie is not sent.
-                    'href' => $isAccount && ! $isSession
-                        ? route('users.index', [], false)
-                        : route('audit.index', [], false),
+                    'href' => match (true) {
+                        $isStockReport => route('stock-reports.index', [], false),
+                        $isAccount && ! $isSession => route('users.index', [], false),
+                        default => route('audit.index', [], false),
+                    },
 
                     // The label for the action pill both the bell row and the
                     // toast card render. Null everywhere else: a pill that said
                     // "View" on every row would be furniture, not an action.
-                    'action' => $isAccount && ! $isSession ? 'Manage users' : null,
+                    'action' => match (true) {
+                        $isStockReport && $row->action === 'Requested' => 'Review',
+                        $isAccount && ! $isSession => 'Manage users',
+                        default => null,
+                    },
                 ];
             })->filter(fn ($i) => $i['title'] !== 'Profile Test')
                 ->take($limit)

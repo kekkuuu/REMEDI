@@ -141,16 +141,39 @@
         justify-content: center;
     }
 
-    /* The toggle is the only action whose LABEL changes with the row, and the
-       two words are not the same width: measured at 13px, "Deactivate" is 112px
-       and "Activate" 98px. That 14px difference does not stay in this column --
-       it drags Delete left on every activated row, so the last column runs down
-       the table with a step in it. Sizing the toggle to its widest label pins
-       Delete to one x-position for every row.
+    /* Icon actions that STRETCH to their label on hover (2026-09-28).
+       Reset password, Activate/Deactivate and Archive rest as same-size icon
+       squares -- which also retires the old min-width pin on the toggle, whose
+       two labels were different widths -- and the label slides out when the
+       pointer is over the button or it has keyboard focus.
 
-       In em, not px, so it survives a font-size change: 8.7em at this button's
-       13px is the measured 112px, and both labels grow together. */
-    .action-toggle { min-width: 8.7em; }
+       The label animates max-width (a width of `auto` cannot be transitioned)
+       and is clipped while shut, so it takes no room and cannot be clicked
+       into. The cell reserves room for ONE open label (.users-actions
+       min-width) so the stretch pushes the buttons after it into space that
+       is already there, instead of widening the column and shifting every
+       other column of the table on each hover. */
+    .action-icon { gap: 0; padding-left: 9px; padding-right: 9px; }
+    .action-icon .act-label {
+        display: inline-block;
+        max-width: 0;
+        overflow: hidden;
+        opacity: 0;
+        white-space: nowrap;
+        vertical-align: bottom;
+        margin-left: 0;
+        transition: max-width .22s ease, opacity .16s ease, margin-left .22s ease;
+    }
+    .action-icon:hover .act-label,
+    .action-icon:focus-visible .act-label {
+        max-width: 10em;
+        opacity: 1;
+        margin-left: 6px;
+    }
+    .remedi-table .users-actions { min-width: 290px; }
+    @media (prefers-reduced-motion: reduce) {
+        .action-icon .act-label { transition: none; }
+    }
 
     /* ---- Footer --------------------------------------------------------- */
     .users-foot {

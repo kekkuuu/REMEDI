@@ -1,3 +1,14 @@
+@php
+    // Stock reports already waiting on an admin for the products on this page
+    // -- staff only, since only staff get the Notify button. One query for
+    // the page, keyed "product_id|type".
+    $openStockReports = auth()->user()->isAdmin()
+        ? collect()
+        : \App\Models\StockReport::where('status', \App\Models\StockReport::STATUS_PENDING)
+            ->whereIn('product_id', collect($products->items())->pluck('id'))
+            ->get(['product_id', 'type'])
+            ->mapWithKeys(fn ($r) => [$r->product_id.'|'.$r->type => true]);
+@endphp
 <div class="table-scroll"><table class="remedi-table">
     <thead>
         <tr>
@@ -11,9 +22,7 @@
             <th>Reorder Level</th>
             <th>Nearest Expiry</th>
             <th class="col-status">Status</th>
-            @if(auth()->user()->isAdmin())
-                <th class="col-actions">Actions</th>
-            @endif
+            <th class="col-actions">Actions</th>
         </tr>
     </thead>
     <tbody>
@@ -177,10 +186,45 @@
                         <a href="{{ route('products.edit', $product) }}" class="btn btn-info btn-sm"><i class="ti ti-pencil" aria-hidden="true"></i> Manage</a>
                     </div>
                 </td>
+            @else
+                {{-- Staff: tell an admin (2026-09-28). One button per problem
+                     the row actually has -- StockReport::applies() is the same
+                     check the endpoint makes -- and a "Notified" marker once a
+                     report is waiting, so nobody reports it twice. --}}
+                <td class="col-actions">
+                    <div class="actions-cell">
+                        @php $reportable = 0; @endphp
+                        @foreach(\App\Models\StockReport::TYPES as $type => $typeLabel)
+                            @continue(! \App\Models\StockReport::applies($product, $type))
+                            @php $reportable++; @endphp
+                            @if(isset($openStockReports[$product->id.'|'.$type]))
+                                <span class="badge badge-warning" title="Waiting for the admin to approve"><i class="ti ti-clock" aria-hidden="true"></i> {{ $typeLabel }} notified</span>
+                            @else
+                                <form method="POST" action="{{ route('stock-reports.store') }}"
+                                      class="js-confirm"
+                                      data-confirm-title="Notify the admin?"
+                                      data-confirm-body="Tell the admin that {{ $product->name }} {{ $type === 'expired' ? 'is holding expired stock that needs pulling' : 'is low on stock ('.$product->sellable_stock.' '.$product->unit.' sellable, reorder at '.$product->reorder_level.')' }}. They will see it in their notifications and can approve it."
+                                      data-confirm-label="Notify admin"
+                                      data-confirm-icon="ti-bell-ringing"
+                                      data-confirm-tone="neutral">
+                                    @csrf
+                                    <input type="hidden" name="product_id" value="{{ $product->id }}">
+                                    <input type="hidden" name="type" value="{{ $type }}">
+                                    <button type="submit" class="btn {{ $type === 'expired' ? 'btn-danger' : 'btn-warning' }} btn-sm">
+                                        <i class="ti ti-bell-ringing" aria-hidden="true"></i> Notify: {{ $typeLabel }}
+                                    </button>
+                                </form>
+                            @endif
+                        @endforeach
+                        @if($reportable === 0)
+                            <span style="color:#cbd5e1;">—</span>
+                        @endif
+                    </div>
+                </td>
             @endif
         </tr>
     @empty
-        <tr><td colspan="{{ auth()->user()->isAdmin() ? 11 : 10 }}">No products match this filter.</td></tr>
+        <tr><td colspan="11">No products match this filter.</td></tr>
     @endforelse
     </tbody>
 </table></div>

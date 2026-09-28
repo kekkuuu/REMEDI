@@ -100,6 +100,24 @@ class SettingsTest extends TestCase
             ->assertSee('class="sidebar', false);
     }
 
+    /**
+     * The backup streams the users table (password and reset-code hashes,
+     * personal emails), so it sits behind the same login-password check.
+     */
+    public function test_the_database_backup_asks_for_the_login_password(): void
+    {
+        $this->actingAs(User::factory()->admin()->create())
+            ->get('/admin/backup')
+            ->assertRedirect(route('password.confirm'));
+    }
+
+    public function test_staff_cannot_download_the_backup_at_all(): void
+    {
+        $this->actingAs(User::factory()->create())->withSession($this->confirmed())
+            ->get('/admin/backup')
+            ->assertForbidden();
+    }
+
     public function test_the_old_settings_address_redirects_to_safeguard(): void
     {
         $this->actingAs(User::factory()->admin()->create())

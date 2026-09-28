@@ -156,7 +156,12 @@ class BackfillPosSales extends Command
                 * (0.85 + mt_rand(0, 300) / 1000)
             );
 
-            $existing = Sale::whereDate('created_at', $day->toDateString())->count();
+            // Voided sales excluded: a voided sale was reversed, so it is not
+            // trade that "tops up" the day. Counting it left a day with voids
+            // short of its target -- the same filter every revenue figure uses.
+            $existing = Sale::whereDate('created_at', $day->toDateString())
+                ->where('payment_voided', false)
+                ->count();
             $wanted = max(0, $target - $existing);
 
             if ($dry) {

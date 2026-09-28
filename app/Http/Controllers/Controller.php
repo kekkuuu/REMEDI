@@ -53,6 +53,47 @@ class Controller extends BaseController
      * Backslash is escaped FIRST — doing it after would double-escape the
      * backslashes this method has just introduced.
      */
+    /**
+     * The search box's value, or null when there is nothing usable to search
+     * for. `?search[]=x` arrives as an ARRAY, and passing that on to
+     * likeTerm() (typed ?string) or a (string) cast died with an uncaught
+     * TypeError -- a 500 for a signed-in user on Inventory, POS, Products and
+     * every /suggest endpoint (Feature\SearchInputTest). A non-string is
+     * treated as no search at all rather than refused, since there is no
+     * field on these pages to hang an error message on.
+     */
+    protected function searchParam(Request $request, string $key = 'search'): ?string
+    {
+        $value = $request->input($key);
+
+        if ($value !== null && ! is_string($value)) {
+            // Dropped from the request itself, not just ignored here: the
+            // pages echo request('search') back into the search box, and an
+            // array there is a second TypeError (htmlspecialchars) that no
+            // controller-side check would reach.
+            $request->merge([$key => null]);
+
+            return null;
+        }
+
+        return is_string($value) && trim($value) !== '' ? $value : null;
+    }
+
+    /**
+     * An email field trimmed and lower-cased for validation, or '' when it is
+     * not a string. The `lowercase` rule REJECTS capitals rather than folding
+     * them, so every email write path folds first -- and did it with a bare
+     * (string) cast, which on `email[]=x` raises "Array to string conversion":
+     * a 500 on Add User, Edit User and the guest-facing Forgot Password form.
+     * '' lets `required` answer instead.
+     */
+    protected function normalisedEmail(Request $request, string $key = 'email'): string
+    {
+        $value = $request->input($key);
+
+        return is_string($value) ? strtolower(trim($value)) : '';
+    }
+
     protected function likeTerm(?string $term): string
     {
         return '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], (string) $term).'%';

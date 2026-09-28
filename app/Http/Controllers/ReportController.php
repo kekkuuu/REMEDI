@@ -191,7 +191,66 @@ class ReportController extends Controller
 
         AuditTrail::log('Viewed', "Generated Sales Report ({$data['start']} to {$data['end']})");
 
-        return view('reports.sales', $data);
+        // The report's own export links carry the resolved range plus
+        // whichever filter drives the page, so a download can never disagree
+        // with what is on screen.
+        $data['exportParams'] = ['start_date' => $data['start'], 'end_date' => $data['end']]
+            + ($data['scopeProduct'] ? ['product_sku' => $data['scopeProduct']->sku] : [])
+            + ($data['scopeCategory'] ? ['category_id' => $data['scopeCategory']->id] : [])
+            + ($data['scopeCashier'] ? ['cashier_id' => $data['scopeCashier']->id] : []);
+
+        // Filters apply as they change (2026-09-28): the page fetches the
+        // REPORT alone -- no layout, no filter bar, no product list -- and
+        // swaps it in. `state` is what the filter bar re-syncs itself from,
+        // since the server resolves the range (a quick period, a reversed or
+        // future pair) and the controls must show the range actually queried.
+        if ($request->ajax() || $request->wantsJson()) {
+            return response()->json([
+                'html' => view('reports._sales-body', $data)->render(),
+                'state' => [
+                    'start' => $data['start'],
+                    'end' => $data['end'],
+                    'period' => $data['period'],
+                    'category_id' => $data['scopeCategory']?->id,
+                    'product_sku' => $data['scopeProduct']?->sku,
+                    'cashier_id' => $data['scopeCashier']?->id,
+                    'filtered' => $data['isFiltered'],
+                    'export_xlsx' => route('reports.sales.export', ['format' => 'xlsx'] + $data['exportParams']),
+                    'export_pdf' => route('reports.sales.export', ['format' => 'pdf'] + $data['exportParams']),
+                ],
+            ]);
+        }
+
+        return view('reports.sales', $data + $this->salesFilterOptions());
+    }
+
+    /**
+     * The filter bar's option lists -- needed by the full page only, never by
+     * an in-place refresh or an export, which is why they are not part of
+     * buildSalesReportData().
+     */
+    private function salesFilterOptions(): array
+    {
+        return [
+            'categories' => Category::orderBy('name')->get(['id', 'name']),
+
+            // Only products that have SOLD, from either record. This feeds a
+            // <datalist>, and listing all 2,638 catalogue lines put ~180 KB of
+            // options on the page for products whose report can only ever be
+            // empty. Archived products with sales stay listed: this reads
+            // HISTORY, and a product discontinued last month still has sales
+            // to look back on.
+            'productOptions' => Product::withTrashed()
+                ->where(fn ($q) => $q
+                    ->whereIn('sku', DB::table('sales_history')->select('product_sku')->distinct())
+                    ->orWhereIn('id', DB::table('sale_items')->select('product_id')->distinct()))
+                ->orderBy('name')
+                ->get(['id', 'sku', 'name']),
+
+            // Plain <select>: dozens of staff accounts at most. withTrashed():
+            // an archived/deactivated account still has real sales to filter to.
+            'cashiers' => User::withTrashed()->orderBy('name')->get(['id', 'name']),
+        ];
     }
 
     /**
@@ -352,18 +411,10 @@ class ReportController extends Controller
         ]);
         $scopeLabel = $scopeParts ? implode(' — ', $scopeParts) : null;
 
-        $categories = Category::orderBy('name')->get(['id', 'name']);
-
-        // Lightweight columns only -- this feeds a <datalist> of every
-        // product for the filter's typeahead, not a full product listing.
-        $productOptions = Product::withTrashed()->orderBy('name')->get(['id', 'sku', 'name']);
-
-        // Plain <select>, unlike the product field above -- there are dozens
-        // of staff accounts at most, not thousands, so a typeahead would be
-        // solving a problem that doesn't exist here. withTrashed(): an
-        // archived/deactivated account still has real sales in range to
-        // filter to.
-        $cashiers = User::withTrashed()->orderBy('name')->get(['id', 'name']);
+        // The range the report shows with no filter at all, so the page can
+        // tell "filtered" from "default" without trusting which parameters
+        // happened to be sent.
+        [$defaultStart, $defaultEnd] = $this->clampRange($dataStart, $dataEnd, $dataStart, $dataEnd);
 
         if ($isScoped) {
             // Not trendBetween(): that aggregate is cached and has no
@@ -530,8 +581,12 @@ class ReportController extends Controller
             // ATV/ATC are: sales_history has a DATE per row, never a time, so an
             // imported sale cannot be placed in an hour. This is honestly this
             // TERMINAL's own hourly pattern, not the whole four-year record's.
-            $hourlyBreakdown = collect(range(0, 23))->map(function ($hour) use ($sales) {
-                $inHour = $sales->filter(fn ($sale) => (int) $sale->created_at->format('G') === $hour);
+            // Grouped ONCE, then read per hour: filtering the whole range 24
+            // times formatted every sale's timestamp 24 times over.
+            $salesByHour = $sales->groupBy(fn ($sale) => (int) $sale->created_at->format('G'));
+
+            $hourlyBreakdown = collect(range(0, 23))->map(function ($hour) use ($salesByHour) {
+                $inHour = $salesByHour->get($hour, collect());
 
                 return (object) [
                     'hour' => $hour,
@@ -544,14 +599,17 @@ class ReportController extends Controller
 
         $historyTotal = round($totalSales - $posTotal, 2);
 
+        $isFiltered = $quick || $month || $isScoped || $scopeCashier
+            || $start !== $defaultStart || $end !== $defaultEnd;
+
         return compact(
             'sales', 'start', 'end', 'totalSales', 'totalTransactions',
             'dailyBreakdown', 'months', 'month', 'totalUnits', 'activeDays',
             'dataStart', 'dataEnd', 'granularity', 'posTotal', 'historyTotal', 'posByBucket',
             'salesForPrint', 'atv', 'atc', 'hourlyBreakdown', 'listedPosTotal',
-            'categories', 'productOptions', 'scopeCategory', 'scopeProduct', 'isScoped', 'scopeLabel', 'scopedItems', 'scopedItemsForPrint',
-            'cashiers', 'scopeCashier'
-        ) + ['period' => $quick];
+            'scopeCategory', 'scopeProduct', 'isScoped', 'scopeLabel', 'scopedItems', 'scopedItemsForPrint',
+            'scopeCashier', 'defaultStart', 'defaultEnd'
+        ) + ['period' => $quick, 'isFiltered' => (bool) $isFiltered];
     }
 
     public function inventory(Request $request)
@@ -599,7 +657,9 @@ class ReportController extends Controller
 
     private function buildInventoryReportData(Request $request): array
     {
-        $categoryId = $request->get('category_id');
+        // A numeric id or nothing: `?category_id[]=x` is an array, and the view
+        // casts it to a string for the dropdown's `selected` test -- a 500.
+        $categoryId = is_numeric($request->get('category_id')) ? (int) $request->get('category_id') : null;
 
         // ONE status filter, not two independent flags.
         //
