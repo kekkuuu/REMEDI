@@ -31,7 +31,10 @@
                   data-confirm-body="Void {{ $sale->transaction_no }} (₱{{ number_format($sale->total_amount, 2) }})? Every item on it goes back on the shelf, and the sale stops counting toward revenue. This cannot be undone from here — restoring it would need a new sale. Choose why below."
                   data-confirm-reasons="{{ json_encode(\App\Models\Sale::VOID_REASONS) }}"
                   data-confirm-note-for="{{ \App\Models\Sale::VOID_REASON_NEEDS_NOTE }}"
-                  data-confirm-note-label="Void transaction"
+                  {{-- Picking a reason asks Yes / No before anything is voided. --}}
+                  data-confirm-ask="1"
+                  data-confirm-ask-text="Void this transaction for “:reason”?"
+                  data-confirm-yes-label="Yes, void"
                   @unless(auth()->user()->isAdmin()) data-confirm-passcode="1" @endunless
                   data-confirm-icon="ti-receipt-off">
                 @csrf

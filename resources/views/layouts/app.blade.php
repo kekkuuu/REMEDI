@@ -469,6 +469,10 @@
                 <input type="text" id="confirmModalNoteInput" maxlength="255" autocomplete="off"
                        placeholder="Type the reason">
             </div>
+            {{-- The Yes / No question, for a form with data-confirm-ask="1"
+                 (Void): picking a reason asks this instead of submitting, and
+                 the buttons below read Yes / No. --}}
+            <p class="remedi-modal__ask" id="confirmModalAsk" hidden></p>
             <div class="remedi-modal__actions">
                 <button type="button" class="btn btn-secondary" id="confirmModalCancel">Cancel</button>
                 <button type="button" class="btn btn-danger" id="confirmModalConfirm">Confirm</button>

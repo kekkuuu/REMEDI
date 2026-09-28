@@ -1765,6 +1765,10 @@
         /* The reason whose text box is open (Void -> "Other"). */
         .remedi-modal__reason-btn.is-selected { background: #fef2f2; border-color: #b91c1c; color: #991b1b; }
 
+        /* The Yes / No question once a reason is picked -- see #confirmModalAsk. */
+        .remedi-modal__ask { margin: -4px 0 16px !important; font-size: 14.5px; font-weight: 700; color: var(--ink); }
+        .remedi-modal__ask[hidden] { display: none; }
+
         /* The typed reason -- see #confirmModalNote. Same field look as the
            passcode box, left-aligned text rather than spaced digits. */
         .remedi-modal__note { text-align: left; margin: -6px 0 18px; }

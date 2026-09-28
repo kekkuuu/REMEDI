@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (348 passed, 1155 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (348 passed, 1157 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -931,6 +931,11 @@ is typed (and until the passcode is complete, for staff). The text rides in the 
 field; `void()` requires it for `Sale::VOID_REASON_NEEDS_NOTE` and keeps it only then, in `sales.void_note`
 (migration `2026_09_28_000002`), and `Sale::voidReasonLabel()` ("Other: printer jammed") is what the
 voided banner, the list tooltip and the audit entry print. Covered by four cases in `VoidTest`.
+**And every void asks Yes / No first** (same day, at the user's request): `data-confirm-ask="1"` makes a
+reason click SELECT the reason (highlighted) and show "Void this transaction for “Cashier Error”?"
+(`#confirmModalAsk`, `data-confirm-ask-text` with `:reason`), with Cancel relabelled **No** and Confirm
+shown as **Yes, void** (`data-confirm-yes-label`) — only Yes submits. Opt-in per form: User
+Management's Archive reasons still submit on one click.
 
 **As of the same day, void is SHARED, not `role:admin` — staff may void a sale THEY rang up, given a
 manager passcode.** `role:admin` was "the closest thing this app has to restricted to managers"; a

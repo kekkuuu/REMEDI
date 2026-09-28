@@ -286,6 +286,9 @@ class VoidTest extends TestCase
 
         $this->actingAs($this->admin())->get("/sales/{$sale->id}")
             ->assertSee('data-confirm-note-for="other"', false)
+            // Picking a reason asks Yes / No before anything is voided.
+            ->assertSee('data-confirm-ask="1"', false)
+            ->assertSee('id="confirmModalAsk"', false)
             ->assertSee('name="note"', false)
             ->assertSee('id="confirmModalNoteInput"', false);
     }

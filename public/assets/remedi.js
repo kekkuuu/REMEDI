@@ -1442,13 +1442,19 @@
         const passcodeInput = document.getElementById('confirmModalPasscodeInput');
         const noteWrap = document.getElementById('confirmModalNote');
         const noteInput = document.getElementById('confirmModalNoteInput');
+        const askEl = document.getElementById('confirmModalAsk');
         const confirmBtn = document.getElementById('confirmModalConfirm');
         const cancelBtn = document.getElementById('confirmModalCancel');
         let unlockScroll = null;
         // data-confirm-note-for: the one reason that must be explained in
-        // words (Void -> "Other"). Picking it opens the text box and hands
-        // the dialog to the Confirm button instead of submitting.
+        // words (Void -> "Other"). Picking it opens the text box.
         let noteFor = null;
+        // data-confirm-ask="1": picking a reason SELECTS it and asks Yes / No
+        // rather than submitting on the spot (Void, 2026-09-28 -- a sale is
+        // one click from being reversed otherwise). Either of these makes a
+        // reason click a selection; the Confirm button then sends it.
+        let askFirst = false;
+        let selected = null;
         let noteMode = false;
 
         let form = null;
@@ -1477,22 +1483,33 @@
             (reasonButtons.length ? reasonButtons : [confirmBtn]).forEach(function (b) {
                 b.disabled = !ready;
             });
-            // With the text box open, Confirm also waits for the words.
-            if (noteMode) confirmBtn.disabled = !(ready && noteInput.value.trim() !== '');
+            // Once a reason is picked, Confirm (Yes) waits for the passcode
+            // and, for the reason that needs one, for the words.
+            if (selected) confirmBtn.disabled = !(ready && (!noteMode || noteInput.value.trim() !== ''));
         }
 
-        function setNoteMode(on, selectedBtn) {
-            noteMode = on;
-            noteWrap.hidden = !on;
-            confirmBtn.hidden = !on;
-            reasonButtons.forEach(function (b) { b.classList.toggle('is-selected', on && b === selectedBtn); });
-            if (on) {
-                confirmBtn.textContent = (form && form.dataset.confirmNoteLabel) || defaultLabel;
-                noteInput.focus({ preventScroll: true });
-            } else {
-                noteInput.value = '';
-            }
+        // A reason was picked on a form that asks first: highlight it, open
+        // the text box if it needs words, and put the question with Yes / No
+        // (Confirm / Cancel relabelled) in front of the submit.
+        function selectReason(btn, value) {
+            const d = form.dataset;
+            selected = btn;
+            noteMode = value === noteFor;
+            reasonButtons.forEach(function (b) { b.classList.toggle('is-selected', b === btn); });
+
+            noteWrap.hidden = !noteMode;
+            if (!noteMode) noteInput.value = '';
+
+            askEl.hidden = !askFirst;
+            askEl.textContent = (d.confirmAskText || 'Are you sure?').replace(':reason', btn.textContent);
+
+            confirmBtn.hidden = false;
+            confirmBtn.textContent = askFirst ? (d.confirmYesLabel || 'Yes') : (d.confirmNoteLabel || defaultLabel);
+            if (askFirst) cancelBtn.textContent = 'No';
             syncPasscodeGate();
+
+            const next = noteMode ? noteInput : (confirmBtn.disabled && passcodeRequired ? passcodeInput : confirmBtn);
+            next.focus({ preventScroll: true });
         }
 
         noteInput.addEventListener('input', syncPasscodeGate);
@@ -1555,10 +1572,10 @@
                     btn.addEventListener('click', function () {
                         const field = form.querySelector('[name="reason"]');
                         if (field) field.value = value;
-                        // The reason that needs words opens the text box
-                        // rather than submitting; Confirm sends it.
-                        if (value === noteFor) {
-                            setNoteMode(true, btn);
+                        // Asking first, or a reason that needs words: select
+                        // it and wait for Yes (the Confirm button) instead.
+                        if (askFirst || value === noteFor) {
+                            selectReason(btn, value);
                             return;
                         }
                         // Only when THIS dialog opened with the passcode
@@ -1588,11 +1605,16 @@
             passcodeWrap.hidden = !passcodeRequired;
             passcodeInput.value = '';
 
-            // Every open starts with the text box closed and empty.
+            // Every open starts with nothing picked, the text box closed and
+            // empty, and the question hidden.
             noteFor = (reasons && d.confirmNoteFor) || null;
+            askFirst = !!reasons && d.confirmAsk === '1';
+            selected = null;
             noteMode = false;
             noteWrap.hidden = true;
             noteInput.value = '';
+            askEl.hidden = true;
+            cancelBtn.textContent = 'Cancel';
             syncPasscodeGate();
 
             modal.classList.add('is-open');
@@ -1706,7 +1728,7 @@
                 // is showing. Cycles either way with Shift.
                 const items = (passcodeRequired ? [passcodeInput] : [])
                     .concat([cancelBtn], reasonButtons.length ? reasonButtons : [confirmBtn])
-                    .concat(noteMode ? [noteInput, confirmBtn] : []);
+                    .concat(selected ? (noteMode ? [noteInput, confirmBtn] : [confirmBtn]) : []);
                 const idx = items.indexOf(document.activeElement);
                 const next = e.shiftKey
                     ? items[(idx <= 0 ? items.length : idx) - 1]
