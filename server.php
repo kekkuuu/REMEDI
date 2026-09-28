@@ -27,6 +27,15 @@ $uri = urldecode(
 
 if ($uri !== '/' && file_exists($file = __DIR__.'/public'.$uri) && ! is_dir($file)) {
     header('Content-Type: '.get_mime_type($file).'; charset=UTF-8');
+    // Without a Cache-Control every page load asked this function for the file
+    // again -- one cold-startable invocation per asset per click. A versioned
+    // URL (?v=<content hash>, see layouts/app.blade.php) never changes content,
+    // so browser AND edge may keep it for a year (s-maxage lets Vercel's CDN
+    // answer without invoking PHP at all; a new deployment purges it). Anything
+    // else gets an hour.
+    header(isset($_GET['v'])
+        ? 'Cache-Control: public, max-age=31536000, s-maxage=31536000, immutable'
+        : 'Cache-Control: public, max-age=3600');
     readfile($file);
 } else {
     // Laravel writes compiled Blade views to VIEW_COMPILED_PATH (see vercel.json)

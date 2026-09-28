@@ -50,6 +50,12 @@ RUN composer dump-autoload --optimize --no-dev \
 # Railway hands the port in $PORT; FrankenPHP reads $SERVER_NAME. The
 # entrypoint binds them together.
 ENV SERVER_NAME=:8080
+
+# The layout's shared CSS/JS (public/assets/, linked with a content hash by
+# App\Support\StaticAsset) may be kept by the browser for a year: a changed
+# file gets a new URL. Spliced into the site block of FrankenPHP's stock
+# Caddyfile; validated with `frankenphp validate` in the running container.
+ENV CADDY_SERVER_EXTRA_DIRECTIVES='header /assets/* Cache-Control "public, max-age=31536000, immutable"'
 EXPOSE 8080
 
 ENTRYPOINT ["docker/entrypoint.sh"]

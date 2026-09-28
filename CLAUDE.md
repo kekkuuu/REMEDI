@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (342 passed, 1120 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (344 passed, 1128 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -452,6 +452,19 @@ and each step west→east of the function cost ~80 ms per query. Railway does no
 region through its CLI, so if the database ever moves, re-derive it the same way (time `SELECT 1`
 from two places, then try a Vercel region and time real pages) rather than guessing — the first guess
 here was US West and it was wrong.
+
+**Measured on the live sites, 2026-09-28.** Most of a click's time from the Philippines is the trip to
+Europe (~0.3–0.4 s); the server's own share was 60–160 ms for `/login`. Railway's MySQL answers even
+`select 1` in ~8 ms (private network, same `ams` region as the app), so every query costs that much there.
+**The LIVE catalogue is not the local one**: 2,638 active products / 2,543 batches against 330 / 270
+locally (the RED-catalogue archive of 2026-09-27 was never applied live), so per-batch PHP work is ~8×
+heavier live — `ProductBatch::days_to_expiry` / `return_days` (Carbon `diffInDays()` per batch, unmemoized)
+were the dashboard's hottest code and now use calendar-day numbers, memoized. **Railway blocks outbound
+SMTP** (587 and 465 both time out from the container): "Forgot password" hung 60 s and answered 500, and
+reset codes only ever go out from Vercel. `config/mail.php` now times SMTP out at `MAIL_TIMEOUT` (10 s) so
+the controller's catch can answer; sending from Railway needs an HTTP mail API or Railway's Pro plan.
+Railway's HTTP logs (`railway logs --http --json`) carry `upstreamRqDuration` per request — the real server
+time for every page anyone opened.
 
 Migration `2026_09_02_000001_create_sessions_and_cache_tables` exists for this deploy and no-ops
 locally. **A container filesystem is rebuilt on every deploy and is not shared between instances**,
@@ -2078,10 +2091,24 @@ you touch the sort. Three places sort identically and must stay in step: the Bla
 "The bell is polled" cover this, the tab filter, and the traps in it.
 
 ### Frontend
-Blade + Alpine, and **no view references `@vite`**. `layouts/app.blade.php` carries a large inline
-`<style>` block; Chart.js, Tabler icons and Google Fonts come from CDNs. The Tailwind/PostCSS/Vite
-toolchain is inherited Breeze scaffolding and is currently inert — a Tailwind class you add will not
-apply. Put styles in the existing inline block.
+Blade + Alpine, and **no view references `@vite`**. Chart.js, Tabler icons and Google Fonts come from
+CDNs. The Tailwind/PostCSS/Vite toolchain is inherited Breeze scaffolding and is currently inert — a
+Tailwind class you add will not apply.
+
+**The shared styles and the shared page script are STATIC FILES as of 2026-09-28: `public/assets/remedi.css`
+and `public/assets/remedi.js` — edit those, not the layout.** They were an inline `<style>` (131 KB) and
+the layout's trailing `<script>` (111 KB), re-sent with every page: a page was 315 KB (75 KB compressed)
+and is now ~65 KB, the rest fetched once. The layout links both through `App\Support\StaticAsset::url()`,
+which appends a hash of the file's CONTENTS (`?v=`) — never mtime, which a Vercel build does not keep —
+so they are cached for a year (`server.php` on Vercel, `CADDY_SERVER_EXTRA_DIRECTIVES` in the Dockerfile
+on Railway) and still change the moment you edit them. The script stays synchronous and at the END of
+the body, so it runs in the order it always did (page content scripts first — hence the
+`setTimeout(openModal, 0)` note below). **It cannot contain Blade**: the three server values it needs
+(`userId`, `alertsUrl`, `loginUrl`) ride in `window.REMEDI_BOOT`, set inline just above it — add a key
+there rather than an `@json` in the file. Wherever this file says a rule "lives in
+`layouts/app.blade.php`", the CSS or JS half of it is now in those two files. Tabler icons is pinned to
+`@2.47.0` (what `@latest` actually served, byte-identical; `@latest` is cached a week, a version a year) —
+3.x renames icons.
 
 `layouts/app.blade.php` is the shared shell and owns more than styling: the navigation-skeleton
 handler (`.is-loading` / `.is-navigating`, title swap, bfcache restore, and click guards for

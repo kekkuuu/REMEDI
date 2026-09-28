@@ -41,7 +41,12 @@ return [
             'encryption' => env('MAIL_ENCRYPTION', 'tls'),
             'username' => env('MAIL_USERNAME'),
             'password' => env('MAIL_PASSWORD'),
-            'timeout' => null,
+            // Seconds. null meant PHP's default_socket_timeout (60), and Railway
+            // blocks outbound SMTP: "Forgot password" hung a full minute and
+            // the proxy answered 500 before the controller's catch could say
+            // the code was not sent (measured 2026-09-28). Gmail connects in
+            // well under a second, so 10 costs a working host nothing.
+            'timeout' => (int) env('MAIL_TIMEOUT', 10),
             'local_domain' => env('MAIL_EHLO_DOMAIN'),
         ],
 

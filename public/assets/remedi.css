@@ -1,0 +1,3282 @@
+/* REMEDI shared styles -- moved out of layouts/app.blade.php (2026-09-28) so every page stops re-downloading them. This file IS the source now; the layout links it with a content hash (App\Support\StaticAsset). */
+        /* ── Brand palette ──
+           One place to change the theme. The app was indigo on a dark slate
+           sidebar; it is now emerald on white, matching the reference design.
+           Everything below refers to these rather than repeating hex codes. */
+        :root {
+            --brand:        #10b981;   /* primary actions, active nav      */
+            --brand-dark:   #059669;   /* hover/pressed                    */
+            --brand-darker: #047857;   /* text on tinted backgrounds       */
+            --brand-tint:   #ecfdf5;   /* active nav pill, hover wash      */
+            --brand-soft:   #d1fae5;   /* borders, focus rings             */
+
+            --ink:          #1e293b;   /* headings and primary text        */
+            --ink-soft:     #64748b;   /* labels, secondary text           */
+            --line:         #e2e8f0;   /* borders and dividers             */
+            --surface:      #fff;
+
+            /* Sidebar is a dark slab, as in the reference designs. Its own
+               tokens rather than reusing --ink, so the nav can be retinted
+               without touching body text. */
+            --nav-bg:       #0c3b33;   /* deep teal-green            */
+            --nav-fg:       #9fbdb4;   /* idle labels                */
+            --nav-fg-hover: #e6f5f0;   /* hover / emphasis           */
+            --nav-line:     #1b5148;   /* dividers on the dark slab  */
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, 'Segoe UI', Arial, sans-serif;
+            background: #f1f5f9;
+            margin: 0;
+            color: #1e293b;
+            font-size: 16px;
+        }
+
+        .layout-wrapper { display: flex; min-height: 100vh; }
+
+        /* Only the mobile breakpoint turns this on. */
+        .sidebar-scrim { display: none; }
+
+        /* ── Sidebar ── */
+        .sidebar {
+            width: 280px;
+            min-width: 280px;
+            min-height: 100vh;
+            background: var(--nav-bg);
+            display: flex;
+            flex-direction: column;
+            position: sticky;
+            top: 0;
+            height: 100vh;
+            overflow: hidden;
+            transition: width 0.22s ease, min-width 0.22s ease, opacity 0.18s ease;
+        }
+
+        .sidebar > * { width: 280px; }
+
+        /* Hidden state: collapse the sidebar away entirely */
+        html[data-sidebar-hidden="true"] .sidebar {
+            width: 0;
+            min-width: 0;
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        /* Hamburger toggle button, lives in the topbar */
+        .sidebar-toggle-btn {
+            background: none;
+            border: none;
+            cursor: pointer;
+            width: 38px;
+            height: 38px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #475569;
+            font-size: 20px;
+            flex-shrink: 0;
+        }
+
+        .sidebar-toggle-btn:hover { background: #f1f5f9; color: #1e293b; }
+
+        .topbar-left { display: flex; align-items: center; gap: 14px; }
+
+        /* ── Brand ── */
+        .sidebar .brand {
+            padding: 24px 20px 18px;
+            display: flex;
+            align-items: center;
+            /* Mark + wordmark centred as one group in the sidebar's width,
+               rather than flush left against the padding. */
+            justify-content: center;
+            gap: 12px;
+        }
+
+        .brand-mark {
+            width: 42px;
+            height: 42px;
+            flex-shrink: 0;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, .1);
+            border: 1px solid rgba(255, 255, 255, .16);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            color: #6ee7b7;
+            overflow: hidden;
+        }
+
+        /* 34px, not 30: the mark carries a capsule, a cross, an R and a chart,
+           and every extra pixel counts at this size.
+
+           object-fit because the artwork is 512x477, not square -- given a
+           square box without it the browser stretches it and the capsule goes
+           fat. */
+        .brand-mark img { display: block; width: 34px; height: 34px; object-fit: contain; }
+
+        /* align-items so REMEDI and the tagline centre on each other; without
+           it the two lines stay left-aligned inside a centred group, which
+           reads as off-centre. */
+        .brand-text { display: flex; flex-direction: column; align-items: center; line-height: 1; }
+
+        .sidebar .brand-name {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.45rem;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            color: #fff;
+            display: block;
+            line-height: 1;
+        }
+
+        .sidebar .brand-name span { color: var(--brand); }
+
+        .sidebar .brand-tagline {
+            font-family: 'Outfit', sans-serif;
+            font-size: 9px;
+            font-weight: 500;
+            letter-spacing: 0.22em;
+            color: #6f938a;
+            text-transform: uppercase;
+            margin-top: 5px;
+            display: block;
+        }
+
+        /* ── Promo card at the foot of the nav ── */
+        .sidebar-promo {
+            margin: 14px 12px 4px;
+            padding: 16px 15px;
+            border-radius: 14px;
+            background: rgba(255, 255, 255, .06);
+            border: 1px solid var(--nav-line);
+        }
+
+        .sidebar-promo strong {
+            display: block;
+            font-family: 'Outfit', sans-serif;
+            font-size: 14px;
+            line-height: 1.45;
+            color: #e6f5f0;
+        }
+
+        .sidebar-promo i {
+            display: block;
+            margin-top: 10px;
+            font-size: 30px;
+            color: #6ee7b7;
+            opacity: .9;
+        }
+
+        .sidebar .brand-divider {
+            height: 0.5px;
+            background: var(--nav-line);
+            margin: 0 22px 16px;
+        }
+
+        /* ── Nav ── */
+        .sidebar nav {
+            padding: 0 12px;
+            flex: 1;
+            overflow-y: auto;
+
+            /* The default chrome scrollbar is a light-grey slab, which on the
+               dark teal slab reads as a seam down the edge of the panel. Tint
+               it to the nav's own palette instead. Firefox/standards first,
+               WebKit below. */
+            /* --nav-line (#1b5148) was too close to the slab behind it to see.
+               The thumb is a mid emerald with a faint track behind it, so the
+               category list reads as scrollable at a glance -- which matters,
+               because with the submenu open more than half of it is out of
+               view. */
+            scrollbar-width: thin;
+            scrollbar-color: #3f9d7c rgba(255, 255, 255, .07);
+        }
+
+        .sidebar nav::-webkit-scrollbar { width: 10px; }
+
+        .sidebar nav::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, .07);
+            border-radius: 999px;
+        }
+
+        .sidebar nav::-webkit-scrollbar-thumb {
+            background: #3f9d7c;
+            border-radius: 999px;
+            /* Inset the thumb so it reads as a pill inside the track rather
+               than filling the gutter edge to edge. */
+            border: 2px solid transparent;
+            background-clip: padding-box;
+        }
+
+        .sidebar nav::-webkit-scrollbar-thumb:hover {
+            background: var(--brand);
+            background-clip: padding-box;
+        }
+
+        .sidebar a {
+            color: var(--nav-fg);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            padding: 11px 15px;
+            border-radius: 7px;
+            font-size: 15px;
+            margin-bottom: 3px;
+        }
+
+        .sidebar a i { font-size: 19px; }
+
+        .sidebar a:hover {
+            background: rgba(255, 255, 255, .07);
+            color: var(--nav-fg-hover);
+        }
+
+        /* Active nav reads as a tinted pill with a brand-coloured label, the
+           way the reference design marks the current page. */
+        .sidebar a.active {
+            background: var(--brand);
+            color: #fff;
+            font-weight: 600;
+            box-shadow: 0 6px 14px -6px rgba(16, 185, 129, .7);
+        }
+
+        .sidebar a.active i { color: #fff; }
+
+        .sidebar .nav-section {
+            font-size: 11px;
+            font-weight: 500;
+            color: #6f938a;
+            text-transform: uppercase;
+            letter-spacing: 0.07em;
+            padding: 6px 15px;
+        }
+
+        /* ── Inventory nav group: a toggle button that expands into one
+               sub-link per product category ── */
+        .nav-group { margin-bottom: 3px; }
+
+        .nav-link-btn {
+            width: 100%;
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-family: inherit;
+            color: var(--nav-fg);
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            padding: 11px 15px;
+            border-radius: 7px;
+            font-size: 15px;
+        }
+
+        .nav-link-btn i:first-child { font-size: 19px; }
+
+        .nav-link-btn:hover {
+            background: rgba(255, 255, 255, .07);
+            color: var(--nav-fg-hover);
+        }
+
+        .nav-link-btn.active {
+            background: var(--brand);
+            color: #fff;
+            font-weight: 600;
+            box-shadow: 0 6px 14px -6px rgba(16, 185, 129, .7);
+        }
+
+        .nav-link-btn.active i { color: #fff; }
+
+        .nav-caret {
+            margin-left: auto;
+            font-size: 15px !important;
+            transition: transform 0.18s ease;
+        }
+
+        .nav-group.open .nav-caret { transform: rotate(180deg); }
+
+        .nav-submenu {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.2s ease;
+        }
+
+        /* Suppress the expand animation on first paint when the group is
+           restored already-open, so it doesn't unfurl on every page load. */
+        html.nav-no-anim .nav-submenu { transition: none; }
+
+        .nav-group.open .nav-submenu {
+            max-height: 640px;
+        }
+
+        /* Indent the whole submenu under the "Inventory" label (15px sidebar
+           padding + 19px icon + 11px gap = 45px) and run a guide line down
+           the left edge, so the category links read as children of the tab
+           rather than as siblings of it. */
+        .nav-submenu-inner {
+            margin: 2px 0 4px 26px;
+            padding-left: 12px;
+            border-left: 1.5px solid var(--nav-line);
+        }
+
+        .nav-sublink {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            padding: 8px 12px;
+            border-radius: 7px;
+            font-size: 13.5px;
+            color: var(--nav-fg);
+            text-decoration: none;
+            margin-bottom: 2px;
+        }
+
+        .nav-sublink:hover {
+            background: rgba(255, 255, 255, .07);
+            color: var(--nav-fg-hover);
+        }
+
+        .nav-sublink.active {
+            background: var(--brand-tint);
+            color: var(--brand-darker);
+            font-weight: 600;
+        }
+
+        .nav-sublink .nav-sub-count {
+            margin-left: auto;
+            font-size: 11px;
+            color: #6f938a;
+        }
+
+        .nav-sublink.active .nav-sub-count { color: #d1fae5; }
+
+        /* Stock reports waiting on an admin (sidebar). */
+        .nav-pending {
+            margin-left: auto;
+            min-width: 20px;
+            padding: 1px 7px;
+            border-radius: 999px;
+            background: #f59e0b;
+            color: #fff;
+            font-size: 11px;
+            font-weight: 700;
+            line-height: 18px;
+            text-align: center;
+        }
+
+        /* ── Navigation feedback ──
+           Pages are server-rendered, so between the click and the new
+           document the browser shows nothing at all — on the heavier pages
+           that reads as "my click didn't register". Clicking a nav item
+           highlights it (so you can see which one you hit) and swaps the
+           content area for a skeleton. Both are torn down by the incoming
+           document.
+
+           Deliberately no spinner on the nav item itself — the highlight
+           marks the target and the skeleton carries the loading signal. */
+        @keyframes remedi-shimmer {
+            0%   { background-position: -420px 0; }
+            100% { background-position: 420px 0; }
+        }
+
+        .sidebar nav a.is-loading,
+        .sidebar nav .nav-link-btn.is-loading {
+            background: var(--brand-tint);
+            color: var(--brand-darker);
+        }
+
+        .page-skeleton { display: none; }
+
+        .content-body.is-navigating > *:not(.page-skeleton) { display: none !important; }
+        .content-body.is-navigating > .page-skeleton { display: block; }
+
+        /* Neutral grey on purpose: a skeleton stands in for content, so it
+           should recede rather than compete with it. A brand-tinted version was
+           tried and read as a coloured panel in its own right. */
+        /* ── "Still working" pill in the header ────────────────────────
+           A live marker beside the page title, so a wait is legible without
+           looking at the content area at all -- and it reads the same on every
+           page, because the header is the one thing that does not change.
+
+           Moved here from dashboard/index.blade.php, which used to own it: the
+           dashboard raises one while it fetches its own body over AJAX, and the
+           sidebar navigation below raises one while a whole document is in
+           flight. Same class, same look, two occasions -- so there is one
+           definition rather than two that drift. */
+        .topbar-loading {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13.5px;
+            font-weight: 500;
+            color: var(--ink-soft);
+            white-space: nowrap;
+        }
+
+        .topbar-loading::before {
+            content: '';
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: var(--brand);
+            animation: dash-pulse 1.1s ease-in-out infinite;
+        }
+
+        @keyframes dash-pulse { 0%, 100% { opacity: .35; } 50% { opacity: 1; } }
+
+        @media (max-width: 640px) {
+            .topbar-loading { display: none; }   /* no room beside the title */
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .topbar-loading::before { animation: none; }
+        }
+
+        /* One skeleton partial, three silhouettes.
+           A dashboard-shaped placeholder in front of the Sales table was worse
+           than none: six KPI tiles and two charts flashed up, then the real page
+           landed as a header over rows, so every tab change was two unrelated
+           layouts in a row. The shape is chosen from the destination link; no
+           attribute means the dashboard, which is what the dashboard's own
+           loading backdrop wants.
+           POS got its own shape for the same reason: it's a product-tile grid
+           beside a cart panel, nothing like either a KPI dashboard or a table
+           of rows, and standing in with "list" showed nine placeholder table
+           rows for a page that has never had a table. Forecast and Sales
+           Forecasting route to "dash" -- stat tiles over charts, no big row
+           table -- which is a closer match than "list" even though neither is
+           the dashboard itself. */
+        .page-skeleton .sk-shape { display: none; }
+        .page-skeleton[data-shape="dash"] .sk-shape-dash,
+        .page-skeleton:not([data-shape]) .sk-shape-dash { display: block; }
+        .page-skeleton[data-shape="list"] .sk-shape-list { display: block; }
+        .page-skeleton[data-shape="pos"] .sk-shape-pos { display: block; }
+        .page-skeleton[data-shape="feed"] .sk-shape-feed { display: block; }
+
+        .sk-head { height: 26px; width: 210px; margin-bottom: 10px; }
+        .sk-head-sub { height: 13px; width: 330px; margin-bottom: 22px; }
+        .sk-toolbar { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+        .sk-search { height: 40px; flex: 1 1 320px; border-radius: 8px; }
+        .sk-btn { height: 40px; width: 104px; border-radius: 8px; }
+
+        .sk-table {
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            padding: 8px 18px;
+            background: var(--surface);
+        }
+
+        .sk-trow { display: flex; gap: 18px; align-items: center; padding: 13px 0; }
+        .sk-trow + .sk-trow { border-top: 1px solid #f1f5f9; }
+        .sk-trow .sk-block { height: 13px; }
+        .sk-td { flex: 1 1 0; }
+        .sk-td.narrow { flex: 0 0 46px; }
+        .sk-td.wide { flex: 2 1 0; }
+
+        @media (max-width: 700px) {
+            .sk-trow .sk-td:nth-child(n+4) { display: none; }
+        }
+
+        .sk-block {
+            /* Deliberately pale. #e2e8f0 was heavy enough to read as real
+               content, which is the opposite of what a placeholder should do —
+               it should sit just above the page background and no more. */
+            background: #eef2f7;
+            background-image: linear-gradient(90deg, #eef2f7 0px, #f8fafc 180px, #eef2f7 360px);
+            background-size: 840px 100%;
+            border-radius: 8px;
+            animation: remedi-shimmer 1.3s linear infinite;
+        }
+
+        .sk-row { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; }
+        .sk-card { flex: 1 1 200px; height: 92px; }
+        .sk-title { width: 240px; height: 26px; margin-bottom: 18px; }
+        .sk-panel { height: 300px; margin-bottom: 16px; }
+        .sk-line { height: 40px; margin-bottom: 10px; }
+        .sk-line.w80 { width: 80%; }
+        .sk-line.w60 { width: 60%; }
+
+        /* Greeting bar: heading + subtitle on the left, date pill on the right. */
+        .sk-greeting {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+            margin-bottom: 20px;
+        }
+
+        .sk-greeting-text { flex: 1; max-width: 380px; }
+        .sk-h { height: 24px; width: 260px; margin-bottom: 8px; }
+        .sk-sub { height: 14px; width: 320px; }
+        .sk-pill { height: 38px; width: 230px; border-radius: 10px; }
+
+        /* Six KPI tiles on .kpi-grid's own track. Each is a real card outline
+           with the tile's internals sketched inside -- icon disc, value, sub —
+           rather than one flat block, so the shimmer sits where the content
+           will actually land. */
+        .sk-kpis {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+
+        .sk-kpi {
+            background: #fff;
+            border: 0.5px solid #eef2f7;
+            border-radius: 14px;
+            padding: 16px 18px;
+        }
+
+        .sk-kpi-head { display: flex; align-items: center; gap: 11px; margin-bottom: 12px; }
+        .sk-disc { width: 42px; height: 42px; border-radius: 50%; flex-shrink: 0; }
+        .sk-cap { height: 10px; width: 74px; }
+        .sk-num { height: 22px; width: 90px; margin-bottom: 8px; }
+        .sk-note { height: 10px; width: 118px; }
+
+        /* Tab pills + section heading, so the page does not shift when the
+           real switcher and title arrive. */
+        .sk-tabs { display: flex; gap: 10px; margin-bottom: 26px; flex-wrap: wrap; }
+        .sk-pill-tab { height: 41px; width: 104px; border-radius: 999px; }
+        .sk-sec-title { height: 20px; width: 130px; margin-bottom: 8px; }
+        .sk-sec-sub { height: 12px; width: 210px; margin-bottom: 18px; }
+
+        /* Two charts side by side, then a wide/narrow row, matching the
+           dashboard's chart row and lower strip. */
+        .sk-charts {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 16px;
+            margin-bottom: 16px;
+        }
+
+        .sk-lower {
+            display: grid;
+            grid-template-columns: 1.55fr 1fr;
+            gap: 16px;
+        }
+
+        @media (max-width: 1100px) {
+            .sk-charts, .sk-lower { grid-template-columns: 1fr; }
+        }
+
+        .sk-chart {
+            background: #fff;
+            border: 0.5px solid #eef2f7;
+            border-radius: 14px;
+            height: 290px;
+            padding: 18px;
+        }
+
+        .sk-chart-title { height: 13px; width: 160px; margin-bottom: 16px; }
+        .sk-chart-body { height: 220px; border-radius: 8px; }
+
+        /* POS: a product-tile grid beside a sticky cart panel -- the same
+           2fr/1fr split pos/index.blade.php's own .pos-layout uses, so the
+           real grid and cart land in the same place the placeholders were. */
+        .sk-pos-layout { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+
+        .sk-pos-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .sk-pos-tile {
+            background: #fff;
+            border: 0.5px solid #eef2f7;
+            border-radius: 10px;
+            padding: 14px;
+            height: 108px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .sk-pos-tile-title { height: 12px; width: 85%; }
+        .sk-pos-tile-sub { height: 10px; width: 55%; }
+        .sk-pos-tile-price { height: 15px; width: 40%; }
+
+        .sk-pos-cart {
+            background: #fff;
+            border: 0.5px solid #eef2f7;
+            border-radius: 14px;
+            padding: 16px;
+            height: fit-content;
+        }
+
+        .sk-pos-cart-title { height: 16px; width: 96px; margin-bottom: 16px; }
+        .sk-pos-cart-row { display: flex; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+        .sk-pos-cart-name { height: 12px; flex: 1 1 auto; }
+        .sk-pos-cart-qty { height: 12px; width: 28px; flex: 0 0 auto; }
+        .sk-pos-cart-total { height: 20px; margin-top: 10px; margin-bottom: 14px; }
+        .sk-pos-cart-btn { height: 44px; border-radius: 8px; }
+
+        /* Mirrors pos/index.blade.php's own breakpoint: the cart drops below
+           the grid on tablet and phone rather than squeezing to a sliver. */
+        @media (max-width: 1024px) {
+            .sk-pos-layout { grid-template-columns: 1fr; }
+        }
+
+        /* ── The "list" shape's data-* switches ──────────────────────────
+           _page-skeleton.blade.php renders the full superset (4 KPI tiles,
+           a rich toolbar, 7 tabs, 11 table columns) once; these rules hide
+           whatever a given destination page doesn't actually have, driven
+           by data-header/-kpis/-toolbar/-tabs/-cols on .page-skeleton (set
+           per route in the nav-skeleton JS below). Defaults with no
+           attribute match the plainest case -- a header, no KPIs, a
+           simple two-control toolbar, no tabs, six columns -- so a route
+           this table doesn't yet know about degrades to that rather than
+           to the fullest (busiest) rendering. */
+
+        /* Header: off for Sales, Products, Inventory (none of the three
+           renders a heading inside its own content body). */
+        .page-skeleton[data-header="0"] .sk-shape-list .sk-head,
+        .page-skeleton[data-header="0"] .sk-shape-list .sk-head-sub { display: none; }
+
+        /* KPI row: 0 by default. Users and the audit trail show 4 real
+           stat cards, Sales shows 2 -- everyone else (Products, Categories,
+           Inventory) shows none. */
+        .sk-kpis-sm {
+            display: none;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 14px;
+            margin-bottom: 18px;
+        }
+
+        .page-skeleton[data-kpis="2"] .sk-shape-list .sk-kpis-sm,
+        .page-skeleton[data-kpis="4"] .sk-shape-list .sk-kpis-sm { display: grid; }
+        .page-skeleton[data-kpis="2"] .sk-shape-list .sk-kpi-sm:nth-child(n+3) { display: none; }
+
+        .sk-kpi-sm {
+            background: #fff;
+            border: 0.5px solid #eef2f7;
+            border-radius: 12px;
+            padding: 14px 16px;
+        }
+
+        .sk-kpi-sm-cap { height: 10px; width: 70px; margin-bottom: 10px; }
+        .sk-kpi-sm-num { height: 20px; width: 54px; }
+
+        /* Toolbar: "simple" (default) shows just the search box and one
+           button, matching Users/Products/Inventory. "rich" adds the two
+           extra fields and second button Sales (date range) and the audit
+           trail (its several selects/dates) actually have -- .sk-extra
+           marks exactly those, rather than picking them out by position,
+           which broke the first time (nth-child(n+4) matched BOTH buttons,
+           since both sit at position 4+ in the row, hiding the one button
+           "simple" is supposed to keep). */
+        .sk-toolbar .sk-extra { display: none; }
+        .page-skeleton[data-toolbar="rich"] .sk-shape-list .sk-toolbar .sk-extra { display: block; }
+
+        .sk-field { height: 40px; flex: 1 1 130px; border-radius: 8px; }
+
+        /* Card toolbar: Categories replaces the whole search row with an
+           "Add Category" trigger card, so this is an alternate ELEMENT, not
+           a variant of .sk-toolbar -- data-toolbar="card" swaps one for
+           the other rather than showing/hiding pieces of one shape. */
+        .sk-toolbar-card { display: none; }
+
+        .page-skeleton[data-toolbar="card"] .sk-shape-list .sk-toolbar { display: none; }
+        .page-skeleton[data-toolbar="card"] .sk-shape-list .sk-toolbar-card {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            background: #fff;
+            border: 0.5px solid #eef2f7;
+            border-radius: 14px;
+            padding: 18px 20px;
+            margin-bottom: 18px;
+        }
+
+        .sk-toolbar-card-text { flex: 1; }
+
+        /* Tabs: none by default (Users/Sales/the audit trail/Products/
+           Categories have no filter chips at all); Inventory's real 7
+           status chips (All/Low Stock/Expiring/Expired/Need to Return/
+           Fail to Return/Returned) are the one case that needs them. */
+        .sk-shape-list .sk-tabs { display: none; }
+        .page-skeleton[data-tabs="7"] .sk-shape-list .sk-tabs { display: flex; }
+
+        /* Table columns: 6 by default (Users/Sales/the audit trail all
+           land close to six real columns). Categories' sparse 3-column
+           table and Products/Inventory's dense 11-column tables are the
+           two real departures from that. */
+        .sk-shape-list .sk-td:nth-child(n+7) { display: none; }
+        .page-skeleton[data-cols="3"] .sk-shape-list .sk-td:nth-child(n+4) { display: none; }
+        .page-skeleton[data-cols="11"] .sk-shape-list .sk-td { display: block; }
+
+        /* Notifications' feed: icon, title/body, time -- three cards per
+           row, not six-to-eleven table cells, which is what made forcing
+           it through the list shape the worst mismatch of any page. */
+        .sk-feed {
+            background: #fff;
+            border: 0.5px solid #eef2f7;
+            border-radius: 14px;
+            padding: 6px 18px;
+        }
+
+        .sk-feed-row { display: flex; align-items: center; gap: 14px; padding: 14px 0; }
+        .sk-feed-row + .sk-feed-row { border-top: 1px solid #f1f5f9; }
+        .sk-feed-icon { width: 36px; height: 36px; flex-shrink: 0; }
+        .sk-feed-text { flex: 1; min-width: 0; }
+        .sk-feed-title { height: 12px; width: 65%; margin-bottom: 8px; }
+        .sk-feed-body { height: 10px; width: 85%; }
+        .sk-feed-time { width: 64px; height: 10px; flex-shrink: 0; }
+
+        /* Notifications' own 7 tabs are narrower than the dashboard's
+           104px pills -- at that width, seven of them plus gaps would run
+           to ~800px and wrap awkwardly on anything but a wide desktop. */
+        .sk-pill-tab-sm { width: 74px; height: 34px; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .sk-block { animation: none; }
+        }
+
+        .sidebar hr {
+            border: none;
+            border-top: 0.5px solid var(--nav-line);
+            margin: 10px 0;
+        }
+
+        .sidebar-footer {
+            padding: 14px 20px;
+            border-top: 0.5px solid var(--nav-line);
+        }
+
+        .sidebar-footer a {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            padding: 9px 0;
+            color: var(--nav-fg);
+            text-decoration: none;
+            font-size: 15px;
+        }
+
+        .sidebar-footer a i { font-size: 19px; }
+        .sidebar-footer a:hover { color: var(--nav-fg-hover); }
+
+        .logout-btn {
+            background: none;
+            border: none;
+            color: var(--nav-fg);
+            font-size: 15px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            padding: 9px 0;
+            width: 100%;
+            font-family: inherit;
+        }
+
+        .logout-btn i { font-size: 19px; }
+        .logout-btn:hover { color: #fca5a5; }
+
+        /* ── Main content ── */
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 20px 32px;
+            background: #fff;
+            border-bottom: 0.5px solid #e2e8f0;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .topbar h2 {
+            margin: 0;
+            font-size: 20px;
+            font-weight: 500;
+            color: #1e293b;
+        }
+
+        .topbar-user { display: flex; align-items: center; gap: 12px; }
+
+        .topbar-bell {
+            position: relative;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            border: 1px solid var(--line);
+            background: #fff;
+            color: #475569;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 19px;
+            text-decoration: none;
+            transition: background .15s ease, border-color .15s ease;
+        }
+
+        .topbar-bell:hover { background: var(--brand-tint); border-color: var(--brand-soft); }
+
+        .topbar-bell .count {
+            position: absolute;
+            top: -4px;
+            right: -4px;
+            min-width: 18px;
+            height: 18px;
+            padding: 0 4px;
+            border-radius: 999px;
+            background: #dc2626;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* ── Notification bell dropdown ──
+           The bell is a real control, not a shortcut link: it opens the list of
+           what is actually open so you can pick the one you care about, instead
+           of guessing that the badge means "low stock" and landing on the wrong
+           filter. The panel is anchored to .topbar-bell-wrap. */
+        .topbar-bell-wrap { position: relative; display: inline-flex; }
+
+        .topbar-bell-panel {
+            position: absolute;
+            top: calc(100% + 10px);
+            right: 0;
+            /* Sized for what the panel now holds: a tab strip, 38px icon discs
+               and a timestamp line per row. At the old 330x420 the rows wrapped
+               to three lines each and 18 notifications sat in a box that showed
+               four. Still anchored to the bell (right: 0 on the wrapper), so it
+               stays under the button rather than floating. */
+            width: 380px;
+            max-height: 540px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            background: #fff;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            box-shadow: 0 4px 6px -2px rgba(15, 23, 42, .06),
+                        0 18px 36px -12px rgba(15, 23, 42, .28);
+            padding: 6px;
+            z-index: 120;
+            display: none;
+        }
+
+        .topbar-bell-panel.is-open { display: block; }
+
+        .topbar-bell-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 8px;
+            padding: 8px 10px 10px;
+            border-bottom: 1px solid var(--line);
+            margin-bottom: 6px;
+        }
+
+        .topbar-bell-head { align-items: center; }
+        .topbar-bell-head strong { font-size: 16px; font-weight: 700; color: var(--ink); }
+        .topbar-bell-head small { font-size: 11px; color: #94a3b8; }
+
+        .topbar-bell-headactions { display: flex; align-items: center; gap: 10px; }
+
+        .topbar-bell-close {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            height: 26px;
+            padding: 0;
+            border: 0;
+            border-radius: 7px;
+            background: none;
+            color: #94a3b8;
+            font-size: 17px;
+            cursor: pointer;
+        }
+
+        .topbar-bell-close:hover { background: #f1f5f9; color: var(--ink); }
+
+        /* Tabs. Underline on the active one rather than a filled pill: the rows
+           below already carry a lot of colour, and two competing fills made the
+           panel read as two separate lists. */
+        .topbar-bell-tabs {
+            display: flex;
+            gap: 2px;
+            padding: 0 4px;
+            margin-bottom: 6px;
+            border-bottom: 1px solid var(--line);
+        }
+
+        .bell-tab {
+            flex: 1;
+            padding: 9px 4px;
+            border: 0;
+            border-bottom: 2px solid transparent;
+            background: none;
+            font: inherit;
+            font-size: 12.5px;
+            font-weight: 500;
+            color: #64748b;
+            cursor: pointer;
+        }
+
+        .bell-tab:hover { color: var(--ink); }
+        .bell-tab.is-active { color: var(--brand-darker); font-weight: 600; border-bottom-color: var(--brand); }
+
+        /* Circular tinted disc, one per severity, in place of the bare glyph. */
+        .bell-icon {
+            width: 38px;
+            height: 38px;
+            flex-shrink: 0;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            background: #f1f5f9;
+            color: #64748b;
+        }
+
+        .topbar-bell-row.is-low .bell-icon      { background: #fef9c3; color: #a16207; }
+        .topbar-bell-row.is-out .bell-icon     { background: #e2e8f0; color: #334155; }
+        .topbar-bell-row.is-expiring .bell-icon { background: #ffedd5; color: #c2410c; }
+        .topbar-bell-row.is-expired .bell-icon  { background: #fee2e2; color: #b91c1c; }
+        .topbar-bell-row.is-return .bell-icon   { background: #e0f2fe; color: #0369a1; }
+        .topbar-bell-row.is-missed .bell-icon   { background: #ede9fe; color: #6d28d9; }
+        .topbar-bell-row.is-system .bell-icon   { background: #e0e7ff; color: #4338ca; }
+        .topbar-bell-row.is-update .bell-icon   { background: #dcfce7; color: #15803d; }
+
+        /* The All tab used to break into "Alerts / System / Updates" headings.
+           It no longer does: All is one chronological feed, so there is no
+           contiguous run of a single group left for a heading to sit above.
+           The icon discs still carry severity, and the tabs carry the kind. */
+
+        /* ── Inventory panels shared by BOTH dashboards ──
+           Moved here from admin/dashboard.blade.php. These rules used to live
+           only in the admin page's style block, so the staff dashboard could
+           not reuse the same markup and grew its own near-copies — exactly the
+           drift REMEDI.md warns about under "Fixes applied to the admin
+           dashboard do NOT reach staff". One definition, both pages. */
+        .demand-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+
+        /* ── Panel meta line ──
+           The count and the rule that governs a panel ("15 · supplier-return
+           window applies") used to sit inside .demand-head between the title
+           and "View All". Three items competing for ~320px meant the longer
+           title wrapped and the shorter one did not, so two cards standing side
+           by side had headers of 45px and 36px and their bodies started at
+           different heights — a step you read as misalignment before you read
+           either title.
+
+           On its own line the meta cannot push the title, both headers are one
+           line tall, and the two cards line up. It also reads better: a caption
+           under a heading rather than a third thing in a row. */
+        .panel-note {
+            margin: -4px 0 12px;
+            font-size: 11.5px;
+            color: #94a3b8;
+        }
+
+        /* "View All" is a secondary action; as a solid navy pill it outweighed
+           the panel title next to it. Now a quiet link that only asserts itself
+           on hover. */
+        .view-all {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--brand-darker);
+            background: transparent;
+            border-radius: 6px;
+            padding: 3px 7px;
+            text-decoration: none;
+            transition: background 0.14s ease, color 0.14s ease;
+        }
+
+        .view-all::after {
+            content: '\203A'; /* single right angle quote — a light "go" cue */
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .view-all:hover {
+            background: var(--brand-tint);
+            color: var(--brand-darker);
+        }
+
+        .demand-list { list-style: none; margin: 0; padding: 0; }
+
+
+        .expiry-list { list-style: none; margin: 0; padding: 0; }
+
+        .expiry-list li {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 13.5px;
+            color: #334155;
+            padding: 9px 0;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .expiry-list li:last-child { border-bottom: none; }
+
+        /* A table row that navigates. The affordance used to ride on an inline
+           style beside the inline onclick; both moved out together — see the
+           delegated handler in the script below. */
+        tr.clickable-row { cursor: pointer; }
+        tr.clickable-row:hover > td { background: #f8fafc; }
+
+        /* ── Rows that lead somewhere ──
+           A dashboard row naming one product or one category is a question
+           ("which batches?", "what else is in Analgesics?") whose answer is a
+           page this app already has, so the whole row is the target rather than
+           a "View All" at the top of the card being the only way out.
+
+           The anchor takes over the li's flex layout instead of sitting inside
+           it: a link that only wraps the name leaves most of the row dead, and
+           the badge on the right is the part people aim at. Negative margins
+           let the hover tint bleed to the card's padding so it reads as a row
+           and not as a button pasted into one.
+
+           Shared by both dashboards — see "The Inventory band is shared" in
+           REMEDI.md. */
+        .expiry-list li > .expiry-row,
+        .staff-expiry-list li > .expiry-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex: 1;
+            min-width: 0;
+            /* Vertical bleed only. Negative side margins made the anchor 16px
+               wider than the row it sits in — every li reported
+               scrollWidth 300 against clientWidth 292, and in the scrolled
+               lists the tint ran under the scrollbar gutter. Horizontal padding
+               inside the row gives the same inset highlight without the
+               overflow. */
+            margin: -5px 0;
+            padding: 5px 8px;
+            border-radius: 8px;
+            color: inherit;
+            text-decoration: none;
+            transition: background .12s ease;
+        }
+
+        .expiry-list li > .expiry-row:hover,
+        .staff-expiry-list li > .expiry-row:hover { background: #f8fafc; }
+
+        /* Same idea for the returns legends, whose counts each correspond to an
+           Inventory filter exactly. `.item` is already the flex row, so an
+           anchor with that class needs only the link resets. */
+        .returns-legend a.item {
+            color: inherit;
+            text-decoration: none;
+            margin: -4px 0;           /* vertical only — see .expiry-row above */
+            padding: 4px 8px;
+            border-radius: 8px;
+            transition: background .12s ease;
+        }
+
+        .returns-legend a.item:hover { background: #f8fafc; }
+
+        /* Scroll the list instead of truncating it.
+           These panels used to render take(8) / take(5) and simply drop the rest
+           on the floor: with 15 medicines expiring, 27 batches due for return and
+           50 non-pharma ones, most of what the card counted in its own header was
+           unreachable without leaving for the Inventory page. The cap is now on
+           height, not on rows. */
+        .expiry-scroll {
+            max-height: 320px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            /* Room for the scrollbar so it never sits on top of the badges. */
+            padding-right: 6px;
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
+        }
+
+        /* The return panels carry a doughnut above the list, so they get less
+           room before the card grows taller than its neighbour. */
+        .expiry-scroll.is-compact { max-height: 220px; }
+
+        .expiry-scroll::-webkit-scrollbar { width: 8px; }
+        .expiry-scroll::-webkit-scrollbar-track { background: transparent; }
+        .expiry-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .expiry-scroll::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Expiring Soon now spans the full row width; lay its items out in
+           two columns so that space is actually used instead of leaving one
+           long, narrow list. */
+        .expiry-list-2col {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            column-gap: 24px;
+        }
+
+        @media (max-width: 700px) {
+            .expiry-list-2col { grid-template-columns: 1fr; }
+        }
+
+        /* flex:1, not just min-width:0. The row holds a product name, a batch
+           number, an expiry date and a severity badge; the last two are
+           no-wrap, so every pixel the row was short came out of this block —
+           the product name, the one thing the row exists to tell you, rendered
+           in 40px of a 302px row while "Expires: Aug 24, 2026" sat beside it in
+           127px. Now this block claims the space and the fixed pieces take what
+           they need. */
+        .expiry-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            flex: 1;
+            min-width: 0;
+        }
+
+        /* Wraps to two lines rather than truncating. With the date in its own
+           column these cards leave the name ~150px, and nowrap+ellipsis cut
+           "SALBUTAMOL 2MG/5ML SYR (BUTAMOL) 60ML" mid-word — a product you
+           cannot identify is worse than a taller row. */
+        .expiry-name {
+            font-weight: 600;
+            color: #1e293b;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            overflow-wrap: anywhere;
+            line-height: 1.3;
+        }
+
+        /* .expiry-when (the date as its own column) is gone: it was no-wrap and
+           rigid, so it took 127px of a 302px row while the product name beside
+           it got 40px. The date now rides on the batch sub-line inside
+           .expiry-info — see the note there. */
+
+        .expiry-batch {
+            font-size: 11.5px;
+            color: #94a3b8;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* The date stays on the info line with the batch number rather than taking
+           a column of its own. Measured: these cards are ~424px wide even on a
+           1585px screen (three per row), and a third column squeezed the product
+           name to 147px, truncating "EFFICASCENT OINMENT 10g". A labelled second
+           line reads the same and keeps the name whole. */
+
+        .expiry-badge {
+            margin-left: 10px;
+            flex-shrink: 0;
+            font-size: 11px;
+            font-weight: 700;
+            padding: 3px 10px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+
+        /* .critical/.warning removed: expiry now uses the shared
+           .badge-expiry-* scale and returns use .badge-return-*, so the two
+           thresholds never share a colour. */
+
+        .expiry-empty {
+            color: #94a3b8;
+            font-size: 13.5px;
+            padding: 6px 0;
+        }
+
+        /* Section separation: Sales vs Inventory */
+        .dash-section {
+            margin-bottom: 32px;
+        }
+
+        /* stretch, not start: the three columns hold different things (two
+           scrolling lists and a stack of two summary cards), so their natural
+           heights never match — the returns column ran 135px past the lists
+           once its rings stacked, and before that the lists ran past it. Rather
+           than pinning the lists to whatever the returns column happens to
+           measure this month, let the row set one height and give the scroll
+           areas the remainder. Self-balancing, and the lists show more rows for
+           free. */
+        .inv-bottom {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) minmax(0, 0.85fr);
+            gap: 16px;
+            align-items: stretch;
+        }
+
+        .inv-bottom > .card { display: flex; flex-direction: column; }
+
+        .inv-returns-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+
+        /* These two sit beside the expiring lists rather than under them, so their
+           batch lists get less room than a full-width panel would give: the point
+           of the column is the doughnut and the counts, with the rows there for
+           reference and "View All" for the whole set. */
+        /* The two returns panels stack to ~548px, so let the expiring lists run to
+           the same height rather than stopping at the shared 320px and leaving a
+           ragged bottom edge. More height here is free: both lists have more rows
+           than fit either way, so the extra room just shows more of them. */
+        /* Fills whatever the stretched card leaves, instead of a fixed cap that
+           has to be re-guessed every time a neighbouring panel changes height.
+           The floor keeps the lists usable if the returns column is ever short
+           (no returns due), and overflow-y:auto on .expiry-scroll still bounds
+           them — a flex item with a definite height scrolls normally. */
+        /* basis 0, NOT auto. With `auto` the list's own content counts toward
+           the card's natural height, so the tallest thing in the row became the
+           full 926px list and the band grew to 1041px — the cap this band has
+           always had, undone. At basis 0 the scroller asks for nothing beyond
+           its floor, the row height is set by the shortest-fitting column, and
+           the list takes the remainder. */
+        .inv-bottom > .card .expiry-scroll { flex: 1 1 0; min-height: 320px; max-height: none; }
+
+        /* The two Expiring Soon cards stand side by side, and their titles are
+           not the same length: "Expiring Soon · Medicine / Pharmaceutical"
+           needs 296px and wraps in the ~265px it gets, while "Expiring Soon ·
+           Other Categories" does not. Moving the meta line out of the header
+           (see .panel-note) bought room but not enough, so the two headers
+           still measured 36px and 21px — and the lists under them started 15px
+           apart, which reads as one card sagging.
+
+           A floor of two label lines makes both headers the same box whether
+           the title wraps or not. Centred inside it, so the short title sits on
+           the same optical line as the tall one's first line.
+
+           42px = two lines of the 16px .label at normal line-height, measured
+           on the staff dashboard where the medicine title does wrap. A floor of
+           36 left that card 6px taller than its neighbour. */
+        .inv-bottom > .card .demand-head { min-height: 42px; }
+
+        @media (max-width: 1400px) {
+            /* Returns drop under the pair rather than squeezing a doughnut and its
+               legend into a third of a laptop screen. */
+            .inv-bottom { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+            .inv-returns-col { grid-column: 1 / -1; flex-direction: row; }
+            .inv-returns-col > .card { flex: 1 1 0; min-width: 0; }
+        }
+
+        @media (max-width: 900px) {
+            .inv-bottom { grid-template-columns: minmax(0, 1fr); }
+            .inv-returns-col { flex-direction: column; }
+        }
+
+        /* Returns panels: doughnut left, legend right -- the same shape as Stock
+           Status. Centred chips under the ring needed the full card width, which
+           this column no longer has. */
+        /* Ring above the legend, not beside it. Side by side asked for a fixed
+           150px ring + a 140px legend floor + a 14px gap = 304px inside a
+           column that measures 263px, so the card overflowed its own grid track
+           by 41px and "Successfully Returned" ran under the card edge. Stacked,
+           each legend row gets the full 263px and the card ends up the same
+           height it was — the ring simply moved. */
+        .returns-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr);
+            justify-items: center;
+            gap: 12px;
+        }
+
+        /* Full width so the rows align left under the centred ring rather than
+           forming a centred block of ragged lines. */
+        .returns-grid > .returns-legend { width: 100%; }
+
+        @media (max-width: 520px) {
+            .returns-grid { grid-template-columns: 1fr; }
+        }
+
+        /* Footer line on the returns panels: says how many batches sit behind the
+           ring and links to them. Replaces the inline batch list these cards used
+           to carry, which no longer fits now they share a column. */
+        .returns-more {
+            display: block;
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid #f1f5f9;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--brand-darker);
+            text-decoration: none;
+        }
+
+        .returns-more:hover { text-decoration: underline; }
+
+        .returns-legend { display: flex; flex-direction: column; gap: 9px; font-size: 12.5px; color: #334155; }
+        .returns-legend .item { display: flex; align-items: center; gap: 7px; }
+        .returns-legend .dot { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+        .returns-legend .lbl { flex: 1; white-space: nowrap; }
+
+        /* .inv-pair removed with the Stock Status card it paired — nothing in
+           either dashboard carries the class any more. */
+
+        /* The expiry date inside a batch line. Medium, not <strong>: it sits
+           directly under the product name, which is already bold, and two bold
+           lines stacked made every expiry row read as a heading. Still darker
+           than the batch number beside it, so the date stays the thing you
+           scan for. */
+        .expiry-date { font-weight: 500; color: #475569; }
+
+        .bell-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+        .bell-time { font-style: normal; font-size: 11px; color: #94a3b8; margin-top: 3px; }
+
+        .topbar-bell-viewall {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 11px;
+            margin-top: 4px;
+            border-top: 1px solid var(--line);
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--brand-darker);
+            text-decoration: none;
+        }
+
+        .topbar-bell-viewall:hover { background: var(--brand-tint); }
+
+        .topbar-bell-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 10px;
+            border-radius: 10px;
+            text-decoration: none;
+            color: inherit;
+            border-left: 3px solid transparent;
+        }
+
+        .topbar-bell-row:hover { background: #f8fafc; }
+
+        /* The tab filter sets the hidden ATTRIBUTE, and [hidden]'s display:none
+           comes from the UA stylesheet -- which the display:flex above beats on
+           every row. Without this rule the rows are marked hidden and painted
+           anyway, so every tab looked identical to All. */
+        .topbar-bell-row[hidden] { display: none; }
+
+        /* Read vs unread. Unread carries a filled dot and full-strength text;
+           a read row keeps its severity stripe (it is still an open alert —
+           "read" means you have seen it, not that the stock is fine) but drops
+           back in weight so new things stand out in a list you have already
+           been through. */
+        .topbar-bell-row { position: relative; }
+
+        .topbar-bell-row .unread-dot {
+            width: 7px;
+            height: 7px;
+            border-radius: 50%;
+            background: var(--brand);
+            flex-shrink: 0;
+            align-self: center;
+            margin-left: auto;
+        }
+
+        .topbar-bell-row.is-read { opacity: .62; }
+        .topbar-bell-row.is-read strong { font-weight: 500; }
+        .topbar-bell-row.is-read .unread-dot { display: none; }
+
+        /* Now a header action beside the close button, not a footer strip. */
+        .topbar-bell-markread {
+            padding: 0;
+            background: none;
+            border: 0;
+            font: inherit;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--brand-darker);
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .topbar-bell-markread:hover { text-decoration: underline; }
+        .topbar-bell-markread[hidden] { display: none; }
+        .topbar-bell-row i { font-size: 17px; line-height: 1.2; flex-shrink: 0; }
+        .topbar-bell-row span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+        .topbar-bell-row strong { font-size: 13px; font-weight: 600; color: var(--ink); }
+        .topbar-bell-row small { font-size: 11.5px; color: #64748b; }
+
+        /* Same legend hues the dashboards and the Inventory tabs use, so a row
+           here is recognisably the same state you land on after clicking it. */
+        .topbar-bell-row.is-low      { border-left-color: #eab308; }
+        .topbar-bell-row.is-low i    { color: #a16207; }
+        /* Out of stock is graphite, and deliberately NOT another shade on the
+           amber-to-red warning ramp. Rose was tried and read as a variant of
+           the #dc2626 red that expired stock owns, which is the one thing this
+           must not look like: expired is a shelf to CLEAR, empty is a shelf to
+           REFILL. A neutral dark says "there is nothing here" rather than
+           competing for a place in the severity ladder -- it is an absence, not
+           a louder warning. Kept high-contrast (slate-700 on slate-200) so it
+           reads as deliberate rather than as a disabled row. */
+        .topbar-bell-row.is-out      { border-left-color: #334155; }
+        .topbar-bell-row.is-out i    { color: #334155; }
+        .topbar-bell-row.is-expiring { border-left-color: #f97316; }
+        .topbar-bell-row.is-expiring i { color: #c2410c; }
+        .topbar-bell-row.is-expired  { border-left-color: #dc2626; }
+        .topbar-bell-row.is-expired i { color: #b91c1c; }
+        .topbar-bell-row.is-return   { border-left-color: #3b82f6; }
+        .topbar-bell-row.is-return i { color: #1d4ed8; }
+        /* The action pill. A span, not a button -- see the note in the row
+           markup: it lives inside the row's own anchor, which may not contain
+           interactive content. Styled as a control because it names where the
+           row goes, which for an account change is User Management rather than
+           the audit trail. */
+        .bell-action {
+            align-self: flex-start;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 5px;
+            padding: 3px 9px;
+            border: 1px solid #ddd6fe;
+            border-radius: 999px;
+            background: #f5f3ff;
+            color: #6d28d9;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .bell-action i { font-size: 12px; }
+        .topbar-bell-row:hover .bell-action { background: #ede9fe; border-color: #c4b5fd; }
+
+        .topbar-bell-row.is-missed   { border-left-color: #9f1239; }
+        .topbar-bell-row.is-missed i { color: #9f1239; }
+
+        .topbar-bell-empty {
+            padding: 18px 12px;
+            text-align: center;
+            font-size: 12.5px;
+            color: #94a3b8;
+        }
+
+        /* The panel lists a few of each kind, so the totals live down here --
+           otherwise the bell would imply three low-stock products when there
+           are 645. */
+        .topbar-bell-foot {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            margin-top: 6px;
+            padding: 10px 10px 4px;
+            border-top: 1px solid var(--line);
+        }
+
+        .topbar-bell-foot a {
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--brand-darker);
+            text-decoration: none;
+            padding: 4px 0;
+        }
+
+        .topbar-bell-foot a:hover { text-decoration: underline; }
+        .topbar-bell-foot:empty { display: none; }
+
+        @media (max-width: 480px) {
+            /* Anchored to the bell, a 330px panel runs off a 375px screen.
+               Pin it to the viewport edges instead. */
+            .topbar-bell-panel { position: fixed; top: 64px; left: 10px; right: 10px; width: auto; }
+        }
+
+        /* ── Startup alert toasts ──
+           A passive, self-dismissing summary of what needs attention, shown
+           once when the app is first opened. Deliberately NOT REMEDI.showMessage:
+           that card is modal and waits to be acknowledged, which is right for
+           "you just did something, here is the result" and wrong for a standing
+           condition nobody asked about -- a dialog on every sign-in is a door
+           you have to close before you can start work.
+
+           This is also not the #ajaxFlash banner that was removed (see the note
+           by .remedi-modal__icon). That one announced the outcome of an action
+           the user had just taken, where a dismissible strip meant the answer
+           could scroll away unread. Nothing here is an outcome and nothing here
+           is lost by ignoring it: every row links to the same Inventory filter
+           the bell opens, and the bell keeps the same counts permanently. */
+        .remedi-toasts {
+            position: fixed;
+            right: 18px;
+            bottom: 18px;
+            /* Over the dashboard loader (190) so it stays legible during the
+               5-12s body build, under .remedi-modal (200) so a real dialog wins. */
+            z-index: 195;
+            display: none;              /* JS opts in -- see the gate in the script */
+            flex-direction: column;
+            gap: 10px;
+            width: 340px;
+            max-width: calc(100vw - 36px);
+            /* The stack is inert; only the rows take the pointer, so the corner
+               of the page underneath stays clickable between toasts. */
+            pointer-events: none;
+        }
+
+        .remedi-toasts.is-open { display: flex; }
+
+        .remedi-toast {
+            pointer-events: auto;
+            position: relative;
+            display: flex;
+            align-items: flex-start;
+            gap: 4px;
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-left: 4px solid #94a3b8;
+            border-radius: 12px;
+            /* Same lift as .remedi-modal__panel, so it reads as the same family
+               of floating object rather than as a browser notification. */
+            box-shadow: 0 12px 32px rgba(15, 23, 42, .18);
+            animation: toastIn .3s cubic-bezier(.16, 1, .3, 1) both;
+        }
+
+        .remedi-toast.is-leaving { animation: toastOut .24s ease forwards; }
+
+        .remedi-toast__link {
+            flex: 1;
+            display: flex;
+            align-items: flex-start;
+            gap: 11px;
+            min-width: 0;               /* so the body text may wrap, not overflow */
+            padding: 12px 4px 12px 13px;
+            text-decoration: none;
+            color: inherit;
+            border-radius: 12px 0 0 12px;
+        }
+
+        .remedi-toast__link:hover .remedi-toast__title { text-decoration: underline; }
+        .remedi-toast__link:focus-visible { outline: 2px solid var(--brand); outline-offset: -2px; }
+
+        .remedi-toast__icon {
+            flex: none;
+            display: grid;
+            place-items: center;
+            width: 32px;
+            height: 32px;
+            border-radius: 9px;
+            background: #f1f5f9;
+            color: var(--ink-soft);
+            font-size: 17px;
+        }
+
+        .remedi-toast__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+        .remedi-toast__title {
+            font-family: 'Outfit', sans-serif;
+            font-size: 13.5px;
+            font-weight: 700;
+            color: var(--ink);
+            line-height: 1.25;
+        }
+
+        .remedi-toast__body { font-size: 12px; color: var(--ink-soft); line-height: 1.4; }
+
+        /* The onset, or the event time for an audit row. Muted and last,
+           because it qualifies the message rather than being the message. */
+        .remedi-toast__when {
+            font-size: 11px;
+            color: #94a3b8;
+            line-height: 1.4;
+            margin-top: 1px;
+        }
+
+        .remedi-toast__close {
+            flex: none;
+            margin: 7px 7px 0 0;
+            width: 24px;
+            height: 24px;
+            display: grid;
+            place-items: center;
+            padding: 0;
+            border: 0;
+            border-radius: 7px;
+            background: transparent;
+            color: #94a3b8;
+            font-size: 15px;
+            cursor: pointer;
+        }
+
+        .remedi-toast__close:hover { background: #f1f5f9; color: var(--ink); }
+        .remedi-toast__close:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+        /* Same legend as the bell rows above -- a kind must not change colour
+           depending on which surface happens to be showing it. */
+        .remedi-toast.is-low      { border-left-color: #eab308; }
+        .remedi-toast.is-low .remedi-toast__icon      { background: #fef9c3; color: #a16207; }
+        .remedi-toast.is-out      { border-left-color: #334155; }
+        .remedi-toast.is-out .remedi-toast__icon      { background: #e2e8f0; color: #334155; }
+        .remedi-toast.is-expiring { border-left-color: #f97316; }
+        .remedi-toast.is-expiring .remedi-toast__icon { background: #ffedd5; color: #c2410c; }
+        .remedi-toast.is-expired  { border-left-color: #dc2626; }
+        .remedi-toast.is-expired .remedi-toast__icon  { background: #fee2e2; color: #b91c1c; }
+        .remedi-toast.is-return   { border-left-color: #3b82f6; }
+        .remedi-toast.is-return .remedi-toast__icon   { background: #e0f2fe; color: #1d4ed8; }
+        /* Account changes. Deliberately OFF the amber-to-red severity ramp the
+           stock kinds use: nothing is wrong with the shelf, someone changed who
+           can get in. Violet says "different sort of thing" without claiming a
+           rung on a ladder it does not belong on -- the same argument that keeps
+           out-of-stock graphite rather than a deeper red. */
+        .remedi-toast__action {
+            align-self: flex-start;
+            margin-top: 6px;
+            padding: 3px 9px;
+            border: 1px solid #ddd6fe;
+            border-radius: 999px;
+            background: #f5f3ff;
+            color: #6d28d9;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .remedi-toast.is-system   { border-left-color: #7c3aed; }
+        .remedi-toast.is-system .remedi-toast__icon   { background: #ede9fe; color: #6d28d9; }
+
+        @keyframes toastIn {
+            from { opacity: 0; transform: translateX(24px) scale(.97); }
+            to   { opacity: 1; transform: none; }
+        }
+
+        @keyframes toastOut {
+            from { opacity: 1; transform: none; }
+            to   { opacity: 0; transform: translateX(24px); }
+        }
+
+        @media (max-width: 480px) {
+            /* Pin to the viewport edges rather than keep a 340px card on a
+               375px screen -- the same move .topbar-bell-panel makes above. */
+            .remedi-toasts { right: 10px; left: 10px; bottom: 10px; width: auto; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .remedi-toast, .remedi-toast.is-leaving { animation: none; }
+        }
+
+        /* ── Centred confirm dialog ──
+           Used by Log out. Fixed and flex-centred so the question appears where
+           the eye already is, rather than in the browser's top-left chrome the
+           way window.confirm() does. */
+        .remedi-modal {
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            background: rgba(15, 23, 42, .55);
+            /* The password dialog is ~430px tall; on a short window (a laptop
+               with devtools open, a landscape phone) a centred panel taller
+               than the viewport would be clipped with no way to reach the
+               submit button. */
+            overflow-y: auto;
+        }
+
+        .remedi-modal.is-open { display: flex; }
+
+        .remedi-modal__panel {
+            width: 100%;
+            max-width: 400px;
+            background: var(--surface);
+            border-radius: 16px;
+            padding: 24px;
+            text-align: center;
+            box-shadow: 0 24px 60px -20px rgba(15, 23, 42, .45);
+            animation: remedi-modal-in .18s ease-out;
+        }
+
+        @keyframes remedi-modal-in {
+            from { opacity: 0; transform: translateY(10px) scale(.97); }
+            to   { opacity: 1; transform: none; }
+        }
+
+        .remedi-modal__icon {
+            width: 52px;
+            height: 52px;
+            margin: 0 auto 14px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+
+        /* Destructive red is the default. Reversible actions — activate a user,
+           mark a batch returned — get a neutral disc instead, so the colour
+           still means "this cannot be undone" when it is red. */
+        .remedi-modal__icon.is-neutral { background: #e0f2fe; color: #0369a1; }
+
+        /* #ajaxFlash and its toast styling are gone: AJAX outcomes now open the
+           shared message dialog (see REMEDI.showMessage), so there is no banner
+           to place, and nothing scrolls itself into view to be read. */
+
+        .remedi-modal__panel h3 {
+            margin: 0 0 6px;
+            font-family: 'Outfit', sans-serif;
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--ink);
+        }
+
+        .remedi-modal__panel p { margin: 0 0 20px; font-size: 13.5px; color: var(--ink-soft); }
+
+        .remedi-modal__actions { display: flex; gap: 10px; }
+        .remedi-modal__actions .btn { flex: 1; justify-content: center; }
+
+        /* Reason picker -- see confirmModalReasons above. Side by side reads
+           right for exactly two short options (Resigned/Fired); anything
+           much longer than that would want to stack instead. */
+        .remedi-modal__reasons { display: flex; gap: 10px; margin: -6px 0 18px; }
+
+        .remedi-modal__reason-btn {
+            flex: 1;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid #e2e8f0;
+            background: #fff;
+            color: var(--ink);
+            font-family: inherit;
+            font-size: 13.5px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background .14s ease, border-color .14s ease;
+        }
+
+        .remedi-modal__reason-btn:hover { background: #fef2f2; border-color: #fca5a5; }
+        .remedi-modal__reason-btn:focus-visible { outline: 2px solid #b91c1c; outline-offset: 1px; }
+        .remedi-modal__reason-btn:disabled { opacity: .6; cursor: default; }
+
+        /* .btn sets its own `display: inline-flex`, an AUTHOR rule -- so it
+           beats the `hidden` attribute's UA-stylesheet `display: none`
+           regardless of selector specificity. Confirm needs this explicit
+           override, or hiding it while the reason picker is open (see
+           confirmModal's JS) leaves it sitting there fully visible. */
+        #confirmModalConfirm[hidden] { display: none; }
+
+        /* Manager passcode -- see confirmModalPasscode above (staff voiding a
+           sale). Deliberately its own block, above the reasons, so entering
+           the code reads as the first step rather than one more field beside
+           the reason buttons. */
+        .remedi-modal__passcode { text-align: left; margin: -6px 0 18px; }
+        .remedi-modal__passcode[hidden] { display: none; }
+        .remedi-modal__passcode label {
+            display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-soft);
+            margin-bottom: 6px;
+        }
+        .remedi-modal__passcode input {
+            width: 100%; padding: 10px 12px; border-radius: 10px; border: 1px solid #e2e8f0;
+            font-size: 18px; letter-spacing: .3em; text-align: center; font-family: inherit;
+        }
+        .remedi-modal__passcode input:focus {
+            border-color: var(--brand); box-shadow: 0 0 0 3px var(--brand-soft); outline: none;
+        }
+
+        /* ── Alert detail modal ──
+           The named rows behind a count, fetched when the modal opens. Capped
+           in height rather than in rows: "645 products" cannot be listed, but
+           the ones it does show should be the ones you act on first. */
+        .alert-modal-state { font-size: 12.5px; color: #94a3b8; margin: 0 0 12px !important; }
+        .alert-modal-state[hidden] { display: none; }
+
+        .alert-modal-list {
+            list-style: none;
+            margin: 0 0 20px;
+            padding: 0;
+            max-height: 230px;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            text-align: left;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            scrollbar-width: thin;
+            scrollbar-color: #cbd5e1 transparent;
+        }
+
+        .alert-modal-list[hidden] { display: none; }
+        .alert-modal-list::-webkit-scrollbar { width: 8px; }
+        .alert-modal-list::-webkit-scrollbar-track { background: transparent; }
+        .alert-modal-list::-webkit-scrollbar-thumb { background: #dbe3ec; border-radius: 4px; }
+
+        .alert-modal-list li {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            padding: 9px 12px;
+            border-bottom: 1px solid #f1f5f9;
+        }
+
+        .alert-modal-list li:last-child { border-bottom: none; }
+        .alert-modal-list strong { font-size: 13px; font-weight: 600; color: var(--ink); }
+        .alert-modal-list small { font-size: 11.5px; color: var(--ink-soft); }
+
+        @media (prefers-reduced-motion: reduce) {
+            .remedi-modal__panel { animation: none; }
+        }
+
+        /* Avatar + name as one clickable target for My Profile. */
+        .topbar-identity {
+            display: inline-flex;
+            align-items: center;
+            gap: 12px;
+            padding: 4px 8px 4px 4px;
+            border-radius: 999px;
+            text-decoration: none;
+            color: inherit;
+            transition: background .15s ease;
+        }
+
+        .topbar-identity:hover { background: var(--brand-tint); }
+        .topbar-identity:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+        .topbar-role { display: flex; flex-direction: column; line-height: 1.25; }
+        .topbar-role small { font-size: 11.5px; color: #94a3b8; }
+
+        .user-avatar {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: var(--brand);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
+            color: #fff;
+        }
+
+        .topbar-user strong { font-size: 15px; font-weight: 500; }
+
+        .content-body {
+            padding: 28px 32px;
+            flex: 1;
+        }
+
+        /* ── Cards ── */
+        .card {
+            background: #fff;
+            border-radius: 10px;
+            padding: 22px 24px;
+            border: 0.5px solid #e2e8f0;
+        }
+
+        /* Only cards that are actually links react to the pointer -- a plain
+           .card is a container, and a container that lifts under the cursor
+           just makes the page feel loose. */
+        a.card {
+            display: block;
+            color: inherit;
+            text-decoration: none;
+            transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
+        }
+
+        a.card:hover {
+            border-color: var(--brand-soft);
+            box-shadow: 0 8px 20px -12px rgba(15, 23, 42, .45);
+            transform: translateY(-2px);
+        }
+
+        /* ── KPI row ──
+           One consistent band of figures across the top, above the tab switcher
+           so it stays visible on both Sales and Inventory. Replaces the old
+           single "Sales Today" hero and the slate pill row, which split the
+           numbers across two tabs and gave every figure the same weight
+           regardless of whether it needed attention.
+
+           Each stock tile links to the matching Inventory filter — the counts
+           are the reason you'd go there, so they may as well be the door. */
+        .kpi-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+            gap: 14px;
+            margin-bottom: 24px;
+        }
+
+        .kpi {
+            position: relative;
+            display: block;
+            background: var(--surface);
+            border: 0.5px solid #eef2f7;
+            border-radius: 14px;
+            padding: 16px 18px;
+            text-decoration: none;
+            color: inherit;
+            overflow: hidden;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+            transition: transform 0.14s ease, box-shadow 0.14s ease, border-color 0.14s ease;
+        }
+
+        /* No severity stripe: the reference design carries the colour in a
+           filled circular icon instead, which reads at a glance without
+           tinting the whole card edge. */
+
+        a.kpi:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(15, 23, 42, 0.09);
+            border-color: #cbd5e1;
+        }
+
+        .kpi-head {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            margin-bottom: 12px;
+        }
+
+        /* Circular icon chip. The accent colour is passed per card as
+           --kpi-accent; the disc is that colour at 14% and the glyph is the
+           colour itself, so one variable drives both. */
+        .kpi-head i {
+            width: 42px;
+            height: 42px;
+            flex-shrink: 0;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 21px;
+            color: var(--kpi-accent, #94a3b8);
+            background: color-mix(in srgb, var(--kpi-accent, #94a3b8) 14%, #fff);
+        }
+
+        /* color-mix is recent; fall back to a flat tint where it is missing so
+           the chip never renders as a transparent hole. */
+        @supports not (background: color-mix(in srgb, red 10%, white)) {
+            .kpi-head i { background: #f1f5f9; }
+        }
+
+        .kpi-label {
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: #64748b;
+        }
+
+        .kpi-value {
+            display: block;
+            font-family: 'Outfit', sans-serif;
+            font-size: 27px;
+            font-weight: 700;
+            line-height: 1.1;
+            color: #1e293b;
+            font-variant-numeric: tabular-nums;
+            /* A long peso figure (no spaces to wrap on) silently ran past the
+               card and was clipped by .kpi's own overflow:hidden -- the
+               digits were just gone, with nothing on screen to say so.
+               break-word lets it wrap onto a second line instead. */
+            overflow-wrap: break-word;
+        }
+
+        .kpi-sub {
+            display: block;
+            margin-top: 4px;
+            font-size: 12px;
+            color: #94a3b8;
+        }
+
+        /* A zero count is good news for the alert tiles — mute it so attention
+           goes to the ones that actually need action. */
+        .kpi.is-clear { --kpi-accent: #cbd5e1; }
+        .kpi.is-clear .kpi-value { color: #94a3b8; }
+
+        /* ── Alerts ── */
+        .alert {
+            padding: 14px 18px;
+            border-radius: 8px;
+            font-size: 15px;
+            margin-bottom: 18px;
+            display: flex;
+            align-items: flex-start;
+            gap: 11px;
+        }
+
+        .alert i { font-size: 18px; margin-top: 1px; }
+
+        .alert-success {
+            background: #f0fdf4;
+            color: #166534;
+            border: 0.5px solid #bbf7d0;
+        }
+
+        .alert-danger {
+            background: #fef2f2;
+            color: #991b1b;
+            border: 0.5px solid #fecaca;
+        }
+
+        /* Attention, not failure -- the amber this app already uses for "needs
+           action soon" (low-stock/expiring), never the red reserved for
+           expired stock and refusals. Used once, for the "you're on a
+           temporary password" banner on /profile. */
+        .alert-warning {
+            background: #fffbeb;
+            color: #92400e;
+            border: 0.5px solid #fde68a;
+        }
+
+        .alert ul { margin: 4px 0 0; padding-left: 16px; }
+
+        /* ── Badges ── */
+        .badge {
+            padding: 4px 11px;
+            border-radius: 999px;
+            font-size: 11.5px;
+            font-weight: 600;
+            line-height: 1.4;
+            display: inline-block;
+            white-space: nowrap;
+        }
+
+        .badge-admin { background: #dcfce7; color: #166534; }
+        .badge-staff { background: #fef9c3; color: #854d0e; }
+
+        /* Generic status colors, reused across the app for any pill/label */
+        /* Five status colours, fixed by the legend the design supplies:
+             Low Stock      yellow
+             Expiring Soon  orange
+             Expired        red
+             Need to Return blue
+             Returned       green
+           Stock and expiry share one yellow -> orange -> red severity ramp;
+           the supplier-return states sit outside it in blue/green, so "act on
+           this return" is never mistaken for "this is about to go off". */
+        .badge-success  { background: #dcfce7; color: #166534; }  /* OK / returned           */
+        .badge-warning  { background: #ffedd5; color: #9a3412; }  /* expiring soon (orange)  */
+        .badge-danger   { background: #fef9c3; color: #854d0e; }  /* low stock (yellow)      */
+        .badge-critical { background: #fee2e2; color: #991b1b; }  /* expired (red)           */
+        .badge-info     { background: #dbeafe; color: #1e40af; }  /* neutral / actionable      */
+        .badge-purple   { background: #ede9fe; color: #5b21b6; }  /* distinct flagged state    */
+
+        /* ── Expiry family ──
+           A rose/red ramp, kept deliberately separate from the amber return
+           family below. Expiry ("how long until this is unsellable") and the
+           supplier-return window ("can we still send it back") are different
+           thresholds — a batch is only "expiring soon" once it has ALREADY
+           fallen out of the returnable window — so they must not share a
+           colour or they read as the same warning. */
+        .badge-expiry-expired  { background: #fee2e2; color: #991b1b; }  /* expired  — red    */
+        .badge-expiry-critical { background: #ffe4e6; color: #9f1239; }  /* <= 7d    — red-ish */
+        .badge-expiry-soon     { background: #ffedd5; color: #9a3412; }  /* <= 30d   — orange */
+        .badge-expiry-watch    { background: #fef9c3; color: #854d0e; }  /* <= 90d   — yellow */
+
+        /* The "soon" step is pink rather than orange on purpose: orange sits
+           only ~12 degrees from the amber used by .badge-return-due, and at
+           these pale tints the two were indistinguishable — which is exactly
+           the expiry/return confusion this split exists to prevent. */
+
+        /* ── Supplier-return family ──
+           One hue (amber), three shades, so the states read as stages of the
+           same process rather than three unrelated statuses. Deeper shade =
+           more urgent. */
+        .badge-return-due    { background: #dbeafe; color: #1e40af; }  /* need to return — blue  */
+        /* Not in the supplied legend. Kept in the red family because it means
+           the same thing Expired does — too late to act — but darker, so the
+           two are still separable side by side. */
+        .badge-return-late   { background: #fecdd3; color: #881337; }  /* fail to return         */
+        .badge-return-done   { background: #dcfce7; color: #166534; border: 1px solid #bbf7d0; } /* returned — green */
+        .badge-teal     { background: #ccfbf1; color: #0f766e; }  /* non-pharma: default-expiry-based return flag */
+
+        /* ── Table ── */
+        table.remedi-table { width: 100%; border-collapse: collapse; background: #fff; }
+
+        table.remedi-table th,
+        table.remedi-table td {
+            padding: 13px 16px;
+            border-bottom: 0.5px solid #e5e7eb;
+            text-align: left;
+            font-size: 15px;
+        }
+
+        table.remedi-table th {
+            background: #f8fafc;
+            font-weight: 500;
+            color: #64748b;
+            font-size: 13px;
+        }
+
+
+        /* ── Buttons ── */
+        /* ── Form pages ───────────────────────────────────────────────
+           Add Product, Add User, Edit User. One vocabulary so the three read
+           as the same kind of page: a titled header, a card, and each field
+           introduced by a tinted icon chip.
+
+           The chip is not decoration for its own sake -- these forms are two
+           columns of similar-looking inputs, and the icon is what lets you find
+           "Selling Price" without reading every label. */
+        .form-card {
+            background: var(--surface);
+            border: 1px solid var(--line);
+            border-radius: 18px;
+            padding: 26px 28px;
+            box-shadow: 0 18px 40px -28px rgba(15, 23, 42, .45);
+        }
+
+        .form-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 22px 26px;
+        }
+
+        /* min-width:0 or a long label stretches the grid column instead of
+           wrapping, and the two columns stop being equal. */
+        .form-field { min-width: 0; }
+        .form-field.is-wide { grid-column: 1 / -1; }
+
+        /* Three-up, for the Add New Batch card. Steps down to two columns
+           before the shared 760px rule takes it to one. */
+        .form-grid.cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+        @media (max-width: 1100px) {
+            .form-grid.cols-3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+
+        .form-field-head {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            margin-bottom: 9px;
+        }
+
+        /* NEUTRAL, deliberately. These chips were tinted six different ways
+           (green name, purple SKU, blue category, amber money, red alerts),
+           which made a form of six ordinary fields look like six different
+           kinds of thing -- the colour was decoration carrying no rule. The
+           icon now sits in the same tone as the label beside it, the way the
+           sidebar's icons belong to their labels, and it is still what lets
+           you find "Selling Price" without reading every label.
+
+           Colour is kept where it MEANS something and nowhere else: the
+           reports, the inventory status badges, and the alert legend the bell,
+           the toasts and the notifications page share. If you want a chip to
+           stand out here, that is a reason to ask what rule it is expressing. */
+        .form-chip {
+            flex: none;
+            width: 40px;
+            height: 40px;
+            display: grid;
+            place-items: center;
+            border-radius: 11px;
+            font-size: 18px;
+            background: #f1f5f9;
+            color: var(--ink-soft);
+        }
+
+        /* The blocked cursor, not an icon: hovering a field the app genuinely
+           will not let you change -- the batch number (auto-assigned), your
+           own Role on Edit User (self-demotion is refused server-side) --
+           shows the browser's own "not-allowed" pointer, the same signal a
+           disabled button already gives for free. `input[readonly]` needs it
+           stated explicitly; unlike `:disabled`, a readonly field keeps the
+           ordinary text cursor by default even though typing does nothing. */
+        input[readonly],
+        select:disabled,
+        input:disabled {
+            cursor: not-allowed;
+        }
+
+        .form-field-head label {
+            font-size: 14.5px;
+            font-weight: 600;
+            color: var(--ink);
+            margin: 0;
+        }
+
+        /* Required-field star beside a label (2026-09-28). Only on fields the
+           server actually requires -- a star that is not enforced is a promise
+           the form does not keep. */
+        .form-field-head .req { color: #dc2626; margin-left: 3px; font-weight: 700; }
+
+        /* A field's helper line and its validation message. Neither had a shared
+           style, so the hint rendered as full-size body text under the input. */
+        .form-field .hint { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-soft, #64748b); line-height: 1.45; }
+        .form-field .err { margin: 6px 0 0; font-size: 12.5px; color: #b91c1c; }
+
+        /* An icon at the start of a .section-head band. */
+        .section-head h4 i { font-size: 18px; vertical-align: -3px; margin-right: 8px; }
+
+        .form-field input[type="text"],
+        .form-field input[type="email"],
+        .form-field input[type="number"],
+        .form-field input[type="password"],
+        .form-field input[type="date"],
+        .form-field select {
+            width: 100%;
+            padding: 11px 13px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            color: var(--ink);
+            background: #fff;
+        }
+
+        .form-field input:focus,
+        .form-field select:focus {
+            outline: none;
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px var(--brand-soft);
+        }
+
+        /* An empty date field standing in as a text input (see the
+           date-placeholder script) must not look different from a real one --
+           same box, same metrics, so nothing shifts when it flips on focus. */
+        input.date-placeholder::placeholder {
+            color: var(--ink-soft);
+            opacity: 1;
+        }
+
+        .form-field-note {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 7px;
+            font-size: 12px;
+            color: var(--ink-soft);
+        }
+
+        /* A rule above the actions, so the buttons read as the end of the form
+           rather than one more row of it. */
+        .form-actions {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            margin-top: 26px;
+            padding-top: 22px;
+            border-top: 1px solid var(--line);
+        }
+
+        /* -- Manage Categories -----------------------------------------
+           The "add" panel: a circled + beside the heading, so the card reads as
+           an action rather than another table. */
+        .cat-add {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+
+        .cat-add-mark {
+            flex: none;
+            width: 62px;
+            height: 62px;
+            display: grid;
+            place-items: center;
+            border-radius: 50%;
+            background: var(--brand-tint);
+            border: 1px solid var(--brand-soft);
+            color: var(--brand-dark);
+            font-size: 26px;
+        }
+
+        .cat-add-body { flex: 1 1 320px; min-width: 0; }
+        .cat-add-body h4 { margin: 0 0 12px; font-size: 17px; }
+
+        .cat-add-row { display: flex; gap: 10px; flex-wrap: wrap; }
+
+        .cat-add-row input {
+            flex: 1 1 240px;
+            min-width: 0;
+            padding: 11px 13px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        .cat-add-row input:focus {
+            outline: none;
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px var(--brand-soft);
+        }
+
+        /* Each category keeps its own glyph -- see Category::ICONS. Ten rows of
+           identical text is a list you have to read; ten rows with a mark each
+           is a list you can scan. */
+        .cat-name { display: flex; align-items: center; gap: 12px; }
+
+        .cat-icon {
+            flex: none;
+            width: 36px;
+            height: 36px;
+            display: grid;
+            place-items: center;
+            border-radius: 10px;
+            background: var(--brand-tint);
+            color: var(--brand-dark);
+            font-size: 18px;
+        }
+
+        /* The name stays editable -- renaming a category is a real operation
+           with a real guard behind it (CategoryController::update refuses the
+           rule-driving ones). It is drawn as plain text until you focus or
+           change it, so the table reads as a list rather than a form. */
+        .cat-rename {
+            flex: 1;
+            min-width: 0;
+            padding: 6px 9px;
+            border: 1px solid transparent;
+            border-radius: 8px;
+            background: transparent;
+            font: inherit;
+            font-weight: 500;
+            color: var(--ink);
+        }
+
+        .cat-rename:hover { border-color: var(--line); }
+
+        .cat-rename:focus {
+            outline: none;
+            background: #fff;
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px var(--brand-soft);
+        }
+
+        .cat-count { font-weight: 600; color: var(--brand-darker); }
+
+        .cat-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+        /* Save appears only once the name has actually been edited: a Save
+           button on every row invites clicks that change nothing. */
+        .cat-save[hidden] { display: none; }
+
+        /* A card's own header: tinted chip, then a green title. Used by the
+           Edit Product sections, so each card announces what it is instead of
+           relying on a bare <h4> to separate three stacked panels. */
+        /* A card header with no icon. The chip that used to sit beside the
+           title is gone, so the title has to carry the section on its own --
+           it is set as a highlighted band rather than a bare line of text: a
+           soft brand wash, an accent edge and small caps, which reads as the
+           top of a card at a glance the way the icon did. Full width, so the
+           band itself marks where one card's content begins. */
+        .section-head {
+            display: block;
+            /* Negative margins cancel .form-card's own padding (26px 28px), so
+               the band runs to the card's edges instead of floating inside it
+               with a white margin on three sides. This is why a .section-head
+               only ever belongs at the TOP of a card -- anywhere else the pull
+               would drag it over the content above it. */
+            margin: -26px -28px 22px;
+        }
+
+        .section-head h4 {
+            margin: 0;
+            padding: 14px 28px;
+            font-size: 14px;
+            font-weight: 700;
+            letter-spacing: .07em;
+            text-transform: uppercase;
+            color: var(--brand-darker);
+            background: var(--brand-soft);
+            /* 17px, not 18px: the card's radius measured from INSIDE its 1px
+               border, or the fill shows a hairline of white in each corner. */
+            border-radius: 17px 17px 0 0;
+            border-bottom: 1px solid var(--line);
+        }
+
+        /* Fields across one row, labels above. Deliberately WITHOUT the
+           per-field chips the Add pages use: the card header already carries a
+           chip, and repeating them on six fields in a single row turns a form
+           into a wall of icons. auto-fit means it reflows to fewer columns on
+           a narrow screen with no media query. */
+        .field-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 14px;
+            align-items: end;
+        }
+
+        .field-row label {
+            display: block;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--ink-soft);
+            margin-bottom: 7px;
+        }
+
+        .field-row input,
+        .field-row select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid var(--line);
+            border-radius: 10px;
+            font-size: 14px;
+            font-family: inherit;
+            color: var(--ink);
+            background: #fff;
+        }
+
+        .field-row input:focus,
+        .field-row select:focus {
+            outline: none;
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px var(--brand-soft);
+        }
+
+        /* Password fields carry a reveal toggle. Typing a password you cannot
+           see into a CONFIRM field is where mismatches come from, and this form
+           is filled in by an admin creating someone else's account -- there is
+           no browser-saved value to fall back on. */
+        .pw-wrap { position: relative; }
+        .pw-wrap input { padding-right: 42px; }
+
+        .pw-toggle {
+            position: absolute;
+            top: 50%;
+            right: 6px;
+            transform: translateY(-50%);
+            width: 30px;
+            height: 30px;
+            display: grid;
+            place-items: center;
+            padding: 0;
+            border: 0;
+            border-radius: 8px;
+            background: transparent;
+            color: #94a3b8;
+            font-size: 16px;
+            cursor: pointer;
+        }
+
+        .pw-toggle:hover { background: #f1f5f9; color: var(--ink); }
+        .pw-toggle:focus-visible { outline: 2px solid var(--brand); outline-offset: 1px; }
+
+        /* Strength meter under a NEW-password field -- see initPasswordStrengthMeters()
+           below. Same colour language as the inventory/expiry badges (critical red,
+           warning orange, success green) so "weak" reads the same way "expired"
+           does everywhere else. Hidden until the field actually has a value: an
+           empty field isn't weak, it's just empty. */
+        .pw-strength { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+        /* `display: flex` above is an author rule and beats the `hidden`
+           attribute's UA display:none, so the empty meter showed under every
+           password field before anything was typed (Add User, Edit User,
+           profile) -- the same trap #confirmModalConfirm[hidden] documents. */
+        .pw-strength[hidden] { display: none; }
+        .pw-strength-bar { flex: 1; height: 5px; border-radius: 3px; background: #e2e8f0; overflow: hidden; }
+        .pw-strength-bar span { display: block; height: 100%; width: 0; border-radius: 3px; transition: width .2s ease, background .2s ease; }
+        .pw-strength-label { font-size: 12.5px; font-weight: 600; white-space: nowrap; }
+
+        .pw-strength.is-weak .pw-strength-bar span { width: 33%; background: #dc2626; }
+        .pw-strength.is-weak .pw-strength-label { color: #991b1b; }
+        .pw-strength.is-normal .pw-strength-bar span { width: 66%; background: #ea580c; }
+        .pw-strength.is-normal .pw-strength-label { color: #9a3412; }
+        .pw-strength.is-strong .pw-strength-bar span { width: 100%; background: #16a34a; }
+        .pw-strength.is-strong .pw-strength-label { color: #166534; }
+
+        /* Chip tints. Keyed to meaning where one exists -- money amber, alerts
+           red -- so a field's colour is the same wherever it appears. */
+
+        /* The form pages' action size, also used by the page-level buttons on
+           the list pages so "Add Product" looks the same as the "Save Product"
+           it leads to. Row buttons inside tables deliberately stay compact --
+           at this size they would break the table's rhythm. */
+        .btn-lg {
+            padding: 11px 20px;
+            font-size: 14.5px;
+            border-radius: 11px;
+            gap: 9px;
+        }
+
+        @media (max-width: 760px) {
+            .form-grid { grid-template-columns: minmax(0, 1fr); }
+            .form-card { padding: 20px 18px; }
+
+            /* Track the card's narrower padding, or the band stops short of
+               the edges on a phone. */
+            .section-head { margin: -20px -18px 18px; }
+            .section-head h4 { padding: 12px 18px; }
+        }
+
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 7px;
+            padding: 9px 18px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            cursor: pointer;
+            font-size: 15px;
+            font-weight: 500;
+            font-family: inherit;
+            line-height: 1.25;
+            text-decoration: none;
+            white-space: nowrap;
+            /* Every button animates the same way; the "pop" below just
+               changes how far it travels. */
+            transition: background .15s ease, border-color .15s ease,
+                        color .15s ease, transform .13s ease, box-shadow .15s ease;
+        }
+
+        .btn i { font-size: 17px; }
+
+        .btn:disabled,
+        .btn[disabled] {
+            opacity: .55;
+            cursor: not-allowed;
+            transform: none !important;
+            box-shadow: none !important;
+        }
+
+        /* Action colours carry meaning at a glance in a table of rows:
+           blue = go look at / change it, amber = reversible restriction,
+           red = destructive, green = positive/confirm. */
+        /* Solid mid-tones, not gradients and not the lightest shade of each
+           hue. A gradient made every button look like a call to action; the
+           base --brand (#10b981) on its own read too light against white for a
+           button that is pressed all day. These sit one step down: saturated
+           enough to be obviously clickable, dark enough to hold white text at
+           small sizes, without going near-black.
+
+           Declared AFTER .btn on purpose: .btn sets `background` and a variant
+           above it would be overridden. Same trap .btn-danger-outline hit. */
+        .btn-primary   { background: #059669; color: #fff; }
+        .btn-info      { background: #3b82f6; color: #fff; }
+        .btn-warning   { background: #e08c07; color: #fff; }
+        .btn-danger    { background: #dc2626; color: #fff; }
+        .btn-success   { background: #16a34a; color: #fff; }
+
+        /* Secondary is now an outlined button rather than a solid grey slab.
+           Grey-on-grey read as heavy as the primary action next to it, so
+           "Cancel" competed with "Save". */
+        .btn-secondary {
+            background: #fff;
+            color: #374151;
+            border-color: #d1d5db;
+        }
+
+        /* Clear (the reports' filter reset, 2026-09-28): coloured so it reads as
+           the way OUT of a filter rather than one more grey button beside
+           Print/Excel/PDF. Soft rose -- a reset, not a destructive action. */
+        .btn-clear { background: #fff1f2; border-color: #fecdd3; color: #be123c; }
+        .btn-clear:hover { background: #ffe4e6; border-color: #fda4af; color: #9f1239; }
+
+        /* Outlined rather than a solid red slab. Ten of those down a column
+           reads as ten warnings; the destructive weight belongs in the confirm
+           dialog, which every one of these already opens. */
+        .btn-danger-outline {
+            background: #fff;
+            color: #b91c1c;
+            border-color: #fecaca;
+        }
+
+        .btn-danger-outline:hover { background: #fef2f2; border-color: #fca5a5; }
+
+        /* Hover goes one step deeper, still solid. */
+        .btn-primary:hover   { background: #047857; }
+        .btn-info:hover      { background: #2563eb; }
+        .btn-warning:hover   { background: #b45309; }
+        .btn-danger:hover    { background: #b91c1c; }
+        .btn-success:hover   { background: #15803d; }
+        .btn-secondary:hover { background: #f8fafc; border-color: #94a3b8; color: #1e293b; }
+
+        /* ── The "pop" ──
+           Action buttons lift and cast a tinted shadow on hover so it's
+           obvious the cursor is on a live control. Colour-matched to each
+           variant so the glow looks like the button, not a generic drop
+           shadow. Suppressed under prefers-reduced-motion below. */
+        .btn-primary:hover,
+        .btn-danger:hover,
+        .btn-success:hover,
+        .btn-info:hover,
+        .btn-warning:hover,
+        .btn-secondary:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn-primary:hover   { box-shadow: 0 6px 16px -4px rgba(16, 185, 129, .55); }
+        .btn-danger:hover    { box-shadow: 0 6px 16px -4px rgba(220, 38, 38, .5); }
+        .btn-success:hover   { box-shadow: 0 6px 16px -4px rgba(22, 163, 74, .5); }
+        .btn-info:hover      { box-shadow: 0 6px 16px -4px rgba(14, 165, 233, .5); }
+        .btn-warning:hover   { box-shadow: 0 6px 16px -4px rgba(245, 158, 11, .5); }
+        .btn-secondary:hover { box-shadow: 0 5px 14px -5px rgba(15, 23, 42, .35); }
+
+        /* Pressing returns it to the surface, so the click feels physical. */
+        .btn:active { transform: translateY(0); box-shadow: none; }
+
+        /* Compact variant for toolbars/filter rows. */
+        .btn-sm {
+            padding: 7px 14px;
+            font-size: 13.5px;
+            border-radius: 7px;
+        }
+
+        .btn-sm i { font-size: 15px; }
+
+        /* ── Report filter bar ──
+           Report pages each hand-rolled their own inline-styled inputs and a
+           one-off #185FA5 button. Shared classes here so all three look the
+           same as each other and as the rest of the app. */
+        .report-filters {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+            margin-bottom: 1.5rem;
+        }
+
+        .report-field { display: flex; flex-direction: column; gap: 5px; }
+
+        .report-field label {
+            font-size: 11px;
+            color: #64748b;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .report-select {
+            height: 36px;
+            font-family: inherit;
+            font-size: 13.5px;
+            padding: 0 10px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            background: #fff;
+            color: #1e293b;
+            outline: none;
+            cursor: pointer;
+            transition: border-color .15s ease, box-shadow .15s ease;
+        }
+
+        .report-select:hover { border-color: #94a3b8; }
+
+        .report-select:focus {
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, .18);
+        }
+
+        /* ── Page header: back button BESIDE the title ──
+           Back sits on the same line as the heading it belongs to, on every
+           page that has one. It previously occupied its own row above the
+           title; the report pages already did it this way, so the app showed
+           two different placements depending on which page you landed on.
+           This is now the single pattern — put a .page-head on the page and
+           the back button goes inside it, not above it.
+
+           align-items:flex-start so the button stays level with the title line
+           rather than floating to the middle of a two-line title + subtitle.
+           The button's own line-height is shorter than the block beside it, so
+           a small top nudge is what actually lines the two up optically. */
+        .page-head {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .page-head > .btn-back { margin-top: 2px; }
+
+        .page-head-text { min-width: 0; }
+
+        .page-head-text h3 {
+            margin: 0;
+            font-size: 1.15rem;
+            font-weight: 600;
+            color: var(--ink);
+        }
+
+        .page-head-text p {
+            margin: 3px 0 0;
+            font-size: 13px;
+            color: var(--ink-soft);
+        }
+
+        /* When the title IS a record -- a product name, a person -- rather than
+           a page label. "Manage Categories" is signage and 1.15rem is right for
+           it; "CENVERT-16" is the thing you opened and needs to read as the
+           subject of the page, not as a breadcrumb.
+
+           A modifier rather than a change to .page-head-text h3, which ten
+           pages share and most of which are signage. */
+        .page-head-text.is-record h3 {
+            font-size: 1.65rem;
+            font-weight: 700;
+            letter-spacing: -.015em;
+            line-height: 1.2;
+        }
+
+        .page-head-text.is-record p {
+            margin-top: 5px;
+            font-size: 13.5px;
+            font-weight: 500;
+            color: var(--ink-soft);
+        }
+
+        @media (max-width: 620px) {
+            .page-head-text.is-record h3 { font-size: 1.35rem; }
+        }
+
+        /* Anything pushed to the right of the header (filters, actions).
+           flex-wrap: the only current user (reports/analytics.blade.php)
+           went from 2 items to 4 when the Excel/PDF export links were
+           added, and without wrap the last one ran off the right edge on
+           mobile with no way to reach it -- same overflow class already
+           fixed on the sales/inventory report button rows. Only one
+           consumer of this shared class today, so safe to change here. */
+        .page-head-actions { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+
+        /* Retained only so a page that still renders a bare .page-back row is
+           not left flush against what follows it. New pages use .page-head. */
+        .page-back { margin-bottom: 18px; }
+
+        /* ── Back button ──
+           One appearance everywhere. Pages previously mixed a wide grey
+           "90 Back" slab with a 34px icon-only square, so the same action
+           looked like two different controls depending on the page. */
+        .btn-back {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 8px 14px 8px 11px;
+            border-radius: 8px;
+            border: 1px solid #d1d5db;
+            background: #fff;
+            color: #374151;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 500;
+            text-decoration: none;
+            cursor: pointer;
+            transition: background .15s ease, border-color .15s ease,
+                        color .15s ease, transform .13s ease, box-shadow .15s ease;
+        }
+
+        .btn-back i { font-size: 17px; }
+
+        .btn-back:hover {
+            background: #f8fafc;
+            border-color: #94a3b8;
+            color: #1e293b;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 14px -5px rgba(15, 23, 42, .35);
+        }
+
+        .btn-back:active { transform: translateY(0); box-shadow: none; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .btn, .btn-back { transition: background .15s ease, color .15s ease; }
+            .btn:hover, .btn-back:hover, a.card:hover { transform: none; }
+        }
+
+        /* ── Pagination ── */
+        .pagination {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+            list-style: none;
+            padding: 0;
+        }
+
+        .pagination li a,
+        .pagination li span {
+            padding: 8px 14px;
+            border: 0.5px solid #d1d5db;
+            border-radius: 7px;
+            color: #374151;
+            text-decoration: none;
+            font-size: 15px;
+            display: block;
+        }
+
+        .pagination li a {
+            transition: background .14s ease, border-color .14s ease,
+                        color .14s ease, transform .14s ease, box-shadow .14s ease;
+        }
+
+        .pagination li.active span {
+            background: var(--brand);
+            color: #fff;
+            border-color: var(--brand);
+        }
+
+        /* Page numbers are a primary control on the POS grid -- the cashier
+           pages through the catalogue with them. The old hover was a #f1f5f9
+           background and nothing else: at 0.5px of grey border it was near
+           invisible, so the numbers read as static text. Same indigo language
+           as the product tiles they sit under. */
+        .pagination li a:hover {
+            background: var(--brand-tint);
+            border-color: var(--brand);
+            color: var(--brand-darker);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px -4px rgba(16, 185, 129, .5);
+        }
+
+        .pagination li a:active { transform: translateY(0); box-shadow: none; }
+
+        /* The current page and the disabled arrows are not targets -- they are
+           <span>, not <a>, so they never match the rule above. Spelled out so
+           the cursor agrees. */
+        .pagination li.active span { cursor: default; }
+        .pagination li.disabled span { color: #cbd5e1; cursor: not-allowed; }
+
+        @media (prefers-reduced-motion: reduce) {
+            .pagination li a:hover { transform: none; }
+        }
+
+        /* ── Form inputs ── */
+        input, select, textarea {
+            font-family: inherit;
+            font-size: 15px;
+            padding: 9px 12px;
+            border: 0.5px solid #d1d5db;
+            border-radius: 7px;
+            color: #1e293b;
+            background: #fff;
+            outline: none;
+        }
+
+        input:focus, select:focus, textarea:focus {
+            border-color: var(--brand);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.12);
+        }
+
+        /* ── Print: collapse the app shell so printed content flows
+               naturally across as many pages as it needs ── */
+        /* ── In-place list skeleton ──
+           The page skeleton covers full navigations. List pages instead swap
+           their rows over AJAX, which previously left the OLD results on
+           screen until the new ones arrived — so a search looked like it had
+           done nothing. This stands in for the rows while a fetch is in
+           flight. */
+        .list-skeleton { padding: 4px 0; }
+
+        .list-skeleton .sk-line {
+            height: 46px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+        }
+
+        .list-skeleton.is-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+        }
+
+        .list-skeleton.is-grid .sk-line { height: 108px; margin: 0; }
+
+        @media (max-width: 767px) {
+            .list-skeleton.is-grid { grid-template-columns: 1fr 1fr; }
+        }
+
+        /* Search fields stretch to fill their row instead of sitting at the
+           browser's default ~170px input width. */
+        .suggest-wrap { flex: 1 1 320px; min-width: 0; }
+        .suggest-wrap > input { width: 100%; }
+
+        #search-input, input[name="search"] { min-width: 240px; }
+
+        /* The typeahead dropdown was removed; search fields simply stretch to
+           fill their row and drive the page's own table/grid. */
+        .suggest-wrap { flex: 1 1 320px; min-width: 0; }
+        .suggest-wrap > input { width: 100%; }
+
+        #search-input, input[name="search"] { min-width: 240px; }
+
+
+        /* Charts need an explicit height box: Chart.js with responsive:true
+           sizes a doughnut/pie to its container's WIDTH, so an unconstrained
+           one in a half-width card renders hundreds of pixels tall. Pair this
+           with maintainAspectRatio:false on the chart. */
+        .chart-box {
+            position: relative;
+            width: 100%;
+            height: 260px;
+        }
+
+        /* Chart.js writes an explicit pixel width onto the canvas when it
+           renders. If the container is later narrowed — a column re-proportioned,
+           a tab shown after the chart was built while hidden — that inline width
+           outlives the change until the next resize observation, and the canvas
+           sticks out of its card (measured: a 447px canvas in a 430px box). The
+           clamp costs nothing when the sizes agree and prevents the overhang
+           when they briefly do not. */
+        .chart-box > canvas { max-width: 100%; }
+
+        /* A right-hand legend eats horizontal room, so the ring needs a
+           taller box to stay a readable size. Below tablet the legend has
+           nowhere to go, so Chart.js is told to put it back underneath. */
+        .chart-box-legend-right { height: 280px; }
+
+        @media (max-width: 767px) {
+            .chart-box-legend-right { height: 320px; }
+        }
+
+        /* Wide content (tables especially) scrolls inside its own box rather
+           than forcing the whole page sideways on a narrow screen. */
+        /* ── Row table columns ──
+           Status sits right after the product name so stock health is legible
+           without scrolling, and Actions is pinned to the right edge so the
+           buttons stay reachable while the middle of a wide table scrolls. */
+        .remedi-table th.col-status,
+        .remedi-table td.col-status { white-space: normal; min-width: 176px; width: 176px; vertical-align: middle; }
+
+        /* SKUs are 13-digit barcodes read off a box and compared by eye, so
+           they get tabular figures and a monospace-ish tracking: in the
+           proportional body face the digits do not line up column to column,
+           which is exactly when a transposed pair slips past. */
+        .remedi-table td.col-sku {
+            font-variant-numeric: tabular-nums;
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 12px;
+            color: var(--ink-soft);
+            white-space: nowrap;
+        }
+
+        /* Several badges can stack in one Status cell (Low Stock + Expiring +
+           Need to Return). The flex layout goes on an INNER wrapper, never on
+           the <td> itself: `display:flex` on a table cell takes it out of the
+           table's column model, so the row stops aligning with its header and
+           the table visibly breaks. */
+        .remedi-table td.col-status .status-stack {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .remedi-table td.col-status .badge {
+            margin: 0;
+            line-height: 1.35;
+            white-space: nowrap;
+        }
+
+        /* Status and Actions sit next to each other at the end of the row, so
+           "what's wrong" and "what to do about it" read as one unit. */
+        .remedi-table td.col-actions .actions-cell,
+        .remedi-table td.col-actions form {
+            display: inline-flex;
+            align-items: center;
+            gap: 14px;
+            margin: 0;
+        }
+
+        .remedi-table td.col-actions { white-space: nowrap; vertical-align: middle; }
+
+        /* Row actions sit BESIDE each other on one line, in every table
+           (2026-09-24, at the user's request). User Management briefly wrapped
+           its four (Edit / Reset password / Deactivate / Archive) into two
+           rows under a 250px max-width to fit a 1366px screen; that stacked
+           them, which is what was asked to go. The table scrolls sideways
+           inside .table-scroll instead where it does not fit.
+
+           The gap is 8px, not 14px: four buttons carry three gaps, and that
+           is width a one-line row cannot give back. `white-space: nowrap`
+           keeps "Reset password" from breaking across two lines. */
+        .remedi-table .actions-cell {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: nowrap;
+            white-space: nowrap;
+        }
+
+        .remedi-table .actions-cell form { margin: 0; display: inline-flex; }
+
+        /* Row actions are SOFT: tinted fill, coloured border, coloured text --
+           not the solid mid-tones the rest of the app uses.
+           
+           That standing rule (see REMEDI.md, "Buttons are solid mid-tones") is
+           about the button you press to COMMIT something, where a solid fill is
+           what says "this is the action". A table row is the other case: it
+           carries two or three of them on every line, and at ten rows a page
+           that is thirty saturated fills stacked into a column, which competes
+           with the status badges beside it -- the thing the row is actually
+           there to tell you.
+
+           The colour still MEANS the same thing (blue = go somewhere, amber =
+           reversible restriction, green = confirm, red = destructive); it moves
+           into the border and the label instead of the fill, so the legend
+           survives and the noise does not. Applies to every table that uses
+           .actions-cell -- users, products and inventory -- so the four read as
+           one pattern rather than one redesigned page beside three old ones. */
+        .remedi-table .actions-cell .btn-info    { background: #eff6ff; border-color: #bfdbfe; color: #1d4ed8; }
+        .remedi-table .actions-cell .btn-warning { background: #fffbeb; border-color: #fde68a; color: #b45309; }
+        .remedi-table .actions-cell .btn-success { background: #ecfdf5; border-color: #a7f3d0; color: #047857; }
+        .remedi-table .actions-cell .btn-danger  { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+
+        .remedi-table .actions-cell .btn-info:hover    { background: #dbeafe; border-color: #93c5fd; color: #1e40af; }
+        .remedi-table .actions-cell .btn-warning:hover { background: #fef3c7; border-color: #fcd34d; color: #92400e; }
+        .remedi-table .actions-cell .btn-success:hover { background: #d1fae5; border-color: #6ee7b7; color: #065f46; }
+        .remedi-table .actions-cell .btn-danger:hover  { background: #fee2e2; border-color: #fca5a5; color: #991b1b; }
+
+        /* The lift-and-glow the solid buttons carry is wrong on these: a hover
+           shadow under a pale control reads as the control coming loose. */
+        .remedi-table .actions-cell .btn:hover { transform: none; box-shadow: none; }
+
+        .remedi-table th.col-actions,
+        .remedi-table td.col-actions {
+            position: sticky;
+            right: 0;
+            z-index: 1;
+            background: #fff;
+            box-shadow: -6px 0 8px -8px rgba(15, 23, 42, .5);
+        }
+
+        .remedi-table th.col-actions { background: #f8fafc; }
+
+        /* Row hover.
+           This is what .remedi-table tbody tr:hover td.col-actions below was
+           always written against -- without it, hovering a row tinted only the
+           pinned Actions column and read as a rendering glitch rather than a
+           hover state. Applies to every list in the app, since they all use
+           .remedi-table.
+
+           Painted on the CELLS, not the <tr>: a background set on a row in this
+           border-collapse table does not render (verified -- a td takes the
+           colour, the tr ignores it even with !important), so the obvious
+           row-level rule looks correct and shows nothing.
+
+           Background only, no transform: a row that lifts drags the whole
+           table's baseline with it. */
+        .remedi-table tbody td { transition: background-color .12s ease; }
+        .remedi-table tbody tr:hover > td { background: #f8fafc; }
+
+        /* Zebra/hover fills must repaint under the pinned cell too, or it
+           shows the page background through it. */
+        .remedi-table tbody tr:hover td.col-actions { background: #f8fafc; }
+
+        /* A long list kept inside a fixed-height scroller, so the card stays
+           a sensible size while every row remains reachable. */
+        .list-scroll { max-height: 420px; overflow-y: auto; }
+
+        .list-scroll .sticky-head th {
+            position: sticky;
+            top: 0;
+            z-index: 2;
+            background: #f9fafb;
+            /* A sticky th loses its own border when it detaches, so draw the
+               separator with a shadow that travels with it. */
+            box-shadow: inset 0 -1px 0 #e5e7eb;
+        }
+
+        .table-scroll {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+            max-width: 100%;
+        }
+
+        /* Report cards wrap tables in a rounded box with overflow:hidden,
+           which would clip a wide table rather than scroll it. The scroller
+           has to sit inside that box and do the scrolling itself. */
+        /* Only the app's own row tables need a minimum; report tables set
+           their own widths and would otherwise gain a needless scrollbar. */
+        .table-scroll > table.remedi-table { min-width: 560px; }
+
+        /* ══════════════ TABLET ══════════════ */
+        @media (max-width: 1024px) {
+            .content-body { padding: 22px 20px; }
+            /* Belt and braces for the whole app: no card may push the page
+               wider than the phone it is on. Anything that genuinely needs
+               more room (tables) carries its own .table-scroll. */
+            .content-body .card { max-width: 100%; }
+            .topbar { padding: 16px 20px; }
+
+            /* Reclaim horizontal room: the sidebar narrows and drops its
+               labels to icons only. */
+            .sidebar, .sidebar > * { width: 216px; min-width: 216px; }
+            .sidebar a, .nav-link-btn { font-size: 14px; padding: 10px 12px; }
+            .sidebar .brand { padding: 22px 14px 14px; }
+
+            .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }
+            .kpi-value { font-size: 22px; }
+            .chart-box { height: 240px; }
+            /* .chart-box-legend-right carries .chart-box too, and this rule's
+               later source position wins the (equal-specificity) cascade over
+               the unconditional 280px above -- shrinking the box back down to
+               240px right in this 768-1024px range, the one width where the
+               legend still sits at 'right' (JS drops it to 'bottom' below
+               768px) but wasn't given the taller box that position needs.
+               Restate the taller height so it wins here too. */
+            .chart-box-legend-right { height: 280px; }
+        }
+
+        /* ══════════════ MOBILE ══════════════ */
+        @media (max-width: 767px) {
+            body { font-size: 15px; }
+
+            /* Sidebar becomes an off-canvas drawer, toggled by the existing
+               hamburger. It starts hidden so the content owns the screen. */
+            .layout-wrapper { display: block; }
+
+            .sidebar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                z-index: 60;
+                width: 264px;
+                min-width: 264px;
+                transform: translateX(0);
+                transition: transform .24s ease;
+                box-shadow: 0 0 40px rgba(15, 23, 42, .35);
+            }
+
+            .sidebar, .sidebar > * { width: 264px; min-width: 264px; }
+
+            /* On mobile the toggle means "slide away", not "collapse to 0" —
+               collapsing width would reflow the drawer's contents. */
+            html[data-sidebar-hidden="true"] .sidebar {
+                transform: translateX(-100%);
+                width: 264px;
+                min-width: 264px;
+                opacity: 1;
+                pointer-events: none;
+            }
+
+            .sidebar-scrim {
+                display: block;
+                position: fixed;
+                inset: 0;
+                background: rgba(15, 23, 42, .5);
+                z-index: 55;
+                opacity: 1;
+                transition: opacity .24s ease;
+            }
+
+            html[data-sidebar-hidden="true"] .sidebar-scrim {
+                opacity: 0;
+                pointer-events: none;
+            }
+
+            .main-content { min-height: 100vh; }
+
+            .topbar { padding: 12px 14px; gap: 10px; }
+            .topbar h2 { font-size: 1.05rem; }
+            /* Name and role badge are the first things to go — the avatar
+               still identifies who's signed in. */
+            .topbar-user strong, .topbar-user .badge { display: none; }
+
+            .content-body { padding: 16px 14px; }
+
+            /* Single column for every dashboard/report grid. */
+            .kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+            .kpi { padding: 12px 12px 12px 15px; }
+            .kpi-value { font-size: 20px; }
+            .kpi-sub { font-size: 11px; }
+
+            .card { padding: 16px 14px; border-radius: 12px; }
+
+            .chart-box { height: 220px; }
+
+            /* Tables: let them scroll sideways inside the card instead of
+               stretching the page. */
+            table.remedi-table { min-width: 620px; }
+            table.remedi-table th, table.remedi-table td { padding: 10px 12px; font-size: 14px; }
+
+            .report-filters { gap: 10px; }
+            .report-field { flex: 1 1 100%; }
+            .report-select { width: 100%; }
+
+            .btn { padding: 10px 16px; }
+            /* Full-width primary actions are easier to hit with a thumb. */
+            .report-filters .btn { flex: 1 1 auto; }
+
+            .page-skeleton .sk-row { flex-direction: column; }
+
+            /* This codebase builds filter rows with inline `display:flex` and
+               no wrap, so on a phone the input + select + button ran past the
+               edge with nothing to scroll them. Force wrapping and let the
+               fields take the full width. Inline styles need !important. */
+            .content-body form { flex-wrap: wrap !important; }
+
+            .content-body form input[type="text"],
+            .content-body form input[type="date"],
+            .content-body form input[type="search"],
+            .content-body form select {
+                flex: 1 1 100%;
+                min-width: 0;
+                max-width: 100%;
+            }
+
+            .content-body .suggest-wrap { flex: 1 1 100%; min-width: 0; }
+
+            /* Printed-report blocks are laid out for A4 with fixed columns;
+               collapse them on screen so they don't hang off a phone. */
+            #print-area > div[style*="grid-template-columns"] { grid-template-columns: 1fr !important; }
+            #print-area > div[style*="display:flex"] { flex-wrap: wrap !important; gap: 10px; }
+            #print-area [style*="text-align:right"] { text-align: left !important; }
+
+            /* Restore both for the actual printout. */
+            /* Browsers drop background fills when printing unless told not to;
+           the report summary tints are meaningful, so keep them. */
+        @media print {
+            /* A scroll box would clip a long table on paper — let it flow. */
+            .table-scroll { overflow: visible !important; }
+
+            .report-summary-card {
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+        }
+
+        @media print {
+                #print-area > div[style*="grid-template-columns"] { grid-template-columns: repeat(3, 1fr) !important; }
+                #print-area [style*="text-align:right"] { text-align: right !important; }
+            }
+        }
+
+        /* Two up, not one. A single column stacked six tiles before any actual
+           content and made the admin dashboard 4,073px tall on a 375px screen.
+           Measured at 375px: tiles come out 169px wide, and nothing inside
+           overflows -- checked with the longest value the app can print
+           (₱1,229,088.65) forced into every tile. Page height 4,073 -> 3,675px. */
+        @media (max-width: 420px) {
+            .kpi-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+        }
+
+        /* Touch targets. "View All" was 64x21 -- fine for a mouse, under half
+           the 44px a finger needs. Height only: these sit inside flex panel
+           headers, so padding them out sideways would push the title around. */
+        @media (max-width: 767px) {
+            .view-all,
+            .returns-more {
+                display: inline-flex;
+                align-items: center;
+                min-height: 44px;
+            }
+
+            /* The dashboard's two section tabs came out at 41px -- close, but
+               these are the primary control on the page. */
+            .dash-tab { min-height: 44px; }
+        }
+
+        /* 320px — the narrowest phone still in use (SE-era). The 20px page
+           padding plus 24px card padding leaves under 250px of usable width,
+           which is where fixed-width chart boxes start pushing the page wider
+           than the screen. Tighten both and let charts fill what is left. */
+        @media (max-width: 360px) {
+            .content-body { padding: 18px 12px; }
+            .card { padding: 16px 14px; }
+            .chart-box { width: 100% !important; max-width: 100% !important; }
+        }
+
+        @media print {
+            .sidebar, .topbar { display: none !important; }
+            .layout-wrapper, .main-content, .content-body {
+                display: block !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                width: 100% !important;
+                min-height: 0 !important;
+                height: auto !important;
+            }
+        }

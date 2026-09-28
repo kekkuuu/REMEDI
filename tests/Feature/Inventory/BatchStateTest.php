@@ -7,6 +7,7 @@ use App\Models\Product;
 use App\Models\ProductBatch;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 /**
@@ -253,6 +254,33 @@ class BatchStateTest extends TestCase
         $batch->update(['returned_at' => now(), 'quantity' => 0]);
 
         $this->assertFalse($batch->is_sellable, 'returned stock is not sellable stock');
+    }
+
+    public function test_days_to_expiry_counts_calendar_days_at_any_hour(): void
+    {
+        // Late evening is where a clock-based diff used to lose a day.
+        Carbon::setTestNow(Carbon::parse('2026-08-18 23:34:00'));
+
+        $this->assertSame(7, $this->batch(5, '2026-08-25')->days_to_expiry);
+        $this->assertSame(0, $this->batch(5, '2026-08-18')->days_to_expiry, 'expires today');
+        $this->assertSame(-3, $this->batch(5, '2026-08-15')->days_to_expiry, 'signed once expired');
+        $this->assertSame(135, $this->batch(5, '2026-12-31')->days_to_expiry, 'across months');
+
+        // return_days is days_to_expiry less the product's window (10 days here).
+        $this->assertSame(-3, $this->batch(5, '2026-08-25')->return_days);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_days_to_expiry_follows_an_edited_expiry(): void
+    {
+        $batch = $this->batch(5, now()->addDays(30)->toDateString());
+        $this->assertSame(30, $batch->days_to_expiry);
+
+        $batch->update(['expiry_date' => now()->addDays(100)->toDateString()]);
+
+        $this->assertSame(100, $batch->days_to_expiry, 'the memo must not outlive the date it came from');
+        $this->assertSame(90, $batch->return_days);
     }
 
     public function test_the_memo_still_serves_repeated_reads(): void
