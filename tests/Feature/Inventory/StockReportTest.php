@@ -129,6 +129,36 @@ class StockReportTest extends TestCase
         $this->assertSame('approved', $report->fresh()->status);
     }
 
+    /**
+     * The staff member who sent a report hears the answer (2026-09-28) -- in
+     * their bell, the polled feed and a toast -- and nobody else does.
+     */
+    public function test_the_reporter_is_notified_of_the_decision(): void
+    {
+        $staff = User::factory()->create();
+        $colleague = User::factory()->create();
+        $low = $this->product(1, now()->addYear()->toDateString());
+        $this->report($staff, $low, 'low_stock');
+
+        // Nothing to tell anyone until it is decided.
+        $this->assertSame([], app(AlertService::class)->activityFor($staff));
+
+        $admin = User::factory()->admin()->create();
+        $this->actingAs($admin)->patchJson('/stock-reports/'.StockReport::firstOrFail()->id.'/reject')->assertOk();
+
+        $rows = app(AlertService::class)->activityFor($staff->fresh());
+        $this->assertCount(1, $rows);
+        $this->assertSame('Your stock report was rejected', $rows[0]['title']);
+        $this->assertSame(AlertService::STOCK_REPORT_KIND, $rows[0]['kind']);
+        $this->assertSame('alerts', $rows[0]['group']);
+        $this->assertSame('/stock-reports', $rows[0]['href']);
+        $this->assertStringContainsString($low->name, $rows[0]['body']);
+
+        // The polled feed carries it for them, not for a colleague.
+        $this->actingAs($staff)->getJson('/alerts')->assertJsonPath('activity.0.title', 'Your stock report was rejected');
+        $this->actingAs($colleague)->getJson('/alerts')->assertJsonCount(0, 'activity');
+    }
+
     public function test_staff_see_only_their_own_reports(): void
     {
         $mine = User::factory()->create(['name' => 'Mine Person']);

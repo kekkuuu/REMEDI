@@ -40,7 +40,11 @@ class PasswordController extends Controller
             'must_change_password' => false,
         ]);
 
-        AuditTrail::log('Updated', 'Changed own account password');
+        // "Password changed: {name}" -- worded for AlertService's account
+        // predicate so admins get a pop-up (2026-09-28, at the user's
+        // request). It read "Changed own account password", which matched
+        // nothing and was filed as a generic "Record updated".
+        AuditTrail::log('Updated', "Password changed: {$request->user()->name}");
 
         if ($request->wantsJson() || $request->ajax()) {
             return response()->json([

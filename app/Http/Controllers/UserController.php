@@ -55,11 +55,6 @@ class UserController extends Controller
             'active' => User::where('is_active', true)->count(),
             'inactive' => User::where('is_active', false)->count(),
             'admins' => User::where('role', 'admin')->count(),
-            // "Forgot your password?" requests waiting on an admin -- see
-            // PasswordResetRequestController. Same "count before any filter"
-            // rule as the other three: this describes the account list as a
-            // whole, not the search box's narrowed slice.
-            'pending_reset' => User::whereNotNull('password_reset_requested_at')->count(),
         ];
 
         // ?archived=1 lists archived accounts, where Restore lives. The default
@@ -169,13 +164,25 @@ class UserController extends Controller
         $user->phone = $validated['phone'] ?? null;
         $user->personal_email = $validated['personal_email'] ?? null;
 
-        if (! empty($validated['password'])) {
+        $passwordChanged = ! empty($validated['password']);
+
+        if ($passwordChanged) {
             $user->password = Hash::make($validated['password']);
+            // An admin setting a password answers any "Forgot your password?"
+            // request that was waiting on them.
+            $user->password_reset_requested_at = null;
         }
 
         $user->save();
 
         AuditTrail::log('Updated', "Updated user account: {$user->name}");
+
+        // Its own entry, worded for AlertService's account predicate, so a
+        // password change pops for admins rather than hiding inside "Updated
+        // user account" (2026-09-28, at the user's request).
+        if ($passwordChanged) {
+            AuditTrail::log('Updated', "Password changed by an admin: {$user->name}");
+        }
 
         return $this->actionOk($request, "User \"{$user->name}\" updated successfully.", redirect()->route('users.index'));
     }

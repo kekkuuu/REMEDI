@@ -48,6 +48,18 @@
             <span class="kpi-value">{{ number_format($expiredCount) }}</span>
             <span class="kpi-sub">still on the shelf</span>
         </div>
+
+        {{-- OK (2026-09-28, at the user's request) -- the same $okCount the
+             "OK only" filter and the Stock Health chart's OK slice read:
+             in stock, not low, no expired stock on the shelf. --}}
+        <div class="kpi" style="--kpi-accent:#22c55e;">
+            <div class="kpi-head">
+                <i class="ti ti-circle-check" aria-hidden="true"></i>
+                <span class="kpi-label">OK</span>
+            </div>
+            <span class="kpi-value">{{ number_format($okCount) }}</span>
+            <span class="kpi-sub">nothing to act on</span>
+        </div>
     </div>
 
     {{-- Charts --}}
@@ -206,7 +218,7 @@
     </div>
 
     {{-- Print Summary --}}
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;">
+    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px;">
         <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #6366f1;background:#eef2ff;border-radius:8px;padding:12px 14px;">
             <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Total Stock Value</div>
             <div style="font-size:18px;font-weight:600;color:#4f46e5;">₱{{ number_format($totalStockValue, 2) }}</div>
@@ -222,6 +234,10 @@
         <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #ef4444;background:#fef2f2;border-radius:8px;padding:12px 14px;">
             <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Expired Stock</div>
             <div style="font-size:18px;font-weight:600;color:#854F0B;">{{ $expiredCount }}</div>
+        </div>
+        <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #22c55e;background:#f0fdf4;border-radius:8px;padding:12px 14px;">
+            <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">OK</div>
+            <div style="font-size:18px;font-weight:600;color:#16a34a;">{{ $okCount }}</div>
         </div>
     </div>
 

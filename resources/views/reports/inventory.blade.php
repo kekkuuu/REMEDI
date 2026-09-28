@@ -345,7 +345,8 @@
         if (form.elements.status.value) params.set('status', form.elements.status.value);
         var qs = params.toString();
 
-        return form.action + (qs ? '?' + qs : '');
+        // Same-origin and relative, so the page's scheme can never matter.
+        return window.location.pathname + (qs ? '?' + qs : '');
     }
 
     function load(url) {
@@ -359,6 +360,8 @@
         inFlight = fetch(url, {
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
             credentials: 'same-origin',
+            // Never a cached copy: the same address also serves the full page.
+            cache: 'no-store',
             signal: mine.signal,
         }).then(function (res) {
             return res.ok ? res.json() : Promise.reject(res);
@@ -402,7 +405,7 @@
         e.preventDefault();
         form.elements.category_id.value = '';
         form.elements.status.value = '';
-        load(link.href);
+        load(formUrl());
     });
 
     // Print what is on screen: wait for a refresh that is on its way.

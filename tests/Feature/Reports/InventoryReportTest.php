@@ -204,6 +204,15 @@ class InventoryReportTest extends TestCase
         $this->assertSame([0, 0, 1], json_decode($m[1], true)['health']);
     }
 
+    public function test_the_ok_card_counts_products_with_nothing_to_act_on(): void
+    {
+        $this->product('Healthy Item', 40, now()->addDays(300)->toDateString());
+        $this->product('Another Healthy', 40, now()->addDays(300)->toDateString());
+        $this->product('Expired Item', 25, now()->subDays(30)->toDateString());
+
+        $this->assertSame('2', $this->kpi($this->report()->getContent(), 'OK'));
+    }
+
     public function test_a_filter_change_answers_with_the_report_body_alone(): void
     {
         $this->product('Healthy Item', 40, now()->addDays(300)->toDateString());

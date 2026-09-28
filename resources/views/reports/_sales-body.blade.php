@@ -9,6 +9,29 @@
      the breakdown renders twice (screen + print), and per-cell inline styles
      were most of what a filter change had to download. --}}
 
+@php
+    // How the series is grouped (ReportController: 'day' | 'week' | 'month' |
+    // 'year'), in the words each heading needs.
+    [$groupAdverb, $groupColumn] = [
+        'day' => ['per day', 'Date'],
+        'week' => ['per week', 'Week'],
+        'month' => ['per month', 'Month'],
+        'year' => ['per year', 'Year'],
+    ][$granularity] ?? ['per day', 'Date'];
+    $groupTitle = ['day' => 'Daily', 'week' => 'Weekly', 'month' => 'Monthly', 'year' => 'Yearly'][$granularity] ?? 'Daily';
+
+    // The breakdown TABLE lists at most the latest 366 rows; the graph and the
+    // footer total cover every one. Daily over four years is 1,695 rows, drawn
+    // twice (screen + print) -- 1.5 MB per click -- so the table keeps the
+    // most recent year of days, the same "first N of M, the total covers all"
+    // rule the printed transaction list follows.
+    $breakdownCap = 366;
+    $breakdownOffset = max(0, $dailyBreakdown->count() - $breakdownCap);
+    $breakdownRows = $dailyBreakdown->slice($breakdownOffset);
+    $breakdownNote = $breakdownOffset > 0
+        ? 'the latest '.number_format($breakdownRows->count()).' of '.number_format($dailyBreakdown->count()).' rows; the total covers all of them'
+        : null;
+@endphp
 <div class="no-print">
 
     {{-- Filtered-by banner. Every figure below narrows to this the moment
@@ -17,23 +40,20 @@
     @if($isScoped || $scopeCashier)
         <div class="sr-banner">
             <i class="ti ti-filter" aria-hidden="true"></i>
+            {{-- Says what is shown, in one line. Every figure on the page
+                 narrows to the filter (a cashier included, since 2026-09-28),
+                 so there is no longer a "but this one doesn't" to explain. --}}
             <span>
-                Showing sales for
+                Showing
                 @if($isScoped)
                     <strong>{{ $scopeProduct ? $scopeProduct->name : $scopeCategory->name }}</strong>
                     @if($scopeProduct) <span class="sr-muted">(SKU {{ $scopeProduct->sku }})</span> @endif
                 @endif
-                @if($isScoped && $scopeCashier) rung up by @endif
-                @if($scopeCashier) <strong>{{ $scopeCashier->name }}</strong> @endif
+                sales
+                @if($scopeCashier) rung up by <strong>{{ $scopeCashier->name }}</strong> @endif
                 only.
-                @if($isScoped)
-                    Average Transaction Value/Count and the hourly chart describe THIS TERMINAL's
-                    whole till and are hidden here, since they'd otherwise read as if they were about
-                    just this {{ $scopeProduct ? 'product' : 'category' }}.
-                @elseif($scopeCashier)
-                    Total Sales above still covers every cashier and the imported record -- only
-                    Average Transaction Value/Count, the hourly chart and the transaction list below
-                    narrow to this cashier, since sales_history has no cashier to filter by.
+                @if($scopeCashier)
+                    <span class="sr-muted">Till sales only; the imported record has no cashier.</span>
                 @endif
             </span>
             <a href="{{ route('reports.sales', ['start_date' => $start, 'end_date' => $end]) }}" data-report-nav style="margin-left:auto;white-space:nowrap;">Clear filter</a>
@@ -45,7 +65,10 @@
         <div class="kpi" style="--kpi-accent:#22c55e;">
             <div class="kpi-head">
                 <i class="ti ti-cash" aria-hidden="true"></i>
-                <span class="kpi-label">Total Sales</span>
+                {{-- Names the cashier when one narrows the report: with
+                     "All categories" beside it, a bare "Total Sales" of one
+                     cashier's till takings read as the store's total. --}}
+                <span class="kpi-label">{{ $scopeCashier ? $scopeCashier->name.'\'s Sales' : 'Total Sales' }}</span>
             </div>
             <span class="kpi-value">&#8369;{{ number_format($totalSales, 2) }}</span>
             {{-- Say what the figure is made of: it merges the imported record
@@ -56,8 +79,12 @@
                     &#8369;{{ number_format($historyTotal, 2) }} imported
                     + &#8369;{{ number_format($posTotal, 2) }} from POS
                 </span>
+            @elseif($posTotal > 0 && $scopeCashier)
+                <span class="kpi-sub">{{ $scopeCashier->name }}'s till sales only &middot; set Cashier to "All cashiers" for the store total</span>
             @elseif($posTotal > 0)
                 <span class="kpi-sub">all from POS transactions</span>
+            @elseif($scopeCashier)
+                <span class="kpi-sub">no sales by {{ $scopeCashier->name }} in this range</span>
             @else
                 <span class="kpi-sub">from the imported sales record</span>
             @endif
@@ -126,7 +153,7 @@
     <div class="sr-card sr-pad">
         <div class="sr-card-title" style="margin-bottom:12px;">
             <i class="ti ti-chart-bar" aria-hidden="true"></i>
-            Daily Sales — {{ $s->format('M d') }} to {{ $e->format('M d, Y') }}
+            {{ $groupTitle }} Sales — {{ $s->format('M d') }} to {{ $e->format('M d, Y') }}
         </div>
         @if($dailyBreakdown->isNotEmpty())
             <canvas id="dailySalesChart" height="90"></canvas>
@@ -175,15 +202,16 @@
                 Where the total comes from
             </span>
             <span class="sr-card-note">
-                {{ $granularity === 'day' ? 'per day' : 'per month' }} &middot;
+                {{ $groupAdverb }} &middot;
                 imported sales record + this terminal
+                @if($breakdownNote) &middot; {{ $breakdownNote }} @endif
             </span>
         </div>
         <div class="table-scroll"><table class="sr-table">
             <thead>
                 <tr>
                     <th class="idx">#</th>
-                    <th>{{ $granularity === 'day' ? 'Date' : 'Month' }}</th>
+                    <th>{{ $groupColumn }}</th>
                     <th class="num" style="width:90px;">Units</th>
                     <th class="num" style="width:150px;">Imported</th>
                     <th class="num" style="width:140px;">This terminal</th>
@@ -191,7 +219,7 @@
                 </tr>
             </thead>
             <tbody>
-                @foreach($dailyBreakdown as $row)
+                @foreach($breakdownRows as $row)
                     @php
                         $rowTotal = (float) ($row['revenue'] ?? 0);
                         $rowPos = (float) ($posByBucket[$row['key']] ?? 0);
@@ -201,7 +229,7 @@
                         $rowHistory = max(0, round($rowTotal - $rowPos, 2));
                     @endphp
                     <tr>
-                        <td class="idx">{{ $loop->iteration }}</td>
+                        <td class="idx">{{ $breakdownOffset + $loop->iteration }}</td>
                         <td class="lbl">{{ $row['label'] }}</td>
                         <td class="num">{{ number_format($row['units'] ?? 0) }}</td>
                         <td class="num">&#8369;{{ number_format($rowHistory, 2) }}</td>
@@ -267,8 +295,9 @@
          KPI -- and a period whose sales are all imported still prints its
          breakdown rather than "No transactions found". --}}
     <div class="print-section-title sr-print-title">
-        Sales {{ $granularity === 'day' ? 'per day' : 'per month' }} &mdash; {{ $s->format('M d, Y') }} to {{ $e->format('M d, Y') }}
+        Sales {{ $groupAdverb }} &mdash; {{ $s->format('M d, Y') }} to {{ $e->format('M d, Y') }}
         <span>(imported sales record + this terminal)</span>
+        @if($breakdownNote) <span>({{ $breakdownNote }})</span> @endif
     </div>
 
     @if($dailyBreakdown->isNotEmpty())
@@ -276,7 +305,7 @@
         <thead>
             <tr>
                 <th>#</th>
-                <th>{{ $granularity === 'day' ? 'Date' : 'Month' }}</th>
+                <th>{{ $groupColumn }}</th>
                 <th class="num">Units</th>
                 <th class="num">Imported</th>
                 <th class="num">This terminal</th>
@@ -284,14 +313,14 @@
             </tr>
         </thead>
         <tbody>
-            @foreach($dailyBreakdown as $row)
+            @foreach($breakdownRows as $row)
                 @php
                     $rowTotal = (float) ($row['revenue'] ?? 0);
                     $rowPos = (float) ($posByBucket[$row['key']] ?? 0);
                     $rowHistory = max(0, round($rowTotal - $rowPos, 2));
                 @endphp
             <tr>
-                <td class="idx">{{ $loop->iteration }}</td>
+                <td class="idx">{{ $breakdownOffset + $loop->iteration }}</td>
                 <td class="strong">{{ $row['label'] }}</td>
                 <td class="num">{{ number_format($row['units'] ?? 0) }}</td>
                 <td class="num">&#8369;{{ number_format($rowHistory, 2) }}</td>
@@ -423,10 +452,20 @@
      code exists once rather than once per refresh. --}}
 @php
     $chartData = [
-        'daily' => $dailyBreakdown->isNotEmpty() ? [
-            'labels' => $dailyBreakdown->pluck('label'),
-            'revenue' => $dailyBreakdown->pluck('revenue'),
-        ] : null,
+        // The graph spans EVERY bucket of the range, zero where nothing sold
+        // (SalesHistory::bucketAxis), so a filter that narrows the sales --
+        // a cashier who only sold in August -- keeps the same axis instead of
+        // collapsing to two bars. The table below still lists only buckets
+        // that had a sale.
+        'daily' => $dailyBreakdown->isNotEmpty() ? (function () use ($dailyBreakdown, $start, $end, $granularity) {
+            $axis = \App\Models\SalesHistory::bucketAxis($start, $end, $granularity);
+            $revenue = $dailyBreakdown->pluck('revenue', 'key');
+
+            return [
+                'labels' => array_values($axis),
+                'revenue' => array_map(fn ($key) => (float) ($revenue[$key] ?? 0), array_keys($axis)),
+            ];
+        })() : null,
         'hourly' => ($totalTransactions > 0 && ! $isScoped) ? [
             'labels' => $hourlyBreakdown->pluck('label'),
             'revenue' => $hourlyBreakdown->pluck('revenue'),

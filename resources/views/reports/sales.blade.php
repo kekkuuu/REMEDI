@@ -155,27 +155,30 @@
          it. The server still honours ?month= for old bookmarks. --}}
     <form method="GET" action="{{ route('reports.sales') }}" class="report-filters" id="salesFilters"
           data-default-start="{{ $defaultStart }}" data-default-end="{{ $defaultEnd }}">
-        {{-- Quick ranges, resolved on the server from today
-             (ReportController::periodRange) -- no client-side date arithmetic
-             to get wrong across midnight or a timezone. --}}
+        {{-- Group by: one bar and one table row per day, week, month or year,
+             over the dates in the boxes beside it (2026-09-28, at the user's
+             request). These used to pick a date RANGE counted from today, and
+             on a Monday "this week" and "today" were the same day -- two
+             buttons drawing the identical report. The dates stay where they
+             are; only the grouping changes, so every click reshapes the graph
+             and the table. Plain links carry the current query for the no-JS
+             case; with JavaScript the script below applies them in place. --}}
         @php
-            $quickRanges = [
-                'daily' => ['Daily', 'ti-calendar-event', 'Today'],
-                'weekly' => ['Weekly', 'ti-calendar-week', 'This week, Monday to today'],
-                'monthly' => ['Monthly', 'ti-calendar-month', 'This month, 1st to today'],
-                'yearly' => ['Yearly', 'ti-calendar-stats', 'This year, January 1 to today'],
+            $groupings = [
+                'day' => ['Daily', 'ti-calendar-event', 'One bar per day'],
+                'week' => ['Weekly', 'ti-calendar-week', 'One bar per week (Monday to Sunday)'],
+                'month' => ['Monthly', 'ti-calendar-month', 'One bar per month'],
+                'year' => ['Yearly', 'ti-calendar-stats', 'One bar per year'],
             ];
         @endphp
-        <input type="hidden" name="period" value="{{ $period }}">
+        <input type="hidden" name="group" value="{{ $group }}">
         <div class="report-field">
-            <label id="periodLabel">Period</label>
-            <div class="period-toggle" role="group" aria-labelledby="periodLabel">
-                @foreach($quickRanges as $key => [$label, $icon, $hint])
-                    @php [$qs, $qe] = \App\Http\Controllers\ReportController::periodRange($key); @endphp
-                    <a href="{{ route('reports.sales', ['period' => $key]) }}" data-report-nav data-period="{{ $key }}"
-                       class="period-btn {{ $period === $key ? 'is-active' : '' }}"
-                       title="{{ $hint }} ({{ \Carbon\Carbon::parse($qs)->format('M j') }}{{ $qs === $qe ? '' : ' – '.\Carbon\Carbon::parse($qe)->format('M j') }})"
-                       @if($period === $key) aria-current="true" @endif>
+            <label id="groupLabel">Group by</label>
+            <div class="period-toggle" role="group" aria-labelledby="groupLabel">
+                @foreach($groupings as $key => [$label, $icon, $hint])
+                    <a href="{{ request()->fullUrlWithQuery(['group' => $key, 'period' => null]) }}" data-report-nav data-group="{{ $key }}"
+                       class="period-btn {{ $group === $key ? 'is-active' : '' }}" title="{{ $hint }}"
+                       @if($group === $key) aria-current="true" @endif>
                         <i class="ti {{ $icon }}" aria-hidden="true"></i><span>{{ $label }}</span>
                     </a>
                 @endforeach
@@ -430,14 +433,13 @@ renderSalesCharts();
         status.appendChild(document.createTextNode(text));
     }
 
-    // The URL for what the form currently says. A period stands in for dates
-    // (sending both would let the dates win and switch the period off), and
-    // dates equal to the unfiltered default are left out to keep URLs clean.
+    // The URL for what the form currently says: the grouping, the dates (left
+    // out when they are the unfiltered default, to keep URLs clean) and the
+    // filters. Same-origin and relative, so the page's scheme can never matter.
     function formUrl() {
         var params = new URLSearchParams();
-        if (f.period.value) {
-            params.set('period', f.period.value);
-        } else if (f.start_date.value !== form.dataset.defaultStart || f.end_date.value !== form.dataset.defaultEnd) {
+        if (f.group.value) params.set('group', f.group.value);
+        if (f.start_date.value !== form.dataset.defaultStart || f.end_date.value !== form.dataset.defaultEnd) {
             if (f.start_date.value) params.set('start_date', f.start_date.value);
             if (f.end_date.value) params.set('end_date', f.end_date.value);
         }
@@ -446,19 +448,19 @@ renderSalesCharts();
         });
         var qs = params.toString();
 
-        return form.action + (qs ? '?' + qs : '');
+        return window.location.pathname + (qs ? '?' + qs : '');
     }
 
     function syncForm(state) {
         f.start_date.value = state.start;
         f.end_date.value = state.end;
-        f.period.value = state.period || '';
+        f.group.value = state.group || '';
         f.category_id.value = state.category_id ? String(state.category_id) : '';
         f.product_sku.value = state.product_sku || '';
         f.product_sku.classList.remove('is-invalid');
         f.cashier_id.value = state.cashier_id ? String(state.cashier_id) : '';
         document.querySelectorAll('.period-btn').forEach(function (btn) {
-            var on = btn.dataset.period === state.period;
+            var on = btn.dataset.group === state.group;
             btn.classList.toggle('is-active', on);
             if (on) btn.setAttribute('aria-current', 'true'); else btn.removeAttribute('aria-current');
         });
@@ -481,6 +483,8 @@ renderSalesCharts();
         inFlight = fetch(url, {
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
             credentials: 'same-origin',
+            // Never a cached copy: the same address also serves the full page.
+            cache: 'no-store',
             signal: mine.signal,
         }).then(function (res) {
             return res.json().then(function (data) { return { res: res, data: data }; }, function () { return { res: res, data: null }; });
@@ -521,23 +525,34 @@ renderSalesCharts();
         return inFlight;
     }
 
-    // Period buttons, Clear, and the banner's "Clear filter" link.
+    // Group-by buttons, Clear, and the banner's "Clear filter" link.
     lastUrl = formUrl();
 
     root.addEventListener('click', function (e) {
         var link = e.target.closest('a[data-report-nav]');
         if (!link || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         e.preventDefault();
-        load(link.href);
+
+        // A grouping keeps the dates and filters already chosen; only how
+        // the series is bucketed changes.
+        if (link.dataset.group) {
+            // Clicking the selected one again unselects it: back to the
+            // automatic grouping, with nothing shown as chosen.
+            f.group.value = f.group.value === link.dataset.group ? '' : link.dataset.group;
+            load(formUrl());
+            return;
+        }
+
+        // Clear / Clear filter: their own query, fetched same-origin.
+        var target = new URL(link.href, window.location.href);
+        load(target.pathname + target.search);
     });
 
     form.addEventListener('change', function (e) {
         var name = e.target.name;
 
         if (name === 'start_date' || name === 'end_date') {
-            // A date the person set replaces any quick period. Debounced:
-            // typing a date fires a change per segment.
-            f.period.value = '';
+            // Debounced: typing a date fires a change per segment.
             clearTimeout(dateTimer);
             dateTimer = setTimeout(function () {
                 dateTimer = null;

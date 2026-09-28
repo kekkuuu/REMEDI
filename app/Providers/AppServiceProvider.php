@@ -131,10 +131,9 @@ class AppServiceProvider extends ServiceProvider
             $view->with('topbarAlertItems', $alerts['items']);
             $view->with('topbarAlerts', $alerts['alerts']);
 
-            // Audit-derived rows are admin-only; see AlertService::activity().
-            $view->with('topbarActivity', auth()->user()?->isAdmin()
-                ? app(AlertService::class)->activity()
-                : []);
+            // The audit feed for an admin; a staff member's own stock-report
+            // answers for staff -- AlertService::activityFor().
+            $view->with('topbarActivity', app(AlertService::class)->activityFor(auth()->user()));
         });
     }
 

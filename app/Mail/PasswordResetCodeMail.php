@@ -42,6 +42,12 @@ class PasswordResetCodeMail extends Mailable
 
     public function content(): Content
     {
-        return new Content(view: 'emails.password-reset-code');
+        // HTML AND plain text. HTML-only mail carrying a one-time code is a
+        // classic spam signal, and this one was landing in Gmail's spam
+        // folder (2026-09-28).
+        return new Content(
+            view: 'emails.password-reset-code',
+            text: 'emails.password-reset-code-text',
+        );
     }
 }

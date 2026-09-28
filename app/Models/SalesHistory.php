@@ -540,8 +540,20 @@ class SalesHistory extends Model
      *
      * @return array{granularity: string, rows: Collection}
      */
-    public static function scopedTrendBetween(string $start, string $end, ?int $categoryId, ?string $productSku): array
+    public static function scopedTrendBetween(string $start, string $end, ?int $categoryId, ?string $productSku, ?string $group = null): array
     {
+        // With a grouping asked for (the Sales Report's Daily / Weekly /
+        // Monthly / Yearly), read by DAY and roll up through bucketDaily(), the
+        // same path the store-wide report takes -- so the two cannot bucket a
+        // date differently. Without one, the original day/month split below.
+        if ($group !== null) {
+            return static::bucketDaily(
+                static::scopedDaily('history', $start, $end, $categoryId, $productSku),
+                static::scopedDaily('pos', $start, $end, $categoryId, $productSku),
+                $start, $end, $group
+            );
+        }
+
         $span = Carbon::parse($start)->diffInDays(Carbon::parse($end), true);
         $granularity = $span <= self::DAILY_GRANULARITY_MAX_DAYS ? 'day' : 'month';
 
@@ -606,6 +618,54 @@ class SalesHistory extends Model
         }
 
         return ['granularity' => $granularity, 'rows' => $byKey->sortKeys()->values()];
+    }
+
+    /**
+     * One record's daily units + revenue for a category or product, as
+     * [date, units, revenue] rows for bucketDaily(). Voided till sales are
+     * excluded, as in every other till aggregate.
+     */
+    /**
+     * One cashier's till sales per day, optionally narrowed to a category or
+     * product -- the Sales Report's Cashier filter. The imported record has
+     * no cashier, so a cashier-filtered report is built from the till alone.
+     */
+    public static function posDailyForCashier(string $start, string $end, int $userId, ?int $categoryId = null, ?string $productSku = null): Collection
+    {
+        return static::scopedDaily('pos', $start, $end, $categoryId, $productSku, $userId);
+    }
+
+    private static function scopedDaily(string $source, string $start, string $end, ?int $categoryId, ?string $productSku, ?int $userId = null): Collection
+    {
+        $query = $source === 'history'
+            ? DB::table('sales_history')
+                ->join('products', 'products.sku', '=', 'sales_history.product_sku')
+                ->whereBetween('sale_date', [$start, $end])
+                ->selectRaw('sale_date AS d, SUM(sales_history.quantity_sold * products.selling_price) AS revenue, SUM(sales_history.quantity_sold) AS units')
+                ->groupBy('sale_date')
+            : DB::table('sale_items')
+                ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                ->join('products', 'products.id', '=', 'sale_items.product_id')
+                ->whereBetween(DB::raw('DATE(sales.created_at)'), [$start, $end])
+                ->where('sales.payment_voided', false)
+                ->selectRaw('DATE(sales.created_at) AS d, SUM(sale_items.subtotal) AS revenue, SUM(sale_items.quantity) AS units')
+                ->groupBy('d');
+
+        if ($productSku) {
+            $query->where('products.sku', $productSku);
+        } elseif ($categoryId) {
+            $query->where('products.category_id', $categoryId);
+        }
+
+        if ($userId !== null && $source !== 'history') {
+            $query->where('sales.user_id', $userId);
+        }
+
+        return $query->get()->map(fn ($r) => [
+            'date' => Carbon::parse($r->d)->toDateString(),
+            'units' => (int) $r->units,
+            'revenue' => round((float) $r->revenue, 2),
+        ]);
     }
 
     /** Top products by units within a date range, names resolved. */
@@ -902,6 +962,147 @@ class SalesHistory extends Model
      * is what makes dropping the boundary safe — and is a hint that it was
      * written expecting the overlap it then refused to look at.
      */
+    /**
+     * How the Sales Report groups its series: one bar and one table row per
+     * day, week (Monday-start), month or year (2026-09-28, at the user's
+     * request -- the Daily / Weekly / Monthly / Yearly buttons used to pick a
+     * DATE RANGE counted from today, and on a Monday "this week" and "today"
+     * were the same empty day, so two buttons drew the identical report).
+     */
+    public const GROUPS = ['day', 'week', 'month', 'year'];
+
+    /** The grouping a report gets when nobody picked one: days for a short range, months otherwise. */
+    public static function autoGroup(string $start, string $end): string
+    {
+        return Carbon::parse($start)->diffInDays(Carbon::parse($end), true) <= self::DAILY_GRANULARITY_MAX_DAYS
+            ? 'day'
+            : 'month';
+    }
+
+    /**
+     * The bucket a date falls in -- the ONE definition, so the trend rows and
+     * the till's per-bucket totals beside them can never key a date two ways.
+     */
+    public static function bucketKey(Carbon $date, string $group): string
+    {
+        return match ($group) {
+            'week' => $date->copy()->startOfWeek(Carbon::MONDAY)->toDateString(),
+            'month' => $date->format('Y-m'),
+            'year' => $date->format('Y'),
+            default => $date->toDateString(),
+        };
+    }
+
+    public static function bucketLabel(string $key, string $group, bool $withYear): string
+    {
+        return match ($group) {
+            'week' => 'Wk of '.Carbon::parse($key)->format($withYear ? 'M j, Y' : 'M j'),
+            'month' => Carbon::createFromFormat('Y-m-d', $key.'-01')->format('M Y'),
+            'year' => $key,
+            default => Carbon::parse($key)->format($withYear ? 'M j, Y' : 'M j'),
+        };
+    }
+
+    /**
+     * Every bucket between $start and $end, in order, as key => label -- the
+     * Sales Report graph's x-axis. The graph draws THIS, with a zero for a
+     * bucket that had no sales, so narrowing the report (a cashier who only
+     * sold in August) keeps the same axis rather than collapsing to the few
+     * buckets that had a sale and looking as if the graph had gone.
+     *
+     * @return array<string, string>
+     */
+    public static function bucketAxis(string $start, string $end, string $group): array
+    {
+        $withYear = Carbon::parse($start)->year !== Carbon::parse($end)->year;
+        $last = static::bucketKey(Carbon::parse($end), $group);
+        $step = ['day' => 'addDay', 'week' => 'addWeek', 'month' => 'addMonthNoOverflow', 'year' => 'addYear'][$group] ?? 'addDay';
+
+        // Start at the first bucket's own opening day, so stepping lands on
+        // every later bucket's opening day too.
+        $cursor = match ($group) {
+            'week' => Carbon::parse($start)->startOfWeek(Carbon::MONDAY),
+            'month' => Carbon::parse($start)->startOfMonth(),
+            'year' => Carbon::parse($start)->startOfYear(),
+            default => Carbon::parse($start),
+        };
+
+        $axis = [];
+        // Bounded: a hand-edited range cannot spin this forever.
+        for ($i = 0; $i < 5000; $i++) {
+            $key = static::bucketKey($cursor, $group);
+            $axis[$key] = static::bucketLabel($key, $group, $withYear);
+            if ($key >= $last) {
+                break;
+            }
+            $cursor->{$step}();
+        }
+
+        return $axis;
+    }
+
+    /**
+     * Units + revenue per bucket of $group, the imported record and the till
+     * merged, for the Sales Report. Built from a DAILY series and rolled up in
+     * PHP, so every grouping of one range adds up to the same total.
+     *
+     * The history half is cached (it is the slow part and a checkout does not
+     * change it); the till half is read fresh, the same split trendBetween()
+     * makes. `active_days` is the number of days that had any sale, from
+     * either record.
+     *
+     * @return array{granularity: string, rows: Collection, active_days: int}
+     */
+    public static function groupedTrendBetween(string $start, string $end, string $group): array
+    {
+        $history = Cache::remember(
+            static::rangeKey('daily', [$start, $end]),
+            now()->addHours(self::CACHE_TTL_HOURS),
+            fn () => static::dailyTotals($start, $end)->all()
+        );
+
+        return static::bucketDaily(collect($history), static::posTotalsBetween($start, $end), $start, $end, $group);
+    }
+
+    /**
+     * Roll two daily series ([date, units, revenue]) up into $group buckets.
+     * Shared by the store-wide and the category/product-scoped report.
+     *
+     * @return array{granularity: string, rows: Collection, active_days: int}
+     */
+    public static function bucketDaily(Collection $history, Collection $pos, string $start, string $end, string $group): array
+    {
+        $group = in_array($group, self::GROUPS, true) ? $group : static::autoGroup($start, $end);
+        $withYear = Carbon::parse($start)->year !== Carbon::parse($end)->year;
+
+        $days = [];
+        foreach ([$history, $pos] as $series) {
+            foreach ($series as $row) {
+                $days[$row['date']] = true;
+            }
+        }
+
+        $buckets = [];
+        foreach ([$history, $pos] as $series) {
+            foreach ($series as $row) {
+                $key = static::bucketKey(Carbon::parse($row['date']), $group);
+                $buckets[$key]['units'] = ($buckets[$key]['units'] ?? 0) + (int) $row['units'];
+                $buckets[$key]['revenue'] = ($buckets[$key]['revenue'] ?? 0) + (float) $row['revenue'];
+            }
+        }
+
+        ksort($buckets);
+
+        $rows = collect($buckets)->map(fn ($b, $key) => [
+            'key' => (string) $key,
+            'label' => static::bucketLabel((string) $key, $group, $withYear),
+            'units' => $b['units'],
+            'revenue' => round($b['revenue'], 2),
+        ])->values();
+
+        return ['granularity' => $group, 'rows' => $rows, 'active_days' => count($days)];
+    }
+
     private static function mergePos(Collection $rows, string $granularity, string $start, string $end, bool $includePos): Collection
     {
         if (! $includePos) {

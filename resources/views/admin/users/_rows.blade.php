@@ -93,17 +93,10 @@
                 @else
                     <span class="badge badge-danger" data-user-status>Inactive</span>
                 @endif
-
-                {{-- "Forgot your password?" landed here -- see
-                     PasswordResetRequestController and
-                     UserController::resetPassword(). Only shown while a
-                     request is actually pending, so a row with none reads
-                     exactly as it always did. --}}
-                @if(! $archived && $user->password_reset_requested_at)
-                    <span class="badge badge-warning" style="display:block; margin-top:4px; white-space:nowrap;" title="Requested {{ $user->password_reset_requested_at->format('M j, Y g:i A') }}">
-                        <i class="ti ti-key" aria-hidden="true"></i> Reset requested
-                    </span>
-                @endif
+                {{-- No "Reset requested" badge (removed 2026-09-28, at the
+                     user's request). A request still reaches the admin as a
+                     bell notification; the admin sets a new password from
+                     Edit. --}}
             </td>
             <td>{{ $user->created_at->format('M d, Y') }}</td>
             <td>
@@ -135,23 +128,11 @@
                     <a href="{{ route('users.edit', $user) }}" class="btn btn-info action-btn"><i class="ti ti-pencil" aria-hidden="true"></i> Edit</a>
 
                     @if($user->id !== auth()->id())
-                        {{-- Not gated on a pending request: an admin can reset
-                             anyone's password on request (a phone call,
-                             someone at the counter) whether or not they used
-                             the online form -- see UserController::
-                             resetPassword(). The badge above just says who's
-                             actually waiting. --}}
-                        <form method="POST" action="{{ route('users.reset-password', $user) }}"
-                              class="js-confirm icon-slot"
-                              data-confirm-title="Reset password?"
-                              data-confirm-body="{{ $user->name }}'s password will be reset to the default ({{ \App\Models\User::DEFAULT_RESET_PASSWORD }}). They'll be asked to set a new one the next time they sign in."
-                              data-confirm-label="Reset password"
-                              data-confirm-icon="ti-key"
-                              data-confirm-tone="neutral">
-                            @csrf
-                            @method('PATCH')
-                            <button type="submit" class="btn btn-secondary action-btn action-icon" aria-label="Reset password"><i class="ti ti-key" aria-hidden="true"></i><span class="act-label">Reset password</span></button>
-                        </form>
+                        {{-- No Reset password button (removed 2026-09-28, at
+                             the user's request): an admin sets a new password
+                             from Edit, which notifies like any other password
+                             change. UserController::resetPassword() is left
+                             unlinked, like the dead Breeze reset route. --}}
 
                         <form method="POST" action="{{ route('users.toggle', $user) }}"
                               class="js-confirm icon-slot"

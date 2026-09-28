@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\AuditTrail;
 use App\Models\Product;
 use App\Models\ProductBatch;
+use App\Models\StockReport;
+use App\Models\User;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 
@@ -407,6 +409,71 @@ class AlertService
      *
      * @return list<array<string,mixed>>
      */
+    /**
+     * What a STAFF bell carries besides stock alerts: the admin's answers to
+     * the stock reports this person sent (2026-09-28, at the user's request --
+     * the admin was told about every report, while the staff member who sent
+     * it heard nothing back). The last 14 days, newest first.
+     *
+     * Per user and NOT cached -- the shared caches must never hold one
+     * person's rows -- and cheap: one indexed query on a small table. Filed
+     * under `alerts`, the one tab a staff bell has, as STOCK_REPORT_KIND so the
+     * toast stack pops a fresh decision the same way it pops an admin's report.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function stockReportDecisionsFor(User $user, int $limit = 6): array
+    {
+        return StockReport::with(['product', 'reviewer'])
+            ->where('reported_by', $user->id)
+            ->whereIn('status', [StockReport::STATUS_APPROVED, StockReport::STATUS_REJECTED])
+            ->where('reviewed_at', '>=', now()->subDays(14))
+            ->latest('reviewed_at')
+            ->limit($limit)
+            ->get()
+            ->map(function (StockReport $report) {
+                $approved = $report->status === StockReport::STATUS_APPROVED;
+                $at = $report->reviewed_at?->toIso8601String();
+
+                return [
+                    // Carries the status, so a decision reads as new news
+                    // even if the same report id was seen before.
+                    'id' => 'stock-report:'.$report->id.':'.$report->status,
+                    'group' => 'alerts',
+                    'kind' => self::STOCK_REPORT_KIND,
+                    'cls' => $approved ? 'is-system' : 'is-expired',
+                    'icon' => $approved ? 'ti-circle-check' : 'ti-circle-x',
+                    'title' => $approved ? 'Your stock report was approved' : 'Your stock report was rejected',
+                    'body' => $report->type_label.' — '.($report->product->name ?? 'a product')
+                        .' · by '.($report->reviewer->name ?? 'an admin'),
+                    'at' => $at,
+                    'sort_at' => $at,
+                    'when' => self::whenLabel($at),
+                    // Relative, like every other feed href.
+                    'href' => route('stock-reports.index', [], false),
+                    'action' => 'View',
+                ];
+            })
+            ->all();
+    }
+
+    /**
+     * The bell's activity rows for whoever is signed in: the audit feed for an
+     * admin, their own stock-report answers for staff. The one place the fork
+     * is made -- the view composer, the polled feed and the notifications page
+     * all call it.
+     *
+     * @return list<array<string,mixed>>
+     */
+    public function activityFor(?User $user, int $limit = 6): array
+    {
+        if (! $user) {
+            return [];
+        }
+
+        return $user->isAdmin() ? $this->activity($limit) : $this->stockReportDecisionsFor($user, $limit);
+    }
+
     public function activity(int $limit = 6): array
     {
         return Cache::remember('topbar_activity', now()->addSeconds(self::TTL_SECONDS), function () use ($limit) {
@@ -456,7 +523,12 @@ class AlertService
                     // "Forgot your password?" -- a staff member locked out
                     // and an admin resetting them back in are both account
                     // events worth a pop, same shape as (de)activation.
-                    || str_starts_with($row->details, 'Password reset');
+                    || str_starts_with($row->details, 'Password reset')
+                    // A password CHANGED -- by its owner ("Password changed:
+                    // Emman") or by an admin in Edit user ("Password changed by
+                    // an admin: Emman"). Pops for admins like a reset does
+                    // (2026-09-28, at the user's request).
+                    || str_starts_with($row->details, 'Password changed');
 
                 // "Stock report: ..." / "Stock report approved: ..." --
                 // written only by StockReportController. Checked before
@@ -488,6 +560,8 @@ class AlertService
                     $isAccount && $row->action === 'Restored' => ['system', 'ti-user-check', 'is-system', 'User account restored'],
                     $isAccount && str_starts_with($row->details, 'Account deactivated') => ['system', 'ti-user-off', 'is-system', 'Account deactivated'],
                     $isAccount && str_starts_with($row->details, 'Account activated') => ['system', 'ti-user-check', 'is-system', 'Account activated'],
+                    $isAccount && str_starts_with($row->details, 'Password changed') => ['system', 'ti-key', 'is-system', 'Password changed'],
+                    $isAccount && str_starts_with($row->details, 'Password reset code sent') => ['system', 'ti-mail', 'is-system', 'Password reset code sent'],
                     $isAccount && $row->action === 'Requested' => ['system', 'ti-key', 'is-system', 'Password reset requested'],
                     $isAccount && $row->action === 'Reset' => ['system', 'ti-key', 'is-system', 'Password reset'],
                     $isAccount => ['system', 'ti-user-cog', 'is-system', 'User account updated'],

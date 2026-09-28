@@ -29,8 +29,9 @@ class AlertController extends Controller
         return view('notifications.index', [
             'items' => $payload['items'],
             'totals' => $payload['alerts'],
-            // Audit-derived rows are admin-only — same rule as the bell.
-            'activity' => $request->user()?->isAdmin() ? $alerts->activity(30) : [],
+            // Audit rows for an admin, stock-report answers for staff —
+            // same rule as the bell (AlertService::activityFor()).
+            'activity' => $alerts->activityFor($request->user(), 30),
         ]);
     }
 
@@ -38,9 +39,10 @@ class AlertController extends Controller
     {
         $payload = $alerts->payload();
 
-        // System/Updates come from the audit trail, which is admin-only — a
-        // staff bell gets the inventory alerts and nothing else.
-        $payload['activity'] = $request->user()?->isAdmin() ? $alerts->activity() : [];
+        // System/Updates come from the audit trail, which is admin-only; a
+        // staff bell gets the inventory alerts plus the answers to its own
+        // stock reports (AlertService::activityFor()).
+        $payload['activity'] = $alerts->activityFor($request->user());
 
         return response()->json($payload)
             // The bell polls this; a cached 304/200 from the browser would

@@ -210,7 +210,7 @@ class ReportController extends Controller
                 'state' => [
                     'start' => $data['start'],
                     'end' => $data['end'],
-                    'period' => $data['period'],
+                    'group' => $data['group'],
                     'category_id' => $data['scopeCategory']?->id,
                     'product_sku' => $data['scopeProduct']?->sku,
                     'cashier_id' => $data['scopeCashier']?->id,
@@ -218,11 +218,18 @@ class ReportController extends Controller
                     'export_xlsx' => route('reports.sales.export', ['format' => 'xlsx'] + $data['exportParams']),
                     'export_pdf' => route('reports.sales.export', ['format' => 'pdf'] + $data['exportParams']),
                 ],
-            ]);
+            ])->header('Vary', self::REPORT_VARY);
         }
 
-        return view('reports.sales', $data + $this->salesFilterOptions());
+        return response()->view('reports.sales', $data + $this->salesFilterOptions())->header('Vary', self::REPORT_VARY);
     }
+
+    /**
+     * One address answers two ways -- the full page, and {html, state} for an
+     * in-place filter refresh -- so both carry this, and no cache (the
+     * browser's included) can hand one to a request that asked for the other.
+     */
+    private const REPORT_VARY = 'Accept, X-Requested-With';
 
     /**
      * The filter bar's option lists -- needed by the full page only, never by
@@ -305,6 +312,7 @@ class ReportController extends Controller
             'end_date' => 'nullable|date',
             'month' => 'nullable|date_format:Y-m',
             'period' => 'nullable|in:'.implode(',', self::PERIODS),
+            'group' => 'nullable|in:'.implode(',', SalesHistory::GROUPS),
             'category_id' => 'nullable|integer|exists:categories,id',
             // A SKU, not an id: the filter field is a text input with a
             // <datalist> of every product (see reports/sales.blade.php),
@@ -344,22 +352,21 @@ class ReportController extends Controller
             $month = null;
         }
 
-        // The quick-range buttons (Daily / Weekly / Monthly / Yearly). They are
-        // plain links carrying only `period`, so a period can only arrive alone;
-        // if a hand-edited URL carries it beside dates or a month, the control
-        // the person actually set wins -- the same rule as month vs dates above.
-        $period = $request->get('period');
-        $quick = in_array($period, self::PERIODS, true)
-            && ! $request->filled('start_date')
-            && ! $request->filled('end_date')
-            && ! $request->filled('month')
-            ? $period
-            : null;
+        // Daily / Weekly / Monthly / Yearly GROUP the report -- one bar and one
+        // table row per day, week, month or year over the dates in the boxes
+        // (2026-09-28, at the user's request). They used to pick a DATE RANGE
+        // counted from today (ReportController::periodRange, still here for
+        // its test), and on a Monday "this week" and "today" were the same
+        // empty day, so two buttons drew the identical report and the page
+        // looked frozen. An old `?period=weekly` link is read as a grouping.
+        $group = $request->get('group');
+        if (! in_array($group, SalesHistory::GROUPS, true)) {
+            $group = [
+                'daily' => 'day', 'weekly' => 'week', 'monthly' => 'month', 'yearly' => 'year',
+            ][$request->get('period')] ?? null;
+        }
 
-        if ($quick) {
-            $month = null;
-            [$start, $end] = self::periodRange($quick);
-        } elseif ($month && preg_match('/^\d{4}-\d{2}$/', $month)) {
+        if ($month && preg_match('/^\d{4}-\d{2}$/', $month)) {
             $start = Carbon::createFromFormat('Y-m', $month)->startOfMonth()->toDateString();
             $end = Carbon::createFromFormat('Y-m', $month)->endOfMonth()->toDateString();
         } else {
@@ -371,6 +378,15 @@ class ReportController extends Controller
         }
 
         [$start, $end] = $this->clampRange($start, $end, $dataStart, $dataEnd);
+
+        // The grouping the person actually picked, or null. Nothing is shown as
+        // selected unless they picked it (2026-09-28, at the user's request --
+        // the automatic choice lit up "Monthly" and wrote `group=month` into
+        // the address, which read as a filter nobody had set).
+        $chosenGroup = $group;
+
+        // Nobody picked a grouping: days for a short range, months otherwise.
+        $group ??= SalesHistory::autoGroup($start, $end);
 
         // Category/Product filter. A product wins over a category if a hand-
         // edited URL carries both -- it is the more specific of the two, so
@@ -388,16 +404,16 @@ class ReportController extends Controller
         $scopeCategory = $scopeCategoryId ? Category::withTrashed()->find($scopeCategoryId) : null;
         $isScoped = (bool) ($scopeProduct || $scopeCategory);
 
-        // Cashier -- a THIRD filter dimension, orthogonal to Category/Product
-        // and deliberately kept separate from $isScoped: sales_history has no
-        // cashier column at all (it predates this terminal, see "Two sales
-        // tables"), so a cashier can only ever narrow the POS-only figures
-        // this page already keeps separate from the merged Total Sales
-        // identity -- $sales/$scopedItems, $totalTransactions, ATV/ATC, the
-        // hourly chart and the printed transaction/line-item tables.
-        // withTrashed(): a deactivated or archived cashier still rang up real
-        // sales worth filtering to, same reasoning $scopeProduct/$scopeCategory
-        // already apply.
+        // Cashier -- a third filter, alongside Category/Product. As of
+        // 2026-09-28 it narrows the WHOLE report (the user found the old split
+        // confusing): sales_history has no cashier column at all -- it
+        // predates this terminal -- so a cashier's report is that cashier's
+        // TILL sales alone, and Total Sales, the graph, the breakdown, Average
+        // / Day, ATV/ATC and the lists all describe the same sales. It used to
+        // narrow only the till-only figures while Total Sales kept every
+        // cashier and the imported record, which needed a paragraph of banner
+        // text to explain. withTrashed(): a deactivated or archived cashier
+        // still rang up real sales worth filtering to.
         $scopeCashier = $request->filled('cashier_id')
             ? User::withTrashed()->find($request->get('cashier_id'))
             : null;
@@ -416,20 +432,33 @@ class ReportController extends Controller
         // happened to be sent.
         [$defaultStart, $defaultEnd] = $this->clampRange($dataStart, $dataEnd, $dataStart, $dataEnd);
 
-        if ($isScoped) {
+        if ($scopeCashier) {
+            // That cashier's till sales only (and the category/product, if one
+            // is set too) -- no imported rows, which carry no cashier.
+            $trend = SalesHistory::bucketDaily(
+                collect(),
+                SalesHistory::posDailyForCashier($start, $end, $scopeCashier->id, $scopeCategoryId, $scopeProduct?->sku),
+                $start, $end, $group
+            );
+        } elseif ($isScoped) {
             // Not trendBetween(): that aggregate is cached and has no
             // category/product dimension to key on. See
             // SalesHistory::scopedTrendBetween() for why an admin-chosen
             // filter doesn't need the same caching trendBetween() does.
-            $trend = SalesHistory::scopedTrendBetween($start, $end, $scopeCategoryId, $scopeProduct?->sku);
+            $trend = SalesHistory::scopedTrendBetween($start, $end, $scopeCategoryId, $scopeProduct?->sku, $group);
         } else {
-            // Day buckets for short ranges, month buckets for long ones -- see
-            // SalesHistory::trendBetween().
-            $trend = SalesHistory::trendBetween($start, $end);
+            // Bucketed by the chosen grouping -- see SalesHistory::bucketDaily().
+            $trend = SalesHistory::groupedTrendBetween($start, $end, $group);
         }
 
         $dailyBreakdown = $trend['rows'];
+        // 'day' | 'week' | 'month' | 'year'. Still called granularity: the
+        // views, exports and the till's per-bucket totals below all key on it.
         $granularity = $trend['granularity'];
+
+        // Days that had any sale, from either record -- the same count however
+        // the series is grouped, so Average / Day does not move with it.
+        $activeDays = $trend['active_days'];
 
         $totalSales = $dailyBreakdown->sum('revenue');
         $totalUnits = $dailyBreakdown->sum('units');
@@ -450,16 +479,16 @@ class ReportController extends Controller
                 $itemsQuery->whereHas('product', fn ($q) => $q->where('category_id', $scopeCategoryId));
             }
 
-            // Fetched WITHOUT the cashier filter first -- $posTotal/$posByBucket
-            // below feed the "Where the total comes from" identity
-            // (historyTotal + posTotal = totalSales), which must stay whole
-            // regardless of which cashier is picked, or the arithmetic on
-            // screen would stop adding up. See the cashier comment above.
-            $allScopedItems = $itemsQuery->get()->sortBy(fn ($item) => $item->sale->created_at)->values();
+            // With a cashier picked, only their lines -- the whole report is
+            // that cashier's (see the cashier comment above), so the totals
+            // below and the trend they sit beside describe the same sales.
+            $scopedItems = $itemsQuery->get()->sortBy(fn ($item) => $item->sale->created_at)->values();
 
-            $scopedItems = $scopeCashier
-                ? $allScopedItems->filter(fn ($item) => $item->sale->user_id === $scopeCashier->id)->values()
-                : $allScopedItems;
+            if ($scopeCashier) {
+                $scopedItems = $scopedItems->filter(fn ($item) => $item->sale->user_id === $scopeCashier->id)->values();
+            }
+
+            $allScopedItems = $scopedItems;
 
             // "Transactions" here means distinct sales that INCLUDED this
             // product/category, not line items -- a cart with two matching
@@ -475,13 +504,9 @@ class ReportController extends Controller
             // figure above.
             $listedPosTotal = round((float) $scopedItems->sum('subtotal'), 2);
 
-            $activeDays = $granularity === 'day' ? $dailyBreakdown->count() : $dailyBreakdown->pluck('key')->unique()->count();
-
             $posByBucket = $allScopedItems
-                ->groupBy(fn ($item) => $granularity === 'day'
-                    ? $item->sale->created_at->toDateString()
-                    : $item->sale->created_at->format('Y-m'))
-                ->map(fn ($group) => round((float) $group->sum('subtotal'), 2));
+                ->groupBy(fn ($item) => SalesHistory::bucketKey($item->sale->created_at, $granularity))
+                ->map(fn ($items) => round((float) $items->sum('subtotal'), 2));
 
             $scopedItemsForPrint = $scopedItems->take(self::POS_PRINT_CAP);
 
@@ -500,14 +525,6 @@ class ReportController extends Controller
             $scopedItems = collect();
             $scopedItemsForPrint = collect();
 
-            // Trading days is a day count regardless of how the trend is bucketed.
-            $activeDays = $granularity === 'day'
-                ? $dailyBreakdown->count()
-                : (int) DB::table('sales_history')
-                    ->whereBetween('sale_date', [$start, $end])
-                    ->distinct()
-                    ->count('sale_date');
-
             // Live POS transactions in the same window, listed separately: they
             // are a different kind of record (transaction no., cashier) and only
             // exist for dates this install actually rang up. Voided sales are
@@ -523,15 +540,14 @@ class ReportController extends Controller
                 ->orderBy('created_at')
                 ->get();
 
-            // $sales narrows to one cashier when the filter is set; $allSales
-            // (whole-till, cashier-blind) stays intact below for $posTotal /
-            // $posByBucket, which feed the "Where the total comes from"
-            // identity -- that arithmetic can't be honestly narrowed to one
-            // cashier, since sales_history (the other half of Total Sales)
-            // has no cashier to filter by at all.
-            $sales = $scopeCashier
-                ? $allSales->where('user_id', $scopeCashier->id)->values()
-                : $allSales;
+            // With a cashier picked, the whole report is theirs -- the trend
+            // above is built from their till sales alone -- so the totals and
+            // per-bucket figures below narrow with it and still add up.
+            if ($scopeCashier) {
+                $allSales = $allSales->where('user_id', $scopeCashier->id)->values();
+            }
+
+            $sales = $allSales;
 
             $totalTransactions = $sales->count();
 
@@ -551,9 +567,6 @@ class ReportController extends Controller
             //
             // Both numbers were right. Neither said what it was counting.
             //
-            // From $allSales, not $sales: this identity (and the bucket
-            // breakdown below) describes the whole till regardless of which
-            // cashier is filtered, for the same reason given above.
             $posTotal = round((float) $allSales->sum('total_amount'), 2);
 
             // The (possibly cashier-filtered) total of what's actually
@@ -567,10 +580,8 @@ class ReportController extends Controller
             // the page instead of having to be taken on trust. From $allSales
             // for the same reason $posTotal is, just above.
             $posByBucket = $allSales
-                ->groupBy(fn ($sale) => $granularity === 'day'
-                    ? $sale->created_at->toDateString()
-                    : $sale->created_at->format('Y-m'))
-                ->map(fn ($group) => round((float) $group->sum('total_amount'), 2));
+                ->groupBy(fn ($sale) => SalesHistory::bucketKey($sale->created_at, $granularity))
+                ->map(fn ($bucket) => round((float) $bucket->sum('total_amount'), 2));
 
             // Off $listedPosTotal, not $posTotal: when a cashier is picked,
             // ATV/ATC should answer "this cashier's average", not the whole
@@ -599,7 +610,9 @@ class ReportController extends Controller
 
         $historyTotal = round($totalSales - $posTotal, 2);
 
-        $isFiltered = $quick || $month || $isScoped || $scopeCashier
+        // A grouping is a way of LOOKING at the range, not a filter on it, so it
+        // does not light up Clear on its own.
+        $isFiltered = $month || $isScoped || $scopeCashier
             || $start !== $defaultStart || $end !== $defaultEnd;
 
         return compact(
@@ -609,7 +622,7 @@ class ReportController extends Controller
             'salesForPrint', 'atv', 'atc', 'hourlyBreakdown', 'listedPosTotal',
             'scopeCategory', 'scopeProduct', 'isScoped', 'scopeLabel', 'scopedItems', 'scopedItemsForPrint',
             'scopeCashier', 'defaultStart', 'defaultEnd'
-        ) + ['period' => $quick, 'isFiltered' => (bool) $isFiltered];
+        ) + ['group' => $chosenGroup, 'isFiltered' => (bool) $isFiltered];
     }
 
     /** The Inventory report's status filter values (one select, one choice). */
@@ -639,10 +652,10 @@ class ReportController extends Controller
                     'export_xlsx' => route('reports.inventory.export', $exportParams + ['format' => 'xlsx']),
                     'export_pdf' => route('reports.inventory.export', $exportParams + ['format' => 'pdf']),
                 ],
-            ]);
+            ])->header('Vary', self::REPORT_VARY);
         }
 
-        return view('reports.inventory', $data);
+        return response()->view('reports.inventory', $data)->header('Vary', self::REPORT_VARY);
     }
 
     /** Excel/PDF export of the inventory report, same filters as the page. */
