@@ -113,7 +113,12 @@
                      the name either way, so a screen reader never meets a
                      bare glyph. --}}
                 <div class="actions-cell users-actions">
-                @if($archived)
+                @if($archived && ! $user->isRestorable())
+                    {{-- Archived as Fired: final (User::FINAL_ARCHIVE_REASONS).
+                         No Restore button -- and UserController::restore()
+                         refuses it regardless. --}}
+                    <span class="badge badge-danger" title="A fired account cannot be restored"><i class="ti ti-lock" aria-hidden="true"></i> Cannot be restored</span>
+                @elseif($archived)
                     <form method="POST" action="{{ route('users.restore', $user) }}"
                           class="js-confirm"
                           data-confirm-title="Restore this account?"
@@ -137,7 +142,7 @@
                              resetPassword(). The badge above just says who's
                              actually waiting. --}}
                         <form method="POST" action="{{ route('users.reset-password', $user) }}"
-                              class="js-confirm"
+                              class="js-confirm icon-slot"
                               data-confirm-title="Reset password?"
                               data-confirm-body="{{ $user->name }}'s password will be reset to the default ({{ \App\Models\User::DEFAULT_RESET_PASSWORD }}). They'll be asked to set a new one the next time they sign in."
                               data-confirm-label="Reset password"
@@ -149,7 +154,7 @@
                         </form>
 
                         <form method="POST" action="{{ route('users.toggle', $user) }}"
-                              class="js-confirm"
+                              class="js-confirm icon-slot"
                               data-confirm-title="{{ $user->is_active ? 'Deactivate' : 'Activate' }} this account?"
                               data-confirm-body="{{ $user->is_active
                                     ? $user->name . ' will be signed out and unable to sign in again.'
@@ -186,9 +191,9 @@
                              submits in the same click -- see the
                              confirmModalReasons handler in this layout. --}}
                         <form method="POST" action="{{ route('users.destroy', $user) }}"
-                              class="js-confirm"
+                              class="js-confirm icon-slot"
                               data-confirm-title="Archive this account?"
-                              data-confirm-body="Archive {{ $user->name }} ({{ $user->email }})? They will be signed out and unable to sign in, and leave this list. Their sales history is kept, and you can restore the account from the Archived list. Choose why below."
+                              data-confirm-body="Archive {{ $user->name }} ({{ $user->email }})? They will be signed out and unable to sign in, and leave this list. Their sales history is kept. Resigned can be restored later from the Archived list; Fired is final and cannot be restored. Choose why below."
                               data-confirm-reasons="{{ json_encode(\App\Models\User::ARCHIVE_REASONS) }}"
                               data-confirm-icon="ti-archive"
                               data-confirm-tone="neutral"

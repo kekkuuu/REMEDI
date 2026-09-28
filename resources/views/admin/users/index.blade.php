@@ -141,38 +141,77 @@
         justify-content: center;
     }
 
-    /* Icon actions that STRETCH to their label on hover (2026-09-28).
-       Reset password, Activate/Deactivate and Archive rest as same-size icon
-       squares -- which also retires the old min-width pin on the toggle, whose
-       two labels were different widths -- and the label slides out when the
-       pointer is over the button or it has keyboard focus.
+    /* Icon actions that open into a labelled button on hover (2026-09-28).
+       Reset password, Activate/Deactivate and Archive rest as equal icon
+       squares; pointing at one (or tabbing to it) opens it to show its label.
 
-       The label animates max-width (a width of `auto` cannot be transitioned)
-       and is clipped while shut, so it takes no room and cannot be clicked
-       into. The cell reserves room for ONE open label (.users-actions
-       min-width) so the stretch pushes the buttons after it into space that
-       is already there, instead of widening the column and shifting every
-       other column of the table on each hover. */
-    .action-icon { gap: 0; padding-left: 9px; padding-right: 9px; }
+       Second version, "pleasing to the eye" (the user's words): the first
+       grew IN the row, so opening one shoved every icon after it sideways and
+       back again as the pointer moved along the row -- the whole row twitched.
+       Now each icon sits in a fixed slot (.icon-slot, one icon wide) and the
+       button is positioned inside it, so it opens OVER its neighbours with a
+       soft lift instead of pushing them: nothing else in the row moves.
+
+       Motion: width eases out (fast start, gentle landing) and the label
+       fades in just behind it, so the text never appears clipped mid-word;
+       closing fades the label first, then folds the width.
+       max-width, not width -- `auto` cannot be animated. The cell reserves
+       room for the LAST icon to open into (.users-actions min-width), since
+       that one has no neighbour to cover. */
+    .users-actions .icon-slot {
+        position: relative;
+        flex: 0 0 auto;
+        width: 36px;
+        height: 32px;
+    }
+    .users-actions .icon-slot .action-icon {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 32px;
+        /* An absolutely positioned box shrinks to fit its containing block --
+           here the 36px slot -- so without this the label had nowhere to
+           open into and the button stayed an icon on hover. */
+        width: max-content;
+        z-index: 1;
+        gap: 0;
+        padding: 0 9px;
+        white-space: nowrap;
+        transition: box-shadow .28s ease, background-color .18s ease, border-color .18s ease;
+    }
+    .users-actions .icon-slot .action-icon:hover,
+    .users-actions .icon-slot .action-icon:focus-visible {
+        z-index: 3;
+        box-shadow: 0 8px 18px -8px rgba(15, 23, 42, .28), 0 0 0 3px rgba(255, 255, 255, .9);
+    }
     .action-icon .act-label {
         display: inline-block;
         max-width: 0;
         overflow: hidden;
         opacity: 0;
-        white-space: nowrap;
-        vertical-align: bottom;
         margin-left: 0;
-        transition: max-width .22s ease, opacity .16s ease, margin-left .22s ease;
+        vertical-align: bottom;
+        transition: max-width .34s cubic-bezier(.22, 1, .36, 1) .04s,
+                    margin-left .34s cubic-bezier(.22, 1, .36, 1) .04s,
+                    opacity .12s ease;
     }
     .action-icon:hover .act-label,
     .action-icon:focus-visible .act-label {
-        max-width: 10em;
+        max-width: 9em;
         opacity: 1;
-        margin-left: 6px;
+        margin-left: 7px;
+        transition: max-width .34s cubic-bezier(.22, 1, .36, 1),
+                    margin-left .34s cubic-bezier(.22, 1, .36, 1),
+                    opacity .22s ease .1s;
     }
+    .action-icon i { transition: transform .34s cubic-bezier(.22, 1, .36, 1); }
+    .action-icon:hover i,
+    .action-icon:focus-visible i { transform: scale(1.08); }
     .remedi-table .users-actions { min-width: 290px; }
     @media (prefers-reduced-motion: reduce) {
-        .action-icon .act-label { transition: none; }
+        .action-icon .act-label,
+        .action-icon i,
+        .users-actions .icon-slot .action-icon { transition: none; }
     }
 
     /* ---- Footer --------------------------------------------------------- */
@@ -256,7 +295,7 @@
     @if($archived)
         <p style="margin:0 0 12px; padding:10px 14px; background:#fffbeb; border:1px solid #fde68a; color:#92400e; border-radius:8px; font-size:13px;">
             <i class="ti ti-archive" aria-hidden="true"></i>
-            Archived accounts cannot sign in. Their sales history is kept, and Restore puts an account back on the list.
+            Archived accounts cannot sign in. Their sales history is kept. Restore puts a Resigned account back on the list; a Fired account stays archived.
         </p>
     @endif
 

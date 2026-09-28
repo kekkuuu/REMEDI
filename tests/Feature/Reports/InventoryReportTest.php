@@ -71,8 +71,10 @@ class InventoryReportTest extends TestCase
      *
      * Structural, not stylistic: the second cell of a row is the product, and
      * its first div is the name (an expired-batch note can follow in the same
-     * cell). #no-print scopes this to the screen table -- the print copy renders
-     * the same products again, and counting both would double every row.
+     * cell). Scoped to the SCREEN table (`table.inv-rep`) -- the print copy
+     * (`table.inv-print`) renders the same products again, and counting both
+     * would double every row. It read `#no-print` until 2026-09-28, when the
+     * report body moved into a swappable partial outside that wrapper.
      */
     private function rows(string $html): array
     {
@@ -83,7 +85,7 @@ class InventoryReportTest extends TestCase
 
         $names = [];
 
-        foreach ((new \DOMXPath($dom))->query('//*[@id="no-print"]//tbody/tr/td[2]/div[1]') as $cell) {
+        foreach ((new \DOMXPath($dom))->query('//table[contains(concat(" ", normalize-space(@class), " "), " inv-rep ")]/tbody/tr/td[2]/div[1]') as $cell) {
             $name = trim($cell->textContent);
 
             if ($name !== '') {
@@ -166,6 +168,54 @@ class InventoryReportTest extends TestCase
         $expired = $this->report(['status' => 'expired']);
         $expired->assertSee('Expired Item');
         $expired->assertDontSee('Healthy Item');
+    }
+
+    /**
+     * OK = nothing to act on (2026-09-28): in stock, not low, no expired stock
+     * on the shelf. A healthy product that ALSO holds an expired batch is not
+     * OK -- it is on the Expired list.
+     */
+    public function test_the_ok_filter_lists_only_products_with_nothing_to_act_on(): void
+    {
+        $this->product('Healthy Item', 40, now()->addDays(300)->toDateString());
+        $this->product('Expired Item', 25, now()->subDays(30)->toDateString());
+        $this->product('Really Low', 1, now()->addDays(300)->toDateString(), 10);
+        $mixed = $this->product('Mixed Item', 40, now()->addDays(300)->toDateString());
+        ProductBatch::create([
+            'batch_number' => 'BMIXEXP', 'product_id' => $mixed->id, 'quantity' => 5, 'qty_received' => 5,
+            'unit_cost' => 1, 'expiry_date' => now()->subDays(3)->toDateString(), 'received_date' => now()->subDays(200)->toDateString(),
+        ]);
+
+        $this->assertSame(['Healthy Item'], $this->rows($this->report(['status' => 'ok'])->getContent()));
+    }
+
+    /**
+     * The Stock Health chart's OK slice is the same definition. It used to be
+     * "everything minus low stock", so the Expired filter showed its products
+     * twice: once as Expired, once as OK.
+     */
+    public function test_the_health_chart_does_not_count_expired_stock_as_ok(): void
+    {
+        $this->product('Expired Item', 25, now()->subDays(30)->toDateString());
+
+        $html = $this->report(['status' => 'expired'])->getContent();
+        preg_match('/id="inventoryChartData">(.*?)<\/script>/s', $html, $m);
+
+        $this->assertSame([0, 0, 1], json_decode($m[1], true)['health']);
+    }
+
+    public function test_a_filter_change_answers_with_the_report_body_alone(): void
+    {
+        $this->product('Healthy Item', 40, now()->addDays(300)->toDateString());
+
+        $res = $this->actingAs(User::factory()->admin()->create())
+            ->getJson('/reports/inventory?status=ok')
+            ->assertOk()
+            ->assertJsonPath('state.status', 'ok')
+            ->assertJsonPath('state.filtered', true);
+
+        $this->assertStringContainsString('Healthy Item', $res->json('html'));
+        $this->assertStringNotContainsString('<html', $res->json('html'));
     }
 
     public function test_the_status_filter_is_rendered_as_a_single_select(): void

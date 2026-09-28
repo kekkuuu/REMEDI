@@ -235,7 +235,7 @@
 
         <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:flex-end;">
             <noscript><button type="submit" class="btn btn-primary btn-sm">Apply</button></noscript>
-            <a href="{{ route('reports.sales') }}" id="salesClear" data-report-nav class="btn btn-secondary btn-sm" @unless($isFiltered) hidden @endunless>Clear</a>
+            <a href="{{ route('reports.sales') }}" id="salesClear" data-report-nav class="btn btn-clear btn-sm" @unless($isFiltered) hidden @endunless><i class="ti ti-filter-off" aria-hidden="true"></i> Clear</a>
             <button type="button" id="printReport" class="btn btn-secondary btn-sm">
                 <i class="ti ti-printer" aria-hidden="true"></i> Print
             </button>

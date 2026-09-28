@@ -29,7 +29,7 @@
     <h1>Inventory Report</h1>
     <p class="sub">
         @if ($categoryId) Category: {{ optional($categories->firstWhere('id', $categoryId))->name ?? '—' }} &middot; @endif
-        @if ($lowStockOnly) Low Stock only @elseif ($expiredOnly) Expired only @else All stock @endif
+        @if ($lowStockOnly) Low Stock only @elseif ($expiredOnly) Expired only @elseif ($okOnly ?? false) OK only @else All stock @endif
         @isset($pdfTotalCount)
             @if ($pdfTotalCount > $products->count())
                 &middot; showing the first {{ number_format($products->count()) }} of {{ number_format($pdfTotalCount) }} &mdash; use the Excel export for the full list

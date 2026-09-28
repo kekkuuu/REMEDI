@@ -22,7 +22,7 @@
         padding: 0;
         background: #fff;
     }
-    #no-print { display: none !important; }
+    #no-print, .no-print { display: none !important; }
 
     /* Standard paper size + margins for the printed report */
     @page {
@@ -122,7 +122,18 @@
 .inv-print .empty { padding: 24px; text-align: center; color: #9ca3af; }
 .inv-print tfoot .label { padding: 9px 12px; font-weight: 600; font-size: 12px; text-align: right; }
 .inv-print tfoot .total { padding: 9px 12px; font-weight: 600; font-size: 13px; color: #4f46e5; text-align: right; }
+
+/* Live filters: the report fades while its replacement is on the way. */
+#invReportBody { transition: opacity .15s ease; }
+#invReportBody.is-updating { opacity: .45; pointer-events: none; }
+.inv-status { font-size: 12.5px; color: #64748b; min-height: 18px; display: inline-flex; align-items: center; gap: 6px; align-self: center; }
+.inv-status.is-error { color: #b91c1c; }
+.inv-status .ti-loader-2 { animation: inv-spin .8s linear infinite; }
+@keyframes inv-spin { to { transform: rotate(360deg); } }
+#invClear[hidden] { display: none; }
 </style>
+
+<div id="invReport">
 
 {{-- ===================== SCREEN ONLY ===================== --}}
 <div id="no-print">
@@ -136,239 +147,137 @@
         </div>
     </div>
 
-    {{-- Filter Form. Each control applies itself on change (2026-09-28) --
-         no Apply button, same as the Sales Report. The <noscript> button is
-         the floor: without JavaScript a <select> cannot submit on its own. --}}
-    <form method="GET" action="{{ route('reports.inventory') }}"
+    {{-- Filter Form. Each control applies itself the moment it changes and
+         the report updates IN PLACE (2026-09-28) -- no Apply button, same as
+         the Sales Report: the script below fetches reports/_inventory-body
+         alone and swaps it in. Still a real GET form, so with JavaScript off
+         the <noscript> Apply button submits it. --}}
+    <form method="GET" action="{{ route('reports.inventory') }}" id="invFilters"
           style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;margin-bottom:1.5rem;">
         <div style="display:flex;flex-direction:column;gap:4px;">
-            <label>Category</label>
-            <select name="category_id" class="report-select" onchange="this.form.submit();">
+            <label for="report-category">Category</label>
+            <select name="category_id" id="report-category" class="report-select">
                 <option value="">All categories</option>
                 @foreach($categories as $cat)
                     <option value="{{ $cat->id }}" {{ (string) $categoryId === (string) $cat->id ? 'selected' : '' }}>{{ $cat->name }}</option>
                 @endforeach
             </select>
         </div>
-        {{-- ONE choice, not two checkboxes.
-             The two used to be independent, so "Low stock" and "Expired" could
-             both be ticked -- and that combination asks for the intersection,
-             which is the one set this report deliberately keeps apart: a
-             product below its reorder level with nothing but expired units is
-             excluded from Low Stock ON PURPOSE (see ReportController::inventory
-             and Product::is_running_out), because clearing it is the job rather
-             than reordering it. Ticking both therefore returned rows the two
-             KPIs above disagreed about. A single select cannot express it. --}}
+        {{-- ONE choice, not checkboxes: low stock and expired are kept
+             disjoint on purpose (Product::is_running_out), so "both" would ask
+             for rows the two KPIs disagree about. OK (2026-09-28) is the
+             third: nothing to act on -- ReportController's $isOk. --}}
         <div style="display:flex;flex-direction:column;gap:4px;">
             <label for="report-status">Status</label>
-            <select name="status" id="report-status" class="report-select" onchange="this.form.submit();">
+            <select name="status" id="report-status" class="report-select">
                 <option value="">All stock</option>
-                <option value="low_stock" {{ $lowStockOnly ? 'selected' : '' }}>Low stock only</option>
-                <option value="expired" {{ $expiredOnly ? 'selected' : '' }}>Expired only</option>
+                <option value="ok" {{ $status === 'ok' ? 'selected' : '' }}>OK only</option>
+                <option value="low_stock" {{ $status === 'low_stock' ? 'selected' : '' }}>Low stock only</option>
+                <option value="expired" {{ $status === 'expired' ? 'selected' : '' }}>Expired only</option>
             </select>
         </div>
-        {{-- flex-wrap: same overflow class as the sales report's own button
-             row -- Apply/Clear/Print fit one line at 375px, Excel+PDF pushed
-             it past that with no way to reach the last button. --}}
         <div style="display:flex;flex-wrap:wrap;gap:8px;">
             <noscript>
                 <button type="submit" class="btn btn-primary btn-sm">
                     <i class="ti ti-filter" style="font-size:14px;"></i> Apply
                 </button>
             </noscript>
-            @if($categoryId || $lowStockOnly || $expiredOnly)
-                <a href="{{ route('reports.inventory') }}" class="btn btn-secondary btn-sm">
-                    Clear
-                </a>
-            @endif
-            <button type="button" onclick="window.print()" class="btn btn-secondary btn-sm">
+            <a href="{{ route('reports.inventory') }}" id="invClear" data-report-nav class="btn btn-clear btn-sm" @unless($categoryId || $status) hidden @endunless>
+                <i class="ti ti-filter-off" style="font-size:14px;"></i> Clear
+            </a>
+            <button type="button" id="invPrint" class="btn btn-secondary btn-sm">
                 <i class="ti ti-printer" style="font-size:14px;"></i> Print
             </button>
             @php
-                $exportParams = array_filter(['category_id' => $categoryId, 'status' => $lowStockOnly ? 'low_stock' : ($expiredOnly ? 'expired' : null)]);
+                $exportParams = array_filter(['category_id' => $categoryId, 'status' => $status]);
             @endphp
-            {{-- data-no-skeleton on both: these download a file rather than
-                 navigate, and without it the "Loading…" pill from
-                 layouts/app.blade.php's click-guard never clears -- no
-                 document ever arrives to finish the navigation it started. --}}
-            <a href="{{ route('reports.inventory.export', $exportParams + ['format' => 'xlsx']) }}" class="btn btn-secondary btn-sm" data-no-skeleton>
+            {{-- data-no-skeleton: downloads, not navigations. Kept in step with
+                 the report by the live-filter script (state.export_*). --}}
+            <a href="{{ route('reports.inventory.export', $exportParams + ['format' => 'xlsx']) }}" id="invExportXlsx" class="btn btn-secondary btn-sm" data-no-skeleton>
                 <i class="ti ti-file-spreadsheet" style="font-size:14px;"></i> Excel
             </a>
-            <a href="{{ route('reports.inventory.export', $exportParams + ['format' => 'pdf']) }}" class="btn btn-secondary btn-sm" data-no-skeleton>
+            <a href="{{ route('reports.inventory.export', $exportParams + ['format' => 'pdf']) }}" id="invExportPdf" class="btn btn-secondary btn-sm" data-no-skeleton>
                 <i class="ti ti-file-type-pdf" style="font-size:14px;"></i> PDF
             </a>
         </div>
+        <span class="inv-status" id="invStatus" role="status" aria-live="polite"></span>
     </form>
-
-    {{-- Shared .kpi stat cards (layouts/app.blade.php), matching the Dashboard. --}}
-    <div class="kpi-grid">
-        <div class="kpi" style="--kpi-accent:#6366f1;">
-            <div class="kpi-head">
-                <i class="ti ti-coin" aria-hidden="true"></i>
-                <span class="kpi-label">Total Stock Value</span>
-            </div>
-            <span class="kpi-value">&#8369;{{ number_format($totalStockValue, 2) }}</span>
-            <span class="kpi-sub">at current selling price</span>
-        </div>
-
-        <div class="kpi" style="--kpi-accent:#3b82f6;">
-            <div class="kpi-head">
-                <i class="ti ti-packages" aria-hidden="true"></i>
-                <span class="kpi-label">Total Products</span>
-            </div>
-            <span class="kpi-value">{{ number_format($products->count()) }}</span>
-            <span class="kpi-sub">in the catalog</span>
-        </div>
-
-        {{-- Low Stock and Expired Stock have their accents swapped relative to
-             where they started: low stock now carries the red, expired the
-             amber. --}}
-        <div class="kpi {{ $lowStockCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#ef4444;">
-            <div class="kpi-head">
-                <i class="ti ti-alert-triangle" aria-hidden="true"></i>
-                <span class="kpi-label">Low Stock</span>
-            </div>
-            <span class="kpi-value">{{ number_format($lowStockCount) }}</span>
-            <span class="kpi-sub">at or below reorder level</span>
-        </div>
-
-        <div class="kpi {{ $expiredCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#f59e0b;">
-            <div class="kpi-head">
-                <i class="ti ti-alert-octagon" aria-hidden="true"></i>
-                <span class="kpi-label">Expired Stock</span>
-            </div>
-            <span class="kpi-value">{{ number_format($expiredCount) }}</span>
-            <span class="kpi-sub">still on the shelf</span>
-        </div>
-    </div>
-
-    {{-- Charts --}}
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:1.5rem;">
-        <div style="border:0.5px solid #e5e7eb;border-radius:12px;background:#fff;padding:16px;">
-            <div style="font-size:14px;font-weight:500;color:#111;margin-bottom:12px;">
-                <i class="ti ti-chart-pie" style="font-size:14px;vertical-align:-1px;margin-right:6px;color:#4f46e5;"></i>
-                Stock Value by Category
-            </div>
-            @if($stockValueByCategory->isNotEmpty())
-                <div class="chart-box chart-box-legend-right"><canvas id="categoryValueChart"></canvas></div>
-            @else
-                <p style="color:#9ca3af;font-size:13px;text-align:center;padding:24px 0;">No products yet.</p>
-            @endif
-        </div>
-        <div style="border:0.5px solid #e5e7eb;border-radius:12px;background:#fff;padding:16px;">
-            <div style="font-size:14px;font-weight:500;color:#111;margin-bottom:12px;">
-                <i class="ti ti-chart-donut" style="font-size:14px;vertical-align:-1px;margin-right:6px;color:#dc2626;"></i>
-                Stock Health
-            </div>
-            <div class="chart-box chart-box-legend-right"><canvas id="stockHealthChart"></canvas></div>
-        </div>
-    </div>
-
-    {{-- Screen Table --}}
-    <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px;flex-wrap:wrap;">
-        <span style="font-size:14px;font-weight:500;color:#111;">Stock Detail</span>
-
-        {{-- Live filter. Deliberately NO suggestion dropdown (see "Search: live
-             filtering, no dropdown" in REMEDI.md): matches appear in this
-             table, not in a panel floating over it. Filtering is client-side
-             against rows already rendered, so it is instant and does not
-             re-run the report's multi-second aggregates. The print copy in
-             #print-area is untouched — a printed report stays complete. --}}
-        <input type="text" id="report-search"
-               data-suggest-url="{{ route('suggest.products') }}"
-               placeholder="Filter by product or category..."
-               autocomplete="off"
-               style="flex:1;min-width:220px;max-width:340px;padding:8px 12px;border:1px solid #d1d5db;border-radius:8px;font-size:13px;">
-
-        <span style="font-size:11.5px;color:#94a3b8;" id="report-count"
-              data-total="{{ $products->count() }}">{{ number_format($products->count()) }} products &middot; scroll inside the table</span>
-    </div>
-    <div style="border:0.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;">
-        <div class="table-scroll list-scroll" style="max-height:560px;"><table class="inv-rep">
-            <thead class="sticky-head">
-                <tr>
-                    <th>#</th>
-                    <th>Product</th>
-                    <th>Category</th>
-                    <th>Stock</th>
-                    <th class="num">Unit Price</th>
-                    <th class="num">Stock Value</th>
-                    <th class="mid">Status</th>
-                </tr>
-            </thead>
-            <tbody>
-                @forelse($products as $p)
-                    @php
-                        // Ordered so the badge says the same thing the Low Stock
-                        // filter decided.
-                        //
-                        // Out of stock first, in the same graphite the bell and the
-                        // toasts use: at zero a product is also "low", and "Low
-                        // Stock" on an empty shelf understates it.
-                        //
-                        // Then stock that exists but cannot be sold -- every unit
-                        // expired. That row is excluded from the Low Stock filter
-                        // (see ReportController), so calling it "Low Stock" here
-                        // would contradict the list it is missing from.
-                        //
-                        // Resolved once per row into a class + icon + label rather
-                        // than four branches of markup, because every byte here is
-                        // paid for 2,638 times.
-                        $badge = $p->total_stock <= 0
-                            ? ['is-out', 'ti-alert-circle', 'Out of Stock']
-                            : ($p->sellable_stock <= 0
-                                ? ['is-expired', 'ti-alert-octagon', 'Expired Stock']
-                                : ($p->total_stock <= $p->reorder_level
-                                    ? ['is-low', 'ti-alert-circle', 'Low Stock']
-                                    : ['is-ok', 'ti-circle-check', 'OK']));
-
-                        $stockCls = $p->total_stock <= 0
-                            ? 'stock is-out'
-                            : ($p->total_stock <= $p->reorder_level ? 'stock is-low' : 'stock');
-
-                        $expired = $p->expiredBatches ? $p->expiredBatches->count() : 0;
-                    @endphp
-                <tr data-search="{{ Str::lower($p->name.' '.($p->category->name ?? '').' '.$p->sku) }}">
-                    <td class="idx">{{ $loop->iteration }}</td>
-                    <td><div class="strong">{{ $p->name }}</div>@if($expired)<div class="expired-note"><i class="ti ti-alert-triangle"></i> {{ $expired }} expired batch{{ $expired > 1 ? 'es' : '' }}</div>@endif</td>
-                    <td class="muted">{{ $p->category->name ?? '—' }}</td>
-                    <td><span class="{{ $stockCls }}">{{ $p->total_stock }}</span><span class="unit"> {{ $p->unit }}</span></td>
-                    <td class="num muted">₱{{ number_format($p->selling_price, 2) }}</td>
-                    <td class="num strong">₱{{ number_format($p->total_stock * $p->selling_price, 2) }}</td>
-                    <td class="mid"><span class="inv-badge {{ $badge[0] }}"><i class="ti {{ $badge[1] }}"></i> {{ $badge[2] }}</span></td>
-                </tr>
-                @empty
-                <tr>
-                    <td colspan="7" class="empty">
-                        <i class="ti ti-package-off"></i>
-                        No products found.
-                    </td>
-                </tr>
-                @endforelse
-            </tbody>
-        </table></div>
-
-        {{-- Table Footer --}}
-        <div style="display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border-top:0.5px solid #e5e7eb;font-size:12px;color:#6b7280;">
-            <span>{{ $products->count() }} product{{ $products->count() !== 1 ? 's' : '' }} total</span>
-            <span style="font-weight:500;color:#4f46e5;">Total value: ₱{{ number_format($totalStockValue, 2) }}</span>
-        </div>
-    </div>
 
 </div>{{-- end #no-print --}}
 
+<div id="invReportBody">
+    @include('reports._inventory-body')
+</div>
+
+</div>{{-- end #invReport --}}
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+@include('partials._chart-gradient')
 <script>
-    // Real-time filtering, no suggestion box. REMEDI.attachSuggest still wires
-    // the field to /suggest/products (it debounces and fires `suggest:live`),
-    // and the page decides what that means — here, narrowing its own table.
-    (function () {
+    // The doughnut legends sit to the right on desktop/tablet; a phone has no
+    // horizontal room for that, so they drop back underneath.
+    Chart.defaults.plugins.legend.position =
+        window.matchMedia('(max-width: 767px)').matches ? 'bottom' : 'right';
+
+    /* Both charts, from the JSON the report body carries. Run on load and after
+       every in-place refresh -- the one copy of the chart code. */
+    var inventoryCharts = [];
+    function renderInventoryCharts() {
+        inventoryCharts.forEach(function (c) { c.destroy(); });
+        inventoryCharts = [];
+
+        var source = document.getElementById('inventoryChartData');
+        if (!source || !window.Chart) return;
+        var data = JSON.parse(source.textContent);
+        // No `position` on the legends: they inherit the matchMedia default above.
+        var legend = { align: 'center', labels: { boxWidth: 11, boxHeight: 11, padding: 13, usePointStyle: true, pointStyle: 'circle', font: { size: 11.5 }, color: '#334155' } };
+        var layout = { padding: { top: 4, bottom: 4, left: 4, right: 8 } };
+
+        var category = document.getElementById('categoryValueChart');
+        if (data.category && category) {
+            inventoryCharts.push(new Chart(category, {
+                type: 'doughnut',
+                data: {
+                    labels: data.category.labels,
+                    datasets: [{ data: data.category.values, backgroundColor: ['#6366f1', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#0ea5e9', '#ec4899'], borderWidth: 0 }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, cutout: '62%', layout: layout,
+                    plugins: {
+                        legend: legend,
+                        tooltip: { callbacks: { label: function (ctx) { return ctx.label + ': ₱' + ctx.parsed.toLocaleString(undefined, { minimumFractionDigits: 2 }); } } },
+                    },
+                },
+            }));
+        }
+
+        var health = document.getElementById('stockHealthChart');
+        if (health) {
+            inventoryCharts.push(new Chart(health, {
+                type: 'doughnut',
+                data: {
+                    labels: ['OK', 'Low Stock', 'Expired'],
+                    datasets: [{ data: data.health, backgroundColor: ['#22c55e', '#ef4444', '#f59e0b'], borderWidth: 0 }],
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, cutout: '62%', layout: layout,
+                    plugins: { legend: legend, tooltip: { callbacks: { label: function (ctx) { return ctx.label + ': ' + ctx.parsed; } } } },
+                },
+            }));
+        }
+    }
+    renderInventoryCharts();
+
+    /* The table's own search box: narrows the rows already on the page, no
+       suggestion dropdown (REMEDI.md "Search: live filtering, no dropdown").
+       It lives in the report body, so it is wired again after every swap --
+       keeping whatever was typed. */
+    function initInventorySearch(keep) {
         var input = document.getElementById('report-search');
         var count = document.getElementById('report-count');
         if (!input || !count) return;
 
-        var rows = Array.prototype.slice.call(
-            document.querySelectorAll('#no-print tbody tr[data-search]')
-        );
+        var rows = Array.prototype.slice.call(document.querySelectorAll('#invReportBody .no-print tbody tr[data-search]'));
         var total = parseInt(count.dataset.total || rows.length, 10);
 
         function apply() {
@@ -392,191 +301,115 @@
             if (e.detail && e.detail.label) { input.value = e.detail.label; }
             apply();
         });
-        // Enter would submit an enclosing form and reload the report.
+        // Enter would submit the page's filter form and refresh the report.
         input.addEventListener('keydown', function (e) {
             if (e.key === 'Enter') { e.preventDefault(); apply(); }
         });
-    })();
-</script>
 
-
-{{-- ===================== PRINT AREA ===================== --}}
-<div id="print-area">
-
-    {{-- Print Header --}}
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;padding-bottom:16px;border-bottom:1.5px solid #111;">
-        <div>
-            <div style="font-size:22px;font-weight:700;color:#111;letter-spacing:-0.02em;"> REMEDI</div>
-            <div style="font-size:12px;color:#6b7280;margin-top:2px;">Point of Sale System</div>
-        </div>
-        <div style="text-align:right;">
-            @php
-                // The filters actually in force, built once for both print
-                // headings. Assembled in PHP rather than as a run of inline
-                // @if/@endif pairs, because Blade will not compile a directive
-                // that sits immediately after another one's @endif: its regex
-                // requires a non-word character before the @, and "f" is a word
-                // character. So `@endif@if(...)` leaves the second @if as
-                // literal text while its @endif compiles anyway -- an
-                // unbalanced endif that only fails when the page is RENDERED.
-                // `php artisan view:cache` writes the broken PHP without
-                // executing it, so it reports success; only a request finds it.
-                $activeFilters = array_values(array_filter([
-                    $categoryId ? optional($categories->firstWhere('id', $categoryId))->name : null,
-                    $lowStockOnly ? 'Low Stock Only' : null,
-                    $expiredOnly ? 'Expired Only' : null,
-                ]));
-            @endphp
-            <div style="font-size:18px;font-weight:600;color:#111;">Inventory Report</div>
-            @if($activeFilters)
-                <div style="font-size:12px;color:#6b7280;margin-top:2px;">
-                    Filtered by: {{ implode(' · ', $activeFilters) }}
-                </div>
-            @endif
-            <div style="font-size:11px;color:#9ca3af;margin-top:4px;">Generated: {{ now()->format('M d, Y h:i A') }}</div>
-        </div>
-    </div>
-
-    {{-- Print Summary --}}
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;">
-        <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #6366f1;background:#eef2ff;border-radius:8px;padding:12px 14px;">
-            <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Total Stock Value</div>
-            <div style="font-size:18px;font-weight:600;color:#4f46e5;">₱{{ number_format($totalStockValue, 2) }}</div>
-        </div>
-        <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #3b82f6;background:#eff6ff;border-radius:8px;padding:12px 14px;">
-            <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Total Products</div>
-            <div style="font-size:18px;font-weight:600;color:#185FA5;">{{ $products->count() }}</div>
-        </div>
-        <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #f59e0b;background:#fffbeb;border-radius:8px;padding:12px 14px;">
-            <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Low Stock</div>
-            <div style="font-size:18px;font-weight:600;color:#dc2626;">{{ $lowStockCount }}</div>
-        </div>
-        <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #ef4444;background:#fef2f2;border-radius:8px;padding:12px 14px;">
-            <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Expired Stock</div>
-            <div style="font-size:18px;font-weight:600;color:#854F0B;">{{ $expiredCount }}</div>
-        </div>
-    </div>
-
-    {{-- Print Table --}}
-    <div class="print-section-title" style="font-size:13px;font-weight:500;color:#111;margin-bottom:10px;">
-        Product Inventory — {{ now()->format('M d, Y') }}
-        @if($activeFilters)
-            <span style="color:#6b7280;font-weight:400;">
-                ({{ implode(', ', $categoryId ? $activeFilters : array_merge(['All Categories'], $activeFilters)) }})
-            </span>
-        @endif
-    </div>
-
-    <div class="table-scroll"><table class="inv-print">
-        <thead>
-            <tr>
-                <th>#</th>
-                <th>Product</th>
-                <th>Category</th>
-                <th>Stock</th>
-                <th class="num">Unit Price</th>
-                <th class="num">Stock Value</th>
-                <th class="mid">Status</th>
-            </tr>
-        </thead>
-        <tbody>
-            @forelse($products as $p)
-                @php $expired = $p->expiredBatches ? $p->expiredBatches->count() : 0; @endphp
-            <tr>
-                <td class="idx">{{ $loop->iteration }}</td>
-                <td class="strong">{{ $p->name }}
-                    @if($expired)<div class="expired-note">{{ $expired }} expired batch{{ $expired > 1 ? 'es' : '' }}</div>@endif</td>
-                <td class="muted">{{ $p->category->name ?? '—' }}</td>
-                <td class="strong {{ $p->is_running_out ? 'stock is-low' : '' }}">{{ $p->total_stock }} {{ $p->unit }}</td>
-                <td class="num muted">₱{{ number_format($p->selling_price, 2) }}</td>
-                <td class="num strong">₱{{ number_format($p->total_stock * $p->selling_price, 2) }}</td>
-                <td class="mid"><span class="{{ $p->is_running_out ? 'st-low' : 'st-ok' }}">{{ $p->is_running_out ? 'Low Stock' : 'OK' }}</span></td>
-            </tr>
-            @empty
-            <tr>
-                <td colspan="7" class="empty">No products found.</td>
-            </tr>
-            @endforelse
-        </tbody>
-        <tfoot>
-            <tr>
-                <td colspan="5" class="label">Total Stock Value</td>
-                <td class="total">₱{{ number_format($totalStockValue, 2) }}</td>
-                <td></td>
-            </tr>
-        </tfoot>
-    </table></div>
-
-    {{-- Print Footer --}}
-    <div style="margin-top:40px;padding-top:12px;border-top:0.5px solid #e5e7eb;display:flex;justify-content:space-between;font-size:11px;color:#9ca3af;">
-        <span>REMEDI Point of Sale System</span>
-        <span>Printed by: {{ auth()->user()->name ?? 'Admin' }} &nbsp;|&nbsp; {{ now()->format('M d, Y h:i A') }}</span>
-    </div>
-
-</div>{{-- end #print-area --}}
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
-@include('partials._chart-gradient')
-<script>
-    // The doughnut legends sit to the right on desktop/tablet; a phone has no
-    // horizontal room for that, so they drop back underneath.
-    Chart.defaults.plugins.legend.position =
-        window.matchMedia('(max-width: 767px)').matches ? 'bottom' : 'right';
+        if (keep) {
+            input.value = keep;
+            apply();
+        }
+    }
+    initInventorySearch('');
 </script>
 <script>
-    @if($stockValueByCategory->isNotEmpty())
-    new Chart(document.getElementById('categoryValueChart'), {
-        type: 'doughnut',
-        data: {
-            labels: {!! json_encode($stockValueByCategory->pluck('category')) !!},
-            datasets: [{
-                data: {!! json_encode($stockValueByCategory->pluck('value')) !!},
-                backgroundColor: ['#6366f1', '#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#8b5cf6', '#0ea5e9', '#ec4899'],
-                borderWidth: 0,
-            }],
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '62%',
-            layout: { padding: { top: 4, bottom: 4, left: 4, right: 8 } },
-            plugins: {
-                // No `position` here -- it inherits Chart.defaults.plugins.legend.position,
-                // set just above from a matchMedia check. Hardcoding 'right' on every
-                // chart instance used to override that default outright, so the
-                // "drops back underneath on phone" comment never actually happened.
-                legend: { align: 'center', labels: { boxWidth: 11, boxHeight: 11, padding: 13, usePointStyle: true, pointStyle: 'circle', font: { size: 11.5 }, color: '#334155' } },
-                tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ₱${ctx.parsed.toLocaleString(undefined, { minimumFractionDigits: 2 })}` } },
-            },
-        },
-    });
-    @endif
+/* Live filters, the way the Sales Report does it: a change fetches ONLY the
+   report body (ReportController::inventory answers AJAX with {html, state}),
+   swaps it in and redraws the charts. Clicks are caught on #invReport, below
+   the layout's document-level skeleton handler, so a refresh paints no
+   navigation skeleton. */
+(function () {
+    var root = document.getElementById('invReport');
+    var form = document.getElementById('invFilters');
+    var body = document.getElementById('invReportBody');
+    var status = document.getElementById('invStatus');
+    if (!root || !form || !body || !window.fetch) return;
 
-    new Chart(document.getElementById('stockHealthChart'), {
-        type: 'doughnut',
-        data: {
-            labels: ['OK', 'Low Stock', 'Expired'],
-            datasets: [{
-                data: [{{ $products->count() - $lowStockCount }}, {{ $lowStockCount }}, {{ $expiredCount }}],
-                backgroundColor: ['#22c55e', '#ef4444', '#f59e0b'],
-                borderWidth: 0,
-            }],
-        },
-        options: {
-            responsive: true,
-            maintainAspectRatio: false,
-            cutout: '62%',
-            layout: { padding: { top: 4, bottom: 4, left: 4, right: 8 } },
-            plugins: {
-                // No `position` here -- it inherits Chart.defaults.plugins.legend.position,
-                // set just above from a matchMedia check. Hardcoding 'right' on every
-                // chart instance used to override that default outright, so the
-                // "drops back underneath on phone" comment never actually happened.
-                legend: { align: 'center', labels: { boxWidth: 11, boxHeight: 11, padding: 13, usePointStyle: true, pointStyle: 'circle', font: { size: 11.5 }, color: '#334155' } },
-                tooltip: { callbacks: { label: (ctx) => `${ctx.label}: ${ctx.parsed}` } },
-            },
-        },
+    var controller = null;
+    var inFlight = null;
+
+    function setStatus(text) {
+        status.innerHTML = '';
+        if (!text) return;
+        var i = document.createElement('i');
+        i.className = 'ti ti-loader-2';
+        i.setAttribute('aria-hidden', 'true');
+        status.appendChild(i);
+        status.appendChild(document.createTextNode(text));
+    }
+
+    function formUrl() {
+        var params = new URLSearchParams();
+        if (form.elements.category_id.value) params.set('category_id', form.elements.category_id.value);
+        if (form.elements.status.value) params.set('status', form.elements.status.value);
+        var qs = params.toString();
+
+        return form.action + (qs ? '?' + qs : '');
+    }
+
+    function load(url) {
+        if (controller) controller.abort();
+        controller = new AbortController();
+        var mine = controller;
+        var typed = (document.getElementById('report-search') || {}).value || '';
+        body.classList.add('is-updating');
+        setStatus('Updating…');
+
+        inFlight = fetch(url, {
+            headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
+            credentials: 'same-origin',
+            signal: mine.signal,
+        }).then(function (res) {
+            return res.ok ? res.json() : Promise.reject(res);
+        }).then(function (data) {
+            if (mine !== controller) return;
+            if (!data || typeof data.html !== 'string') { window.location.href = url; return; }
+            body.innerHTML = data.html;
+            var s = data.state;
+            form.elements.category_id.value = s.category_id ? String(s.category_id) : '';
+            form.elements.status.value = s.status || '';
+            document.getElementById('invClear').hidden = !s.filtered;
+            document.getElementById('invExportXlsx').href = s.export_xlsx;
+            document.getElementById('invExportPdf').href = s.export_pdf;
+            renderInventoryCharts();
+            initInventorySearch(typed);
+            if (window.history.replaceState) window.history.replaceState(null, '', formUrl());
+            setStatus('');
+        }).catch(function (err) {
+            if (err && err.name === 'AbortError') return;
+            // A signed-out session or a server error: a real navigation
+            // handles every case.
+            if (mine === controller) window.location.href = url;
+        }).finally(function () {
+            if (mine === controller) {
+                body.classList.remove('is-updating');
+                controller = null;
+                inFlight = null;
+            }
+        });
+    }
+
+    form.addEventListener('change', function (e) {
+        if (e.target.name === 'category_id' || e.target.name === 'status') load(formUrl());
     });
+    form.addEventListener('submit', function (e) { e.preventDefault(); load(formUrl()); });
+
+    // Clear.
+    root.addEventListener('click', function (e) {
+        var link = e.target.closest('a[data-report-nav]');
+        if (!link || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        form.elements.category_id.value = '';
+        form.elements.status.value = '';
+        load(link.href);
+    });
+
+    // Print what is on screen: wait for a refresh that is on its way.
+    document.getElementById('invPrint').addEventListener('click', function () {
+        if (inFlight) inFlight.then(function () { window.print(); }); else window.print();
+    });
+})();
 </script>
 
 @endsection

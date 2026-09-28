@@ -2570,6 +2570,12 @@
             border-color: #d1d5db;
         }
 
+        /* Clear (the reports' filter reset, 2026-09-28): coloured so it reads as
+           the way OUT of a filter rather than one more grey button beside
+           Print/Excel/PDF. Soft rose -- a reset, not a destructive action. */
+        .btn-clear { background: #fff1f2; border-color: #fecdd3; color: #be123c; }
+        .btn-clear:hover { background: #ffe4e6; border-color: #fda4af; color: #9f1239; }
+
         /* Outlined rather than a solid red slab. Ten of those down a column
            reads as ten warnings; the destructive weight belongs in the confirm
            dialog, which every one of these already opens. */

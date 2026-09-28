@@ -35,6 +35,14 @@ class User extends Authenticatable
     ];
 
     /**
+     * Archive reasons that are FINAL (2026-09-28, at the user's request): an
+     * account archived because the person was fired cannot be restored --
+     * UserController::restore() refuses it and the Archived list offers no
+     * Restore button. Resigned stays restorable (people come back).
+     */
+    public const FINAL_ARCHIVE_REASONS = ['fired'];
+
+    /**
      * The password an admin resets a "forgot password" request to --
      * UserController::resetPassword() and the request form both read this,
      * so the value is written down once. A known, shared default is only
@@ -96,6 +104,12 @@ class User extends Authenticatable
     public function getArchiveReasonLabelAttribute(): ?string
     {
         return self::ARCHIVE_REASONS[$this->archive_reason] ?? null;
+    }
+
+    /** May this archived account be restored? See FINAL_ARCHIVE_REASONS. */
+    public function isRestorable(): bool
+    {
+        return ! in_array($this->archive_reason, self::FINAL_ARCHIVE_REASONS, true);
     }
 
     // Relationship: a user (staff/admin) can have many sales transactions

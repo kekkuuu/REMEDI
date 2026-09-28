@@ -612,15 +612,35 @@ class ReportController extends Controller
         ) + ['period' => $quick, 'isFiltered' => (bool) $isFiltered];
     }
 
+    /** The Inventory report's status filter values (one select, one choice). */
+    public const INVENTORY_STATUSES = ['low_stock', 'expired', 'ok'];
+
     public function inventory(Request $request)
     {
         $data = $this->buildInventoryReportData($request);
 
         $logMsg = 'Generated Inventory Report';
-        if ($data['categoryId'] || $data['lowStockOnly'] || $data['expiredOnly']) {
+        if ($data['categoryId'] || $data['status']) {
             $logMsg .= ' (filtered)';
         }
         AuditTrail::log('Viewed', $logMsg);
+
+        // Filters apply as they change (2026-09-28): the page fetches the
+        // report body alone and swaps it in, as the Sales Report does.
+        if ($request->ajax() || $request->wantsJson()) {
+            $exportParams = array_filter(['category_id' => $data['categoryId'], 'status' => $data['status']]);
+
+            return response()->json([
+                'html' => view('reports._inventory-body', $data)->render(),
+                'state' => [
+                    'category_id' => $data['categoryId'],
+                    'status' => $data['status'],
+                    'filtered' => (bool) ($data['categoryId'] || $data['status']),
+                    'export_xlsx' => route('reports.inventory.export', $exportParams + ['format' => 'xlsx']),
+                    'export_pdf' => route('reports.inventory.export', $exportParams + ['format' => 'pdf']),
+                ],
+            ]);
+        }
 
         return view('reports.inventory', $data);
     }
@@ -677,13 +697,14 @@ class ReportController extends Controller
         // any hand-written URL keep working; `status` wins where both appear.
         $status = $request->get('status');
 
-        if (! in_array($status, ['low_stock', 'expired'], true)) {
+        if (! in_array($status, self::INVENTORY_STATUSES, true)) {
             $status = $request->boolean('low_stock') ? 'low_stock'
                 : ($request->boolean('expired') ? 'expired' : null);
         }
 
         $lowStockOnly = $status === 'low_stock';
         $expiredOnly = $status === 'expired';
+        $okOnly = $status === 'ok';
 
         $query = Product::with('category', 'batches')->orderBy('name');
 
@@ -757,10 +778,22 @@ class ReportController extends Controller
             $products = $products->filter(fn ($p) => $p->expired_batches->isNotEmpty())->values();
         }
 
+        // OK = nothing to act on (2026-09-28): in stock, not running out, and
+        // no expired stock on the shelf. The one definition -- the OK filter
+        // and the Stock Health chart's OK slice both read it. The chart used
+        // to compute OK as "everything minus low stock", so on the Expired
+        // filter it read 109 OK beside 109 Expired: the same products twice.
+        $isOk = fn ($p) => $p->total_stock > 0 && ! $p->is_running_out && $p->expired_batches->isEmpty();
+
+        if ($okOnly) {
+            $products = $products->filter($isOk)->values();
+        }
+
         $totalStockValue = $products->sum(fn ($p) => $p->total_stock * $p->selling_price);
         // Same definition the filter uses, so the KPI and the rows agree.
         $lowStockCount = $products->filter($isRunningOut)->count();
         $expiredCount = $products->filter(fn ($p) => $p->expired_batches->isNotEmpty())->count();
+        $okCount = $products->filter($isOk)->count();
 
         // Stock value grouped by category, for the category breakdown chart.
         $stockValueByCategory = $products
@@ -777,7 +810,7 @@ class ReportController extends Controller
 
         return compact(
             'products', 'totalStockValue', 'lowStockCount', 'expiredCount',
-            'stockValueByCategory', 'categories', 'categoryId', 'lowStockOnly', 'expiredOnly'
+            'stockValueByCategory', 'categories', 'categoryId', 'lowStockOnly', 'expiredOnly', 'okOnly', 'okCount', 'status'
         );
     }
 

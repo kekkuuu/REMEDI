@@ -332,6 +332,12 @@ class UserController extends Controller
     {
         abort_unless($user->trashed(), 404);
 
+        // A fired account stays archived. The Archived list shows no Restore
+        // button for one, but a gated button is not a gated endpoint.
+        if (! $user->isRestorable()) {
+            return $this->actionFailed($request, "{$user->name} was archived as Fired, and a fired account cannot be restored.");
+        }
+
         // Cleared, not carried forward: a restored account isn't "resigned"
         // or "fired" any more, and leaving the old value would show a stale
         // reason if the account is ever archived again without it being set

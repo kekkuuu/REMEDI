@@ -269,6 +269,27 @@ class ArchiveTest extends TestCase
         $this->assertAuthenticatedAs($cashier->fresh());
     }
 
+    /** Fired is final (2026-09-28): no Restore button, and the endpoint refuses. */
+    public function test_a_fired_account_cannot_be_restored(): void
+    {
+        $admin = $this->admin();
+        $fired = User::factory()->create(['email' => 'fired@remedi.com', 'role' => 'staff']);
+        $this->actingAs($admin)->delete('/users/'.$fired->id, ['reason' => 'fired'])->assertSessionHasNoErrors();
+
+        $this->actingAs($admin)->patchJson('/users/'.$fired->id.'/restore')->assertStatus(422);
+        $this->assertTrue($fired->fresh()->trashed());
+
+        $this->actingAs($admin)->get('/users?archived=1')
+            ->assertSee('Cannot be restored')
+            ->assertDontSee('/users/'.$fired->id.'/restore', false);
+
+        // Resigned stays restorable.
+        $resigned = User::factory()->create(['email' => 'resigned@remedi.com', 'role' => 'staff']);
+        $this->actingAs($admin)->delete('/users/'.$resigned->id, ['reason' => 'resigned']);
+        $this->actingAs($admin)->patchJson('/users/'.$resigned->id.'/restore')->assertOk();
+        $this->assertFalse($resigned->fresh()->trashed());
+    }
+
     public function test_archived_accounts_are_listed_apart_and_left_out_of_the_kpis(): void
     {
         $admin = $this->admin();
