@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (341 passed, 1116 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (342 passed, 1120 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -579,7 +579,7 @@ App Password is set by the account owner in each dashboard, never through a chat
 `Feature\Auth\AdminOtpPasswordResetTest` (staff with an address get a code and finish the reset
 themselves; staff without one still ask an admin).
 
-**The reset-code email has a plain-text part (2026-09-28).** It landed in Gmail's spam folder although the sender is right (live `MAIL_FROM_ADDRESS` = the authenticating Gmail account, so Gmail signs it): it was HTML-only, a bare `<div>` with no document, and said "don't reply" — all things filters score. `PasswordResetCodeMail` now sends `emails.password-reset-code` (a complete HTML document) AND `emails.password-reset-code-text`; the text part uses `{!! !!}` because it is not HTML. A brand-new sender can still be filtered at first — marking one "Not spam" trains the recipient's Gmail; a domain of your own with SPF/DKIM is the durable fix. Covered by `Feature\Auth\ResetCodeMailTest`.
+**The reset-code email has a plain-text part (2026-09-28).** It landed in Gmail's spam folder although the sender is right (live `MAIL_FROM_ADDRESS` = the authenticating Gmail account, so Gmail signs it): it was HTML-only, a bare `<div>` with no document, and said "don't reply" — all things filters score. `PasswordResetCodeMail` now sends `emails.password-reset-code` (a complete HTML document) AND `emails.password-reset-code-text`; the text part uses `{!! !!}` because it is not HTML. It still landed in spam, so (same day) the wordmark is one plain word — `RE<span>ME</span>DI` split a word across tags, a filter-evasion pattern filters score — and the envelope sets From name `REMEDI` and a Reply-To explicitly rather than trusting `MAIL_FROM_NAME` (whose fallback is "Example"); both hosts' `MAIL_FROM_NAME` read `REMEDI` when checked. A brand-new sender can still be filtered at first — marking one "Not spam" trains the recipient's Gmail; a domain of your own with SPF/DKIM is the durable fix. Covered by `Feature\Auth\ResetCodeMailTest`.
 
 Three steps, four guest routes (`password.otp` / `password.otp.verify` / `password.otp.reset` /
 `password.otp.update`), and **each re-checks the session itself rather than trusting the step

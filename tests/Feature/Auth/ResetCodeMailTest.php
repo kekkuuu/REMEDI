@@ -26,6 +26,18 @@ class ResetCodeMailTest extends TestCase
         $mail->assertDontSeeInText('&amp;', false);
     }
 
+    public function test_it_sends_as_remedi_with_a_reply_to_and_no_split_words(): void
+    {
+        config(['mail.from.address' => 'sender@example.com', 'mail.from.name' => 'Example']);
+        $mail = new PasswordResetCodeMail(new User(['name' => 'Someone', 'email' => 'x@remedi.com']), '482913', 10);
+
+        $mail->assertFrom('sender@example.com', 'REMEDI');
+        $mail->assertHasReplyTo('sender@example.com');
+        // A word split across tags ("RE<span>ME</span>DI") is a spam signal.
+        $mail->assertSeeInHtml('>REMEDI</p>', false);
+        $mail->assertDontSeeInHtml('RE<span', false);
+    }
+
     public function test_the_code_stays_out_of_the_subject(): void
     {
         $mail = new PasswordResetCodeMail(new User(['name' => 'Someone', 'email' => 'x@remedi.com']), '482913', 10);

@@ -5,6 +5,7 @@ namespace App\Mail;
 use App\Models\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
+use Illuminate\Mail\Mailables\Address;
 use Illuminate\Mail\Mailables\Content;
 use Illuminate\Mail\Mailables\Envelope;
 use Illuminate\Queue\SerializesModels;
@@ -32,7 +33,15 @@ class PasswordResetCodeMail extends Mailable
 
     public function envelope(): Envelope
     {
+        $sender = (string) config('mail.from.address');
+
         return new Envelope(
+            // A fixed display name rather than MAIL_FROM_NAME, whose fallback
+            // is "Example" -- a host missing that variable would send as that.
+            // Reply-To is the sender itself: a reset mail nobody can answer
+            // is one more thing filters score.
+            from: new Address($sender, 'REMEDI'),
+            replyTo: [new Address($sender, 'REMEDI')],
             // The code is NOT in the subject: subject lines surface on a lock
             // screen and in notification previews, where a shoulder is enough
             // to read it without unlocking the phone.

@@ -7,7 +7,10 @@
      inline styles only (email clients strip <style> blocks), no images, no
      links, and no "do not reply" -- all things spam filters score. The
      account's own address is NOT printed: it sits on a domain unrelated to
-     the Gmail sender, and a body naming another domain reads as phishing. --}}
+     the Gmail sender, and a body naming another domain reads as phishing.
+     The wordmark is ONE word in one colour: "RE<span>ME</span>DI" splits a
+     word across tags, which is how spam hides words from filters, so filters
+     score it (still landing in spam after the text part was added). --}}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18,9 +21,7 @@
 <body style="margin:0; padding:0; background:#f8fafc;">
 <div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif; max-width:480px; margin:0 auto; padding:24px; color:#0f172a; background:#ffffff;">
 
-    <p style="margin:0 0 4px; font-size:20px; font-weight:700; letter-spacing:.06em;">
-        RE<span style="color:#10b981;">ME</span>DI
-    </p>
+    <p style="margin:0 0 4px; font-size:20px; font-weight:700; letter-spacing:.06em; color:#047857;">REMEDI</p>
     <p style="margin:0 0 24px; font-size:12px; color:#64748b; letter-spacing:.12em; text-transform:uppercase;">
         Inventory &amp; Sales Management
     </p>
