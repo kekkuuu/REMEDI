@@ -143,46 +143,36 @@
 
     /* Icon actions that open into a labelled button on hover (2026-09-28).
        Reset password, Activate/Deactivate and Archive rest as equal icon
-       squares; pointing at one (or tabbing to it) opens it to show its label.
+       squares; pointing at one (or tabbing to it) opens it to show its label,
+       and the icons AFTER it slide to the RIGHT to make room.
 
-       Second version, "pleasing to the eye" (the user's words): the first
-       grew IN the row, so opening one shoved every icon after it sideways and
-       back again as the pointer moved along the row -- the whole row twitched.
-       Now each icon sits in a fixed slot (.icon-slot, one icon wide) and the
-       button is positioned inside it, so it opens OVER its neighbours with a
-       soft lift instead of pushing them: nothing else in the row moves.
+       Third version, same day. The second opened the button OVER its
+       neighbours (absolutely positioned in a fixed slot) so nothing moved --
+       the user asked why it no longer pushed right, so it is back in the
+       row's flow: the button grows from its left edge and the flex row
+       carries the icons after it rightward, continuously, because what
+       animates is the label's max-width.
+
+       The column must not widen while that happens, or every other column of
+       the table would shift on each hover: .users-actions reserves the row at
+       its WIDEST (Edit + the three icons + the longest label, "Reset
+       password"), so the push always lands in space that is already there.
 
        Motion: width eases out (fast start, gentle landing) and the label
        fades in just behind it, so the text never appears clipped mid-word;
-       closing fades the label first, then folds the width.
-       max-width, not width -- `auto` cannot be animated. The cell reserves
-       room for the LAST icon to open into (.users-actions min-width), since
-       that one has no neighbour to cover. */
-    .users-actions .icon-slot {
-        position: relative;
-        flex: 0 0 auto;
-        width: 36px;
+       closing fades the label first, then folds the width. max-width, not
+       width -- `auto` cannot be animated. */
+    .users-actions .icon-slot { flex: 0 0 auto; }
+    .users-actions .action-icon {
         height: 32px;
-    }
-    .users-actions .icon-slot .action-icon {
-        position: absolute;
-        top: 0;
-        left: 0;
-        height: 32px;
-        /* An absolutely positioned box shrinks to fit its containing block --
-           here the 36px slot -- so without this the label had nowhere to
-           open into and the button stayed an icon on hover. */
-        width: max-content;
-        z-index: 1;
         gap: 0;
         padding: 0 9px;
         white-space: nowrap;
         transition: box-shadow .28s ease, background-color .18s ease, border-color .18s ease;
     }
-    .users-actions .icon-slot .action-icon:hover,
-    .users-actions .icon-slot .action-icon:focus-visible {
-        z-index: 3;
-        box-shadow: 0 8px 18px -8px rgba(15, 23, 42, .28), 0 0 0 3px rgba(255, 255, 255, .9);
+    .users-actions .action-icon:hover,
+    .users-actions .action-icon:focus-visible {
+        box-shadow: 0 6px 14px -8px rgba(15, 23, 42, .3);
     }
     .action-icon .act-label {
         display: inline-block;
@@ -207,11 +197,11 @@
     .action-icon i { transition: transform .34s cubic-bezier(.22, 1, .36, 1); }
     .action-icon:hover i,
     .action-icon:focus-visible i { transform: scale(1.08); }
-    .remedi-table .users-actions { min-width: 290px; }
+    .remedi-table .users-actions { min-width: 320px; }
     @media (prefers-reduced-motion: reduce) {
         .action-icon .act-label,
         .action-icon i,
-        .users-actions .icon-slot .action-icon { transition: none; }
+        .users-actions .action-icon { transition: none; }
     }
 
     /* ---- Footer --------------------------------------------------------- */
