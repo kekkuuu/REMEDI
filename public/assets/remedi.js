@@ -1440,9 +1440,16 @@
         const reasonsWrap = document.getElementById('confirmModalReasons');
         const passcodeWrap = document.getElementById('confirmModalPasscode');
         const passcodeInput = document.getElementById('confirmModalPasscodeInput');
+        const noteWrap = document.getElementById('confirmModalNote');
+        const noteInput = document.getElementById('confirmModalNoteInput');
         const confirmBtn = document.getElementById('confirmModalConfirm');
         const cancelBtn = document.getElementById('confirmModalCancel');
         let unlockScroll = null;
+        // data-confirm-note-for: the one reason that must be explained in
+        // words (Void -> "Other"). Picking it opens the text box and hands
+        // the dialog to the Confirm button instead of submitting.
+        let noteFor = null;
+        let noteMode = false;
 
         let form = null;
         let lastFocus = null;
@@ -1470,7 +1477,31 @@
             (reasonButtons.length ? reasonButtons : [confirmBtn]).forEach(function (b) {
                 b.disabled = !ready;
             });
+            // With the text box open, Confirm also waits for the words.
+            if (noteMode) confirmBtn.disabled = !(ready && noteInput.value.trim() !== '');
         }
+
+        function setNoteMode(on, selectedBtn) {
+            noteMode = on;
+            noteWrap.hidden = !on;
+            confirmBtn.hidden = !on;
+            reasonButtons.forEach(function (b) { b.classList.toggle('is-selected', on && b === selectedBtn); });
+            if (on) {
+                confirmBtn.textContent = (form && form.dataset.confirmNoteLabel) || defaultLabel;
+                noteInput.focus({ preventScroll: true });
+            } else {
+                noteInput.value = '';
+            }
+            syncPasscodeGate();
+        }
+
+        noteInput.addEventListener('input', syncPasscodeGate);
+        noteInput.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                if (!confirmBtn.disabled) confirmBtn.click();
+            }
+        });
 
         passcodeInput.addEventListener('input', function () {
             // Digits only -- a 6-digit code, not free text.
@@ -1524,6 +1555,12 @@
                     btn.addEventListener('click', function () {
                         const field = form.querySelector('[name="reason"]');
                         if (field) field.value = value;
+                        // The reason that needs words opens the text box
+                        // rather than submitting; Confirm sends it.
+                        if (value === noteFor) {
+                            setNoteMode(true, btn);
+                            return;
+                        }
                         // Only when THIS dialog opened with the passcode
                         // gate -- a form can have its own unrelated field
                         // named "passcode" (Settings' own "New passcode"),
@@ -1550,6 +1587,12 @@
             passcodeRequired = d.confirmPasscode === '1';
             passcodeWrap.hidden = !passcodeRequired;
             passcodeInput.value = '';
+
+            // Every open starts with the text box closed and empty.
+            noteFor = (reasons && d.confirmNoteFor) || null;
+            noteMode = false;
+            noteWrap.hidden = true;
+            noteInput.value = '';
             syncPasscodeGate();
 
             modal.classList.add('is-open');
@@ -1662,7 +1705,8 @@
                 // when there is -- plus the passcode field first, when one
                 // is showing. Cycles either way with Shift.
                 const items = (passcodeRequired ? [passcodeInput] : [])
-                    .concat([cancelBtn], reasonButtons.length ? reasonButtons : [confirmBtn]);
+                    .concat([cancelBtn], reasonButtons.length ? reasonButtons : [confirmBtn])
+                    .concat(noteMode ? [noteInput, confirmBtn] : []);
                 const idx = items.indexOf(document.activeElement);
                 const next = e.shiftKey
                     ? items[(idx <= 0 ? items.length : idx) - 1]
@@ -1745,6 +1789,11 @@
             if (passcodeRequired) {
                 const pc = form.querySelector('[name="passcode"]');
                 if (pc) pc.value = passcodeInput.value;
+            }
+            if (noteMode) {
+                if (noteInput.value.trim() === '') return;
+                const note = form.querySelector('[name="note"]');
+                if (note) note.value = noteInput.value.trim();
             }
             submitConfirmed(confirmBtn);
         });

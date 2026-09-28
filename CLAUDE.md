@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (344 passed, 1128 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (348 passed, 1155 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -923,6 +923,14 @@ is picked IN the confirm dialog, not before it — `data-confirm-reasons` (a JSO
 swaps the shared confirm modal's single generic Confirm button for one button per reason (see "Every
 state-changing action answers in two shapes" below), the same mechanism `User::ARCHIVE_REASONS` uses
 on the Archive button in User Management.
+
+**"Other" asks for the reason in words (2026-09-28, at the user's request).** `data-confirm-note-for="other"`
+makes that one reason button open a "Reason" text box (`#confirmModalNote`) instead of submitting, and
+the Confirm button ("Void transaction", `data-confirm-note-label`) takes over, disabled until something
+is typed (and until the passcode is complete, for staff). The text rides in the form's hidden `note`
+field; `void()` requires it for `Sale::VOID_REASON_NEEDS_NOTE` and keeps it only then, in `sales.void_note`
+(migration `2026_09_28_000002`), and `Sale::voidReasonLabel()` ("Other: printer jammed") is what the
+voided banner, the list tooltip and the audit entry print. Covered by four cases in `VoidTest`.
 
 **As of the same day, void is SHARED, not `role:admin` — staff may void a sale THEY rang up, given a
 manager passcode.** `role:admin` was "the closest thing this app has to restricted to managers"; a

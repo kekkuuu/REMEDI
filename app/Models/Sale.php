@@ -28,6 +28,7 @@ class Sale extends Model
         'voided_at',
         'voided_by',
         'void_reason',
+        'void_note',
         // One per checkout attempt, resent unchanged on a retry of that same
         // attempt. See PosController::checkout() and the migration that adds
         // the unique index this relies on.
@@ -69,6 +70,21 @@ class Sale extends Model
         'duplicate' => 'Duplicate Transaction',
         'other' => 'Other',
     ];
+
+    /** The reason that must be explained in words (stored in void_note). */
+    public const VOID_REASON_NEEDS_NOTE = 'other';
+
+    /** How a void reads on screen and in the audit trail: "Other: printer jammed". */
+    public function voidReasonLabel(): ?string
+    {
+        if (! $this->void_reason) {
+            return null;
+        }
+
+        $label = self::VOID_REASONS[$this->void_reason] ?? $this->void_reason;
+
+        return $this->void_note ? $label.': '.$this->void_note : $label;
+    }
 
     // A sale belongs to the user (cashier) who made it. withTrashed: an archived
     // cashier still rang these up, and every receipt and list prints the name.

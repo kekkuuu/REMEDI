@@ -233,6 +233,63 @@ class VoidTest extends TestCase
         $this->assertFalse($sale->fresh()->payment_voided);
     }
 
+    public function test_other_needs_the_reason_typed(): void
+    {
+        [$product] = $this->checkoutProduct();
+        $sale = $this->checkout($this->cashier(), $product, 2, 20);
+
+        foreach ([[], ['note' => ''], ['note' => '   ']] as $extra) {
+            $this->actingAs($this->admin())
+                ->patch("/sales/{$sale->id}/void", ['reason' => 'other'] + $extra)
+                ->assertSessionHasErrors('note');
+        }
+
+        $this->assertFalse($sale->fresh()->payment_voided);
+    }
+
+    public function test_other_keeps_the_typed_reason_and_shows_it(): void
+    {
+        [$product] = $this->checkoutProduct();
+        $sale = $this->checkout($this->cashier(), $product, 2, 20);
+        $admin = $this->admin();
+
+        $this->actingAs($admin)
+            ->patch("/sales/{$sale->id}/void", ['reason' => 'other', 'note' => '  Printer jammed mid-receipt  '])
+            ->assertSessionHasNoErrors();
+
+        $sale->refresh();
+        $this->assertTrue($sale->payment_voided);
+        $this->assertSame('other', $sale->void_reason);
+        $this->assertSame('Printer jammed mid-receipt', $sale->void_note);
+        $this->assertSame('Other: Printer jammed mid-receipt', $sale->voidReasonLabel());
+
+        $this->assertDatabaseHas('audit_trails', ['details' => "Voided sale {$sale->transaction_no} (Other: Printer jammed mid-receipt) — ₱20.00 reversed and stock restocked"]);
+        $this->actingAs($admin)->get("/sales/{$sale->id}")->assertSee('Other: Printer jammed mid-receipt');
+    }
+
+    public function test_a_note_sent_with_another_reason_is_not_kept(): void
+    {
+        [$product] = $this->checkoutProduct();
+        $sale = $this->checkout($this->cashier(), $product, 2, 20);
+
+        $this->actingAs($this->admin())
+            ->patch("/sales/{$sale->id}/void", ['reason' => 'duplicate', 'note' => 'left over from an earlier try']);
+
+        $this->assertSame('duplicate', $sale->fresh()->void_reason);
+        $this->assertNull($sale->fresh()->void_note);
+    }
+
+    public function test_the_void_dialog_offers_a_text_box_for_other(): void
+    {
+        [$product] = $this->checkoutProduct();
+        $sale = $this->checkout($this->cashier(), $product, 2, 20);
+
+        $this->actingAs($this->admin())->get("/sales/{$sale->id}")
+            ->assertSee('data-confirm-note-for="other"', false)
+            ->assertSee('name="note"', false)
+            ->assertSee('id="confirmModalNoteInput"', false);
+    }
+
     public function test_voiding_an_already_voided_sale_is_refused_and_does_not_double_restock(): void
     {
         [$product, $batch] = $this->checkoutProduct(10);

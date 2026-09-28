@@ -30,11 +30,16 @@
                   data-confirm-title="Void this transaction?"
                   data-confirm-body="Void {{ $sale->transaction_no }} (₱{{ number_format($sale->total_amount, 2) }})? Every item on it goes back on the shelf, and the sale stops counting toward revenue. This cannot be undone from here — restoring it would need a new sale. Choose why below."
                   data-confirm-reasons="{{ json_encode(\App\Models\Sale::VOID_REASONS) }}"
+                  data-confirm-note-for="{{ \App\Models\Sale::VOID_REASON_NEEDS_NOTE }}"
+                  data-confirm-note-label="Void transaction"
                   @unless(auth()->user()->isAdmin()) data-confirm-passcode="1" @endunless
                   data-confirm-icon="ti-receipt-off">
                 @csrf
                 @method('PATCH')
                 <input type="hidden" name="reason" value="">
+                {{-- Filled from the dialog's text box when "Other" is picked
+                     (data-confirm-note-for) -- the server requires it then. --}}
+                <input type="hidden" name="note" value="">
                 @unless(auth()->user()->isAdmin())
                     <input type="hidden" name="passcode" value="">
                 @endunless
@@ -52,7 +57,7 @@
     <div style="margin-bottom:16px;padding:14px 16px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;display:flex;align-items:flex-start;gap:10px;">
         <i class="ti ti-receipt-off" style="color:#b91c1c;font-size:20px;flex:none;margin-top:1px;" aria-hidden="true"></i>
         <div style="font-size:13.5px;color:#7f1d1d;">
-            <strong>Voided</strong> — {{ \App\Models\Sale::VOID_REASONS[$sale->void_reason] ?? $sale->void_reason }}.
+            <strong>Voided</strong> — {{ $sale->voidReasonLabel() }}.
             Stock was returned to the shelf and this transaction no longer counts toward revenue.
             <div style="margin-top:2px;color:#991b1b;">
                 {{ $sale->voidedBy->name ?? 'An admin' }} &middot; {{ $sale->voided_at?->format('M j, Y g:i A') }}

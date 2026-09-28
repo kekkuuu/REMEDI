@@ -460,6 +460,15 @@
                  confirm it. Empty and hidden for every other js-confirm
                  form, which keeps the single-button behaviour unchanged. --}}
             <div class="remedi-modal__reasons" id="confirmModalReasons" hidden></div>
+            {{-- Shown only after picking the reason a form names in
+                 data-confirm-note-for (Void -> "Other"): that reason has to be
+                 explained, so it opens this box instead of submitting, and
+                 the Confirm button stands in until something is typed. --}}
+            <div class="remedi-modal__note" id="confirmModalNote" hidden>
+                <label for="confirmModalNoteInput">Reason</label>
+                <input type="text" id="confirmModalNoteInput" maxlength="255" autocomplete="off"
+                       placeholder="Type the reason">
+            </div>
             <div class="remedi-modal__actions">
                 <button type="button" class="btn btn-secondary" id="confirmModalCancel">Cancel</button>
                 <button type="button" class="btn btn-danger" id="confirmModalConfirm">Confirm</button>

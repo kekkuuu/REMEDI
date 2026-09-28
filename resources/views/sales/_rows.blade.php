@@ -25,7 +25,7 @@
                 <td style="font-family: monospace; font-size: 14px; color: #4f46e5;">
                     {{ $sale->transaction_no }}
                     @if($sale->payment_voided)
-                        <span class="badge badge-danger" style="margin-left:6px;" title="{{ \App\Models\Sale::VOID_REASONS[$sale->void_reason] ?? $sale->void_reason }}">Voided</span>
+                        <span class="badge badge-danger" style="margin-left:6px;" title="{{ $sale->voidReasonLabel() }}">Voided</span>
                     @endif
                 </td>
                 <td>{{ $sale->created_at->format('M d, Y') }}</td>

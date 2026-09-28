@@ -195,6 +195,9 @@ class SaleController extends Controller
 
         $rules = [
             'reason' => 'required|in:'.implode(',', array_keys(Sale::VOID_REASONS)),
+            // "Other" must say what it was -- the dialog shows a text box for
+            // it -- and only "Other" keeps what was typed.
+            'note' => ['bail', 'nullable', 'string', 'max:255', 'required_if:reason,'.Sale::VOID_REASON_NEEDS_NOTE],
         ];
 
         if (! $isAdmin) {
@@ -277,6 +280,7 @@ class SaleController extends Controller
                 'voided_at' => now(),
                 'voided_by' => $request->user()->id,
                 'void_reason' => $validated['reason'],
+                'void_note' => $validated['reason'] === Sale::VOID_REASON_NEEDS_NOTE ? $validated['note'] : null,
             ]);
 
             return false;
@@ -297,7 +301,7 @@ class SaleController extends Controller
         SalesHistory::bumpCacheVersion();
         AlertService::forget();
 
-        $reasonLabel = Sale::VOID_REASONS[$validated['reason']];
+        $reasonLabel = $sale->refresh()->voidReasonLabel();
 
         AuditTrail::log(
             'Updated',
