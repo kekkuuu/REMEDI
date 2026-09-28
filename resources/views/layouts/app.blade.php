@@ -2225,6 +2225,19 @@
             margin: 0;
         }
 
+        /* Required-field star beside a label (2026-09-28). Only on fields the
+           server actually requires -- a star that is not enforced is a promise
+           the form does not keep. */
+        .form-field-head .req { color: #dc2626; margin-left: 3px; font-weight: 700; }
+
+        /* A field's helper line and its validation message. Neither had a shared
+           style, so the hint rendered as full-size body text under the input. */
+        .form-field .hint { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-soft, #64748b); line-height: 1.45; }
+        .form-field .err { margin: 6px 0 0; font-size: 12.5px; color: #b91c1c; }
+
+        /* An icon at the start of a .section-head band. */
+        .section-head h4 i { font-size: 18px; vertical-align: -3px; margin-right: 8px; }
+
         .form-field input[type="text"],
         .form-field input[type="email"],
         .form-field input[type="number"],
@@ -2477,6 +2490,11 @@
            does everywhere else. Hidden until the field actually has a value: an
            empty field isn't weak, it's just empty. */
         .pw-strength { margin-top: 8px; display: flex; align-items: center; gap: 8px; }
+        /* `display: flex` above is an author rule and beats the `hidden`
+           attribute's UA display:none, so the empty meter showed under every
+           password field before anything was typed (Add User, Edit User,
+           profile) -- the same trap #confirmModalConfirm[hidden] documents. */
+        .pw-strength[hidden] { display: none; }
         .pw-strength-bar { flex: 1; height: 5px; border-radius: 3px; background: #e2e8f0; overflow: hidden; }
         .pw-strength-bar span { display: block; height: 100%; width: 0; border-radius: 3px; transition: width .2s ease, background .2s ease; }
         .pw-strength-label { font-size: 12.5px; font-weight: 600; white-space: nowrap; }
