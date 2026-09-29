@@ -5,7 +5,9 @@ namespace App\Console\Commands;
 use App\Models\Product;
 use App\Models\SalesHistory;
 use App\Services\AlertService;
+use App\Services\SalesForecastService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -239,7 +241,12 @@ class ImportSalesHistoryCsv extends Command
         // 3. Every revenue aggregate in the app is cached and keyed on this
         //    stamp; without the bump the dashboard and both reports keep
         //    serving figures from the record that was just replaced.
-        SalesHistory::bumpCacheVersion();
+        //    forgetCaches(), not bumpCacheVersion(): the latter only retires
+        //    the POS-dependent keys, so the history-only aggregates -- the
+        //    expensive ones -- kept describing the replaced record for up to
+        //    their 24 h TTL (found 2026-09-30, before syncing the live DB).
+        SalesHistory::forgetCaches();
+        Cache::forget(SalesForecastService::cacheKey());
         AlertService::forget();
         $this->info('Cache versions bumped.');
 

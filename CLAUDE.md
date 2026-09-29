@@ -1151,6 +1151,18 @@ this. The counter is scoped per product on purpose — `batch_number` has no uni
 nothing joins on it, and the letters already separate two different products received the same day, so
 both start at `01`. Covered by `Feature\Inventory\ProductFormTest`.
 
+### Syncing the LIVE database to local (2026-09-30)
+At the user's request, after a verified backup (`C:\xampp\htdocs\remedi.2\backups\live_before_sync_20260930_022253.sql`,
+22 tables, restored into `remedi_restore_test` and every row count matched live). Two committed steps,
+rehearsed on that restored copy first: **`php artisan catalogue:sync --file=database/data/catalogue_sync_2026-09-30.json
+--write`** (dry run without `--write`; matches by SKU and batch number, never id; archives 18 products with
+their batches plus the 4 duplicate OPENING batches, sets 324 selling prices and 2,634 costs; skips rows
+already right, so a rerun is a no-op) and **`sales-history:import`** with the 2022–2026 daily CSV. It
+deliberately leaves live's own rows alone — users, sales, audit trail, stock movements, stock quantities
+(the till moved them), and live's two archived QA test products. Forecasts are then regenerated on the
+container. `sales-history:import` now calls `SalesHistory::forgetCaches()`: it only bumped the POS stamp,
+so the history-only aggregates would have described the replaced record for up to 24 h.
+
 ### The data swap of 2026-09-29, second file — the CURRENT record
 **`transaction_items_2022_2026.csv` replaced the 2023 file the same evening** (same columns): 565,272 lines /
 192,164 orders / **2,617 products, 2022-06-01 .. 2026-08-16**; identical to the 2023 file from 2025 on, a

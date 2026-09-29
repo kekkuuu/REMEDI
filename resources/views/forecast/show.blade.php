@@ -281,25 +281,35 @@
 </div>
 
 <div class="card">
-    <h2 style="margin-top:0; margin-bottom:18px; font-size:20px; font-weight:500;">
-        Forecast detail
+    {{-- Plain words for a shop user (2026-09-30, at the user's request): the
+         point forecast is "expected to sell", and the 80% interval is a
+         "likely range" -- the same numbers, without statistics terms. --}}
+    <h2 style="margin-top:0; margin-bottom:4px; font-size:20px; font-weight:500;">
+        Monthly forecast
     </h2>
+    <p style="margin:0 0 16px; font-size:13px; color:#64748b;">
+        How many units we expect to sell each month. Actual sales will usually land inside the likely range.
+    </p>
     <div class="table-scroll"><table class="remedi-table">
         <thead>
             <tr>
                 <th>Month</th>
-                <th>Forecast</th>
-                <th>Low (80% CI)</th>
-                <th>High (80% CI)</th>
+                <th>Expected to sell</th>
+                <th>Likely range</th>
             </tr>
         </thead>
         <tbody>
             @foreach ($forecast as $row)
                 <tr>
                     <td>{{ $row->forecast_date->format('F Y') }}</td>
-                    <td>{{ number_format($row->forecast_value) }}</td>
-                    <td>{{ $row->lower_ci !== null ? number_format($row->lower_ci) : '—' }}</td>
-                    <td>{{ $row->upper_ci !== null ? number_format($row->upper_ci) : '—' }}</td>
+                    <td><strong>{{ number_format($row->forecast_value) }}</strong></td>
+                    <td>
+                        @if ($row->lower_ci !== null && $row->upper_ci !== null)
+                            {{ number_format($row->lower_ci) }} to {{ number_format($row->upper_ci) }}
+                        @else
+                            —
+                        @endif
+                    </td>
                 </tr>
             @endforeach
         </tbody>
