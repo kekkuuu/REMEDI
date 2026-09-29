@@ -74,7 +74,10 @@ class DemandForecastService
                 'categories.name as category_name'
             )
             ->orderBy('products.name')
-            ->paginate(50);
+            ->paginate(50)
+            // Page links keep ?search= / ?category=: without this, page 2 of a
+            // filtered list was page 2 of the WHOLE catalogue (2026-09-30).
+            ->withQueryString();
 
         $skusOnPage = collect($productPage->items())->pluck('product_sku');
         $namesBySku = collect($productPage->items())->pluck('product_name', 'product_sku');

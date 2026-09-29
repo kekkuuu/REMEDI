@@ -489,9 +489,6 @@ let debounceTimer;
 let currentController;
 
 function runSearch(term, category, pushState = true) {
-    if (currentController) currentController.abort();
-    currentController = new AbortController();
-
     const url = new URL(baseUrl);
     if (term) {
         url.searchParams.set('search', term);
@@ -500,10 +497,28 @@ function runSearch(term, category, pushState = true) {
         url.searchParams.set('category', category);
     }
 
+    loadList(url, { pushState, term, category });
+}
+
+// Scroll so the search bar -- the top of the product list -- sits just under
+// the sticky topbar. A page link used to be a full page load, which landed
+// at the very top of the page, three charts above the list (2026-09-30).
+function scrollToList() {
+    const form = document.getElementById('search-form');
+    const topbar = document.querySelector('.topbar');
+    const offset = (topbar ? topbar.offsetHeight : 0) + 12;
+    window.scrollTo({ top: form.getBoundingClientRect().top + window.scrollY - offset, behavior: 'smooth' });
+}
+
+// One loader behind search, filters, page links and back/forward.
+function loadList(url, { pushState = true, term = input.value.trim(), category = categorySelect.value, toTop = false } = {}) {
+    if (currentController) currentController.abort();
+    currentController = new AbortController();
+
     // Swap the stale rows for a skeleton so a search/filter reads as
     // 'working' instead of leaving the previous results on screen.
     // See REMEDI.holdScroll: read the offset before the rows are gone.
-    const restoreScroll = REMEDI.holdScroll();
+    const restoreScroll = toTop ? () => scrollToList() : REMEDI.holdScroll();
 
     REMEDI.showListSkeleton(wrapper, { rows: 6 });
 
@@ -560,13 +575,25 @@ clearLink.addEventListener('click', (e) => {
     runSearch('', '');
 });
 
+// Page links load in place and bring the top of the list into view. Caught
+// here, below the layout's document-level navigation handler, so no
+// full-page skeleton paints for a list refresh. A modified click (new tab)
+// is left to the browser.
+wrapper.addEventListener('click', (e) => {
+    const link = e.target.closest('#pagination-wrapper a[href]');
+    if (!link || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+    e.preventDefault();
+    loadList(link.href, { toTop: true });
+});
+
 window.addEventListener('popstate', () => {
     const params = new URLSearchParams(window.location.search);
     const term = params.get('search') || '';
     const category = params.get('category') || '';
     input.value = term;
     categorySelect.value = category;
-    runSearch(term, category, false);
+    // The whole address, page included, so Back returns to the page it left.
+    loadList(window.location.href, { pushState: false, term, category });
 });
 </script>
 @endsection
