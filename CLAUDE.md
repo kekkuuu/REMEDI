@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (350 passed, 1166 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (352 passed, 1174 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -486,6 +486,21 @@ reset codes only ever go out from Vercel. `config/mail.php` now times SMTP out a
 the controller's catch can answer; sending from Railway needs an HTTP mail API or Railway's Pro plan.
 Railway's HTTP logs (`railway logs --http --json`) carry `upstreamRqDuration` per request — the real server
 time for every page anyone opened.
+
+**Second pass, 2026-09-30, on the synced 2,620-product catalogue** (local timings, same data as live; the
+dashboard output was diffed byte-for-byte before/after for admin and staff, and the Forecasting page's
+only change is SKUs rendered as strings): **dashboard body 664 → 379 ms, Forecasting 171 → 100 ms.**
+(1) The dashboard loads products ONCE and shares them with their batches (`with('product.category')`
+hydrated all ~2,600 a second time and made the per-product memo per-batch). (2) `Product::total_stock` /
+`sellable_stock` (loaded path) and `non_pharma_return_window_days` are memoized, and **Product now clears
+its memo in `setRelation()` / `unsetRelation()` / `setRelations()`** — the dashboard attaches batch
+slices after load. (3) `ProductBatch::getAttributeValue()` parses `expiry_date` / `received_date` once per
+instance — **safe only while nothing mutates the returned Carbon in place** (every caller uses `copy()`
+or a comparison; keep it that way). (4) The non-pharma return window counts whole days (`days_to_expiry`,
+the `is_returnable` rule) instead of a fractional `diffInDays(now())` per batch — the same answer, since
+expiries are midnights. (5) Both "Top 5" forecast charts rank in SQL and fetch only the winners' rows.
+Covered by two `BatchStateTest` cases. What is left is mostly hydrating ~5,200 models (~70 ms) and the
+0.3–0.4 s trip to Europe per request.
 
 Migration `2026_09_02_000001_create_sessions_and_cache_tables` exists for this deploy and no-ops
 locally. **A container filesystem is rebuilt on every deploy and is not shared between instances**,

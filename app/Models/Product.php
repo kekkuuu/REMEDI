@@ -58,7 +58,12 @@ class Product extends Model
     public function getTotalStockAttribute(): int
     {
         if ($this->relationLoaded('batches')) {
-            return (int) $this->batches->sum('quantity');
+            // Memoized on the loaded path only (2026-09-30): the dashboard,
+            // inventory and alerts read it several times per product over the
+            // whole catalogue -- ~17 ms a pass on 2,620 products. The memo is
+            // dropped whenever the batches relation is (re)attached; see
+            // setRelation() below.
+            return $this->derivedMemo['total_stock'] ??= (int) $this->batches->sum('quantity');
         }
 
         return (int) $this->batches()->sum('quantity');
@@ -80,7 +85,7 @@ class Product extends Model
     public function getSellableStockAttribute(): int
     {
         if ($this->relationLoaded('batches')) {
-            return (int) $this->batches->filter(fn ($b) => $b->is_sellable)->sum('quantity');
+            return $this->derivedMemo['sellable_stock'] ??= (int) $this->batches->filter(fn ($b) => $b->is_sellable)->sum('quantity');
         }
 
         return (int) $this->batches()->sellable()->sum('quantity');
@@ -241,6 +246,34 @@ class Product extends Model
         return parent::setAttribute($key, $value);
     }
 
+    /**
+     * Relations feed the memo too -- total_stock / sellable_stock read the
+     * batches, is_medicine and the return window read the category -- so
+     * attaching, replacing or dropping a relation drops it as well. The
+     * dashboard and inventory attach each product's batch slice with
+     * setRelation() AFTER the product was loaded, which is exactly the case.
+     */
+    public function setRelation($relation, $value)
+    {
+        $this->derivedMemo = [];
+
+        return parent::setRelation($relation, $value);
+    }
+
+    public function unsetRelation($relation)
+    {
+        $this->derivedMemo = [];
+
+        return parent::unsetRelation($relation);
+    }
+
+    public function setRelations(array $relations)
+    {
+        $this->derivedMemo = [];
+
+        return parent::setRelations($relations);
+    }
+
     public function getIsMedicineAttribute(): bool
     {
         return $this->derivedMemo['is_medicine'] ??= (
@@ -368,9 +401,11 @@ class Product extends Model
      */
     public function getNonPharmaReturnWindowDaysAttribute(): int
     {
-        return in_array($this->category?->name, self::EXTENDED_RETURN_WINDOW_CATEGORIES, true)
-            ? self::EXTENDED_RETURN_WINDOW_DAYS
-            : self::NON_PHARMA_RETURN_WINDOW_DAYS;
+        return $this->derivedMemo['non_pharma_window'] ??= (
+            in_array($this->category?->name, self::EXTENDED_RETURN_WINDOW_CATEGORIES, true)
+                ? self::EXTENDED_RETURN_WINDOW_DAYS
+                : self::NON_PHARMA_RETURN_WINDOW_DAYS
+        );
     }
 
     /**

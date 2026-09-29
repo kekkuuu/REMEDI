@@ -163,9 +163,19 @@ class DashboardController extends Controller
         //
         // Everything derived below that means "on the shelf" therefore has to
         // say `quantity > 0` for itself — see $onShelf.
-        $activeBatches = ProductBatch::with('product.category')
+        // Products are loaded ONCE and shared: each batch points at the same
+        // Product instance the low-stock list below uses (2026-09-30). The
+        // eager load `with('product.category')` hydrated all ~2,600 products a
+        // second time, and because every batch then had its own copy, the
+        // per-product memo (is_medicine, the return window) was recomputed
+        // per batch instead of per product. A batch whose product is archived
+        // gets null, exactly as the eager load's soft-delete scope gave it.
+        $productsById = Product::with('category')->get()->keyBy('id');
+
+        $activeBatches = ProductBatch::query()
             ->where(fn ($w) => $w->where('quantity', '>', 0)->orWhereNotNull('returned_at'))
-            ->get();
+            ->get()
+            ->each(fn ($b) => $b->setRelation('product', $productsById->get($b->product_id)));
 
         // The stock-bearing subset. Used by every expiry/stock derivation, so
         // a zero-quantity returned batch can never be counted as sitting on the
@@ -178,7 +188,7 @@ class DashboardController extends Controller
         // product gets its slice of $activeBatches attached directly via
         // setRelation, so total_stock / is_low_stock / is_medicine etc.
         // read from memory instead of falling back to a query per product.
-        $lowStockProducts = Product::all()
+        $lowStockProducts = $productsById->values()
             ->each(fn ($p) => $p->setRelation('batches', $batchesByProduct->get($p->id, collect())))
             ->filter(fn ($p) => $p->is_running_out)
             ->values();
@@ -278,6 +288,16 @@ class DashboardController extends Controller
         // see Product::getNeedsReturnAttribute() and getFailedReturnAttribute().
         $nonPharmaBatches = $activeBatches->filter(fn ($b) => $b->product && ! $b->product->is_medicine && $b->expiry_date);
 
+        // Not returned, not expired, and inside the product's own window --
+        // counted in WHOLE DAYS (days_to_expiry), the rule is_returnable uses.
+        // It was `expiry_date->diffInDays(now(), true) <= window`: a fresh now()
+        // and a fractional Carbon diff per batch, run twice, 107 ms of the
+        // dashboard on 2,600 batches (2026-09-30). Same answer: the expiry is
+        // a midnight, so the fraction of today that has passed can never move
+        // a whole number of days across the window.
+        $insideNonPharmaWindow = fn ($b) => ! $b->returned_at && ! $b->is_expired
+            && $b->days_to_expiry <= $b->product->non_pharma_return_window_days;
+
         // Three buckets, mutually exclusive, returned first -- the same shape
         // and the same precedence as the medicine tally above.
         //
@@ -290,8 +310,7 @@ class DashboardController extends Controller
         $nonPharmaReturnStats = [
             'returned' => $nonPharmaBatches->filter(fn ($b) => $b->returned_at)->count(),
             'expired' => $nonPharmaBatches->filter(fn ($b) => ! $b->returned_at && $b->is_expired)->count(),
-            'need_to_return' => $nonPharmaBatches->filter(fn ($b) => ! $b->returned_at && ! $b->is_expired
-                && $b->expiry_date->diffInDays(now(), true) <= $b->product->non_pharma_return_window_days)->count(),
+            'need_to_return' => $nonPharmaBatches->filter($insideNonPharmaWindow)->count(),
         ];
 
         // "N batches inside the return window" under the ring — so it must
@@ -302,8 +321,7 @@ class DashboardController extends Controller
         // in, which listed an expired batch as "inside the return window"
         // directly under a ring that had just counted it as "Expired".
         $nonPharmaNeedToReturnBatches = $nonPharmaBatches
-            ->filter(fn ($b) => ! $b->returned_at && ! $b->is_expired
-                && $b->expiry_date->diffInDays(now(), true) <= $b->product->non_pharma_return_window_days)
+            ->filter($insideNonPharmaWindow)
             ->sortBy('expiry_date')
             ->values();
 

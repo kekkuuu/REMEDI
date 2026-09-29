@@ -189,30 +189,28 @@ class SalesForecastService
     {
         $from = ForecastHorizon::firstActionableMonth();
 
-        $rows = DB::table('sales_forecasts')
-            ->where('forecast_date', '>=', $from)
-            ->select('product_sku', 'forecast_date', 'forecast_revenue')
-            ->get();
+        // Ranked in SQL, winners' rows only -- same change and reason as
+        // DemandForecastService::topDemandSeries() (2026-09-30).
+        $horizon = DB::table('sales_forecasts')->where('forecast_date', '>=', $from);
 
-        if ($rows->isEmpty()) {
+        $months = (clone $horizon)->distinct()->orderBy('forecast_date')->pluck('forecast_date')
+            ->map(fn ($d) => substr((string) $d, 0, 7))->unique()->values();
+
+        if ($months->isEmpty()) {
             return ['months' => [], 'series' => []];
         }
 
-        $months = $rows->map(fn ($r) => Carbon::parse($r->forecast_date)->format('Y-m'))
-            ->unique()->sort()->values();
-
-        $topSkus = $rows->groupBy('product_sku')
-            ->map(fn ($g) => (float) $g->sum('forecast_revenue'))
-            ->sortDesc()
-            ->take($limit)
-            ->keys();
+        $topSkus = (clone $horizon)->groupBy('product_sku')
+            ->orderByRaw('SUM(forecast_revenue) DESC')->orderBy('product_sku')
+            ->limit($limit)->pluck('product_sku');
 
         $names = DB::table('products')->whereIn('sku', $topSkus)->pluck('name', 'sku');
 
-        $byProduct = $rows->whereIn('product_sku', $topSkus)
+        $byProduct = (clone $horizon)->whereIn('product_sku', $topSkus)
+            ->get(['product_sku', 'forecast_date', 'forecast_revenue'])
             ->groupBy('product_sku')
             ->map(fn ($g) => $g->mapWithKeys(fn ($r) => [
-                Carbon::parse($r->forecast_date)->format('Y-m') => (float) $r->forecast_revenue,
+                substr((string) $r->forecast_date, 0, 7) => (float) $r->forecast_revenue,
             ]));
 
         $series = $topSkus->map(fn ($sku) => [

@@ -81,6 +81,32 @@ class ProductBatch extends Model
         return parent::setAttribute($key, $value);
     }
 
+    /**
+     * The two date casts, parsed once per instance (2026-09-30).
+     *
+     * Eloquent re-parses a `date` cast into a NEW Carbon on every read, and the
+     * dashboard reads expiry_date many times per batch -- the expiring filter,
+     * a sortBy, four expiry-overview passes, every return accessor -- over
+     * ~2,600 batches. Same memo, same reset rules as the accessors above
+     * (setAttribute / setRawAttributes). Safe only because nothing mutates the
+     * returned date in place: every caller uses copy() or a comparison. Keep
+     * it that way -- `$b->expiry_date->addDay()` would now change the batch.
+     */
+    public function getAttributeValue($key)
+    {
+        if ($key !== 'expiry_date' && $key !== 'received_date') {
+            return parent::getAttributeValue($key);
+        }
+
+        $memoKey = 'cast:'.$key;
+
+        if (! array_key_exists($memoKey, $this->derivedMemo)) {
+            $this->derivedMemo[$memoKey] = parent::getAttributeValue($key);
+        }
+
+        return $this->derivedMemo[$memoKey];
+    }
+
     // A batch belongs to one product
     public function product()
     {

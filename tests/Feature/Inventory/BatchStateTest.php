@@ -283,6 +283,33 @@ class BatchStateTest extends TestCase
         $this->assertSame(90, $batch->return_days);
     }
 
+    public function test_the_cached_expiry_date_follows_an_edit(): void
+    {
+        $batch = $this->batch(5, '2027-01-15');
+        $this->assertSame('2027-01-15', $batch->expiry_date->toDateString());
+
+        $batch->update(['expiry_date' => '2027-03-01']);
+
+        $this->assertSame('2027-03-01', $batch->expiry_date->toDateString(), 'the parsed date must not outlive the value');
+        $this->assertSame('2027-03-01', $batch->fresh()->expiry_date->toDateString());
+    }
+
+    public function test_product_stock_totals_follow_a_reattached_batch_slice(): void
+    {
+        $batch = $this->batch(40, now()->addYear()->toDateString());
+        $product = $batch->product;
+
+        $product->setRelation('batches', collect([$batch]));
+        $this->assertSame(40, $product->total_stock);
+        $this->assertSame(40, $product->sellable_stock);
+
+        // What the dashboard does: attach a different slice after the first read.
+        $product->setRelation('batches', collect());
+        $this->assertSame(0, $product->total_stock, 'setRelation must drop the memoized total');
+        $this->assertSame(0, $product->sellable_stock);
+        $this->assertTrue($product->is_running_out);
+    }
+
     public function test_the_memo_still_serves_repeated_reads(): void
     {
         $batch = $this->batch(50, now()->addYear()->toDateString());
