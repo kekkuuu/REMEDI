@@ -24,7 +24,7 @@ class DemandForecastService
      * Pattern panel below the chart reads the FULL history, so nothing is lost
      * by trimming here) while leaving the recent months legible.
      */
-    private const CHART_HISTORY_MONTHS = 12;
+    public const CHART_HISTORY_MONTHS = 12;
 
     /**
      * One row per product: next month's forecast + 6-month total,
@@ -290,6 +290,16 @@ class DemandForecastService
             ->orderBy('month')
             ->pluck('total_qty', 'month');
 
+        // Plus the terminal's own (non-voided) sales. Both Python scripts train
+        // on sales_history UNION sale_items; reading history alone drew a
+        // different series from the one the model saw -- and once the import
+        // was cut back to July 31, every chart's actual line stopped at July
+        // while the forecast opened in September, August simply missing.
+        foreach (config('forecast.include_pos') ? SalesHistory::posMonthly($productSku) : [] as $ym => $pos) {
+            $actual[$ym] = ($actual[$ym] ?? 0) + $pos['units'];
+        }
+        $actual = $actual->sortKeys();
+
         // Fill the months this product sold NOTHING in with 0.
         //
         // The GROUP BY above returns only months that have rows, so a product
@@ -309,7 +319,7 @@ class DemandForecastService
         // deliberately does not run to today: the current month is partial, and
         // padding it with a 0 would drag the forecast's join point down to zero
         // for any product that simply has not sold yet this month.
-        $actual = $this->monthlySeriesTo($actual, $this->lastCompleteDataMonth($through));
+        $actual = $this->monthlySeriesTo($actual, $this->lastCompleteDataMonth());
 
         // Trimmed to the recent window for the chart. The forecast rows are
         // untouched -- only how far BACK the actual line reaches changes.
@@ -399,27 +409,19 @@ class DemandForecastService
      * Judged on the GLOBAL end of the data: an incomplete tail is a property of
      * when collection stopped, not of one product's last sale.
      */
-    private function lastCompleteDataMonth(string $through): ?Carbon
+    private function lastCompleteDataMonth(): ?Carbon
     {
-        $dataEnd = DB::table('sales_history')->where('sale_date', '<=', $through)->max('sale_date');
-
-        if (! $dataEnd) {
-            return null;
-        }
-
-        $dataEnd = Carbon::parse($dataEnd)->startOfDay();
-
         // A month that stops before its own last day is half a month, not a
         // low one. Left in, it renders as a cliff at the right-hand edge of
-        // nearly every chart: history here stops on the 15th, and of the 1,043
-        // products selling in both July and August, 631 (60%) showed a drop of
-        // more than 30% that was purely the calendar -- GLUMET XR appeared to
-        // fall from 235 units to 90. Both Python scripts drop it before fitting
-        // for the same reason, so this also keeps the chart showing the series
-        // the forecast was actually trained on.
-        return $dataEnd->isSameDay($dataEnd->copy()->endOfMonth())
-            ? $dataEnd->copy()->startOfMonth()
-            : $dataEnd->copy()->subMonthNoOverflow()->startOfMonth();
+        // nearly every chart: of the 1,043 products selling in both July and
+        // August once, 631 (60%) showed a drop of more than 30% that was purely
+        // the calendar -- GLUMET XR appeared to fall from 235 units to 90. Both
+        // Python scripts drop it before fitting for the same reason. Judged
+        // across BOTH records (SalesHistory::lastCompleteMonth), since the
+        // terminal is what runs to the present.
+        $ym = SalesHistory::lastCompleteMonth();
+
+        return $ym ? Carbon::createFromFormat('Y-m', $ym)->startOfMonth() : null;
     }
 
     /**

@@ -6,6 +6,7 @@ use App\Models\SalesForecast;
 use App\Models\SalesHistory;
 use App\Support\ForecastHorizon;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -29,10 +30,20 @@ class SalesForecastService
 
     public const CACHE_TTL_HOURS = 6;
 
+    /**
+     * The live key. The POS stamp is part of it now that the actuals fold in
+     * the terminal: a checkout or a void changes them. Forget THIS, never the
+     * bare CACHE_KEY, which no longer names anything that is stored.
+     */
+    public static function cacheKey(): string
+    {
+        return self::CACHE_KEY.':p'.SalesHistory::posCacheVersion();
+    }
+
     public function overallMonthlyTrend(): array
     {
         return Cache::remember(
-            self::CACHE_KEY,
+            self::cacheKey(),
             now()->addHours(self::CACHE_TTL_HOURS),
             fn () => $this->computeOverallMonthlyTrend()
         );
@@ -76,6 +87,12 @@ class SalesForecastService
             ->groupBy('month')
             ->orderBy('month')
             ->pluck('total_revenue', 'month');
+
+        // Plus the terminal (non-voided), then cut to the last COMPLETE month
+        // -- the series both Python scripts train on. Reading history alone
+        // ended the actual line at July while the forecast opened in
+        // September, with August missing from the chart entirely.
+        [$actualUnits, $actualRevenue] = $this->withTerminal($actualUnits, $actualRevenue, null);
 
         $lastActualMonth = $actualUnits->keys()->last();
         $forecastCutoff = $lastActualMonth
@@ -234,6 +251,34 @@ class SalesForecastService
         $sellingPrice = (float) (DB::table('products')->where('sku', $productSku)->value('selling_price') ?? 0);
         $actualRevenue = $actualUnits->map(fn ($qty) => round($qty * $sellingPrice, 2));
 
+        // Same fold as the store-wide trend: the terminal's sales, up to the
+        // last complete month.
+        [$actualUnits, $actualRevenue] = $this->withTerminal($actualUnits, $actualRevenue, $productSku);
+
+        // One continuous run of months, zeros included, trimmed to the same
+        // window the Demand chart above it shows. The GROUP BY returns only
+        // months with sales, and the chart builds its x-axis from these keys --
+        // so a sporadic seller plotted 2022-08, 2024-07, 2024-12, 2025-05 side
+        // by side and the axis was not a time axis at all. The exact fault the
+        // Demand chart was fixed for (DemandForecastService::monthlySeriesTo);
+        // this chart never got the same fix.
+        if ($actualUnits->isNotEmpty() && ($last = SalesHistory::lastCompleteMonth())) {
+            $filledUnits = [];
+            $filledRevenue = [];
+            $cursor = Carbon::createFromFormat('Y-m', $actualUnits->keys()->first())->startOfMonth();
+            $end = Carbon::createFromFormat('Y-m', $last)->startOfMonth();
+
+            while ($cursor->lessThanOrEqualTo($end)) {
+                $ym = $cursor->format('Y-m');
+                $filledUnits[$ym] = (float) ($actualUnits[$ym] ?? 0);
+                $filledRevenue[$ym] = (float) ($actualRevenue[$ym] ?? 0);
+                $cursor->addMonthNoOverflow();
+            }
+
+            $actualUnits = collect($filledUnits)->take(-DemandForecastService::CHART_HISTORY_MONTHS);
+            $actualRevenue = collect($filledRevenue)->take(-DemandForecastService::CHART_HISTORY_MONTHS);
+        }
+
         $forecast = SalesForecast::forProduct($productSku)->get();
 
         return [
@@ -242,5 +287,28 @@ class SalesForecastService
             'forecast' => $forecast,
             'lastActualMonth' => $actualUnits->keys()->last(),
         ];
+    }
+
+    /**
+     * Add the terminal's non-voided monthly units/revenue to a history-only
+     * series, then drop anything after the last complete month.
+     *
+     * @return array{0: Collection, 1: Collection}
+     */
+    private function withTerminal($units, $revenue, ?string $sku): array
+    {
+        $units = collect($units)->map(fn ($v) => (float) $v);
+        $revenue = collect($revenue)->map(fn ($v) => (float) $v);
+
+        // Same switch the models train under (config forecast.include_pos).
+        foreach (config('forecast.include_pos') ? SalesHistory::posMonthly($sku) : [] as $ym => $pos) {
+            $units[$ym] = ($units[$ym] ?? 0) + $pos['units'];
+            $revenue[$ym] = round(($revenue[$ym] ?? 0) + $pos['revenue'], 2);
+        }
+
+        $last = SalesHistory::lastCompleteMonth();
+        $keep = fn ($v, $ym) => $last === null || $ym <= $last;
+
+        return [$units->filter($keep)->sortKeys(), $revenue->filter($keep)->sortKeys()];
     }
 }

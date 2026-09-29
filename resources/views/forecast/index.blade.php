@@ -163,7 +163,7 @@
         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:4px;">
             <span style="font-size:14px; font-weight:500; color:#111;">
                 <i class="ti ti-currency-peso" style="font-size:14px; vertical-align:-1px; margin-right:6px; color:#0f6e56;"></i>
-                Top 5 products by sales forecast
+                Top 5 sales forecast by sales product
             </span>
             <span style="font-size:12px; color:#6b7280;">forecast revenue per month</span>
         </div>

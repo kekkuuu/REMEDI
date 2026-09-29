@@ -66,13 +66,21 @@ warnings.filterwarnings("ignore")
 # this catalogue does not have. The last two candidates are the same
 # equation with P=D=Q=0 and s dropped, i.e. plain ARIMA(p,d,q), offered
 # because a short or irregular series can fail a seasonal fit outright.
-SARIMA_CANDIDATES = [
+# SEASONAL + NON-SEASONAL COMPETING, WITH A LEVEL GUARD, as of 2026-09-29 -- kept
+# in step with generate_forecasts.py, which has the measurements and history.
+SEASONAL_CANDIDATES = [
     ((0, 1, 1), (0, 1, 1, 12)),
     ((1, 1, 1), (0, 1, 1, 12)),
+]
+NONSEASONAL_CANDIDATES = [
     ((1, 1, 1), (0, 0, 0, 0)),
     ((0, 1, 1), (0, 0, 0, 0)),
 ]
+SARIMA_CANDIDATES = SEASONAL_CANDIDATES + NONSEASONAL_CANDIDATES
+SEASONAL_LEVEL_GUARD = 0.5
 SARIMA_SELECTION_HOLDOUT = 3
+# Rolling windows the order is chosen over -- keep in step with generate_forecasts.py.
+SELECTION_FOLDS = 3
 MIN_MONTHS_FOR_ANY_FORECAST = 3
 
 TASK_CHUNK_SIZE = 8
@@ -124,7 +132,7 @@ def db_credentials(env_path: str | None) -> dict:
     return env
 
 
-def load_from_mysql(env_path: str | None) -> tuple[pd.DataFrame, dict]:
+def load_from_mysql(env_path: str | None, include_pos: bool = False) -> tuple[pd.DataFrame, dict]:
     import pymysql
 
     env = db_credentials(env_path)
@@ -151,14 +159,16 @@ def load_from_mysql(env_path: str | None) -> tuple[pd.DataFrame, dict]:
     # (sku, date) pairs across the two sources sum exactly as they should.
     # Joined through products.sku, the only place sale_items.product_id and
     # sales_history.product_sku meet.
-    sales_df = pd.read_sql(
-        """
+    # The till's branch is opt-in (--include-pos) -- see generate_forecasts.py.
+    query = """
         SELECT sale_date AS date, product_sku, quantity_sold AS qty
         FROM sales_history
         WHERE product_sku NOT IN (
             SELECT sku FROM products WHERE archived_at IS NOT NULL
         )
-
+    """
+    if include_pos:
+        query += """
         UNION ALL
 
         SELECT DATE(sales.created_at) AS date, products.sku AS product_sku,
@@ -167,9 +177,10 @@ def load_from_mysql(env_path: str | None) -> tuple[pd.DataFrame, dict]:
         JOIN sales ON sales.id = sale_items.sale_id
         JOIN products ON products.id = sale_items.product_id
         WHERE products.archived_at IS NULL
-        """,
-        conn,
-    )
+          -- A voided sale was reversed and restocked: it is not demand.
+          AND sales.payment_voided = 0
+        """
+    sales_df = pd.read_sql(query, conn)
     price_df = pd.read_sql("SELECT sku, selling_price FROM products", conn)
     conn.close()
 
@@ -214,9 +225,25 @@ def forecast_series(series: pd.Series, horizon: int):
     Forecast one product with a SARIMA model -- always SARIMA, but the ORDER
     is picked per product from SARIMA_CANDIDATES by holdout accuracy, the
     same approach as generate_forecasts.py::forecast_product (kept in sync
-    deliberately so unit and demand forecasts behave consistently). No model
-    outside the SARIMA family is fit.
+    deliberately so unit and demand forecasts behave consistently): seasonal
+    and non-seasonal orders COMPETE per product, then the level guard refits
+    from NONSEASONAL_CANDIDATES alone when the forecast averages more than
+    SEASONAL_LEVEL_GUARD from the last three months. No model outside the
+    SARIMA family is fit.
     """
+    rows = _forecast_series_with(series, horizon, SARIMA_CANDIDATES)
+
+    recent = float(series.asfreq("MS", fill_value=0).iloc[-3:].mean())
+    if rows and recent > 0:
+        level = float(np.mean([r["forecast_value"] for r in rows]))
+        if abs(level - recent) / recent > SEASONAL_LEVEL_GUARD:
+            return _forecast_series_with(series, horizon, NONSEASONAL_CANDIDATES) or rows
+
+    return rows
+
+
+def _forecast_series_with(series: pd.Series, horizon: int, candidates):
+    """forecast_series()'s fit, choosing among `candidates` only."""
     series = series.asfreq("MS", fill_value=0)
     n = len(series)
     last_date = series.index[-1]
@@ -272,9 +299,13 @@ def forecast_series(series: pd.Series, horizon: int):
         fit_dates = future_dates if fit_dates is None else fit_dates
         fit_horizon = horizon if fit_horizon is None else fit_horizon
 
+        # Seasonal orders fit with stationarity/invertibility ENFORCED, and a
+        # degenerate fit is a failed fit -- see generate_forecasts.py
+        # _sarimax_rows (2026-09-29) for the diverged fit this prevents.
+        seasonal = len(seasonal_order) == 4 and seasonal_order[3] > 0
         model = SARIMAX(
             fit_series, order=order, seasonal_order=seasonal_order,
-            enforce_stationarity=False, enforce_invertibility=False,
+            enforce_stationarity=seasonal, enforce_invertibility=seasonal,
         )
         with warnings.catch_warnings():
             # A locally-scoped filter is needed here: statsmodels re-registers
@@ -285,6 +316,9 @@ def forecast_series(series: pd.Series, horizon: int):
 
         pred = fit.get_forecast(steps=fit_horizon)
         ci = pred.conf_int(alpha=0.2)
+
+        if not np.all(np.isfinite(ci.values)) or not float(fit.params.get("sigma2", 1.0)) > 0:
+            raise ValueError("degenerate SARIMA fit")
 
         return [
             {
@@ -297,63 +331,55 @@ def forecast_series(series: pd.Series, horizon: int):
             for date, m, (lo, hi) in zip(fit_dates, pred.predicted_mean, ci.values)
         ]
 
-    def selection_error(rows, observed):
-        """
-        MAPE-first, sMAPE fallback -- see generate_forecasts.py's
-        _sarima_selection_error for why this is safe here (never leaves the
-        SARIMA family) where it would not be safe across model families.
-        """
-        if not rows:
-            return None
-
-        pred = np.array([float(r["forecast_value"]) for r in rows[:len(observed)]], dtype=float)
-        obs = np.asarray(observed, dtype=float)[:len(pred)]
-
-        if len(pred) == 0:
-            return None
-
-        nz = obs != 0
-        mape = float(np.mean(np.abs((pred[nz] - obs[nz]) / obs[nz])) * 100.0) if nz.any() else None
-
-        denom = np.abs(pred) + np.abs(obs)
-        terms = np.where(denom == 0, 0.0, np.abs(pred - obs) / np.where(denom == 0, 1.0, denom))
-        smape = float(np.mean(terms) * 200.0)
-
-        return (mape if mape is not None else float("inf"), smape)
-
     def pick_order():
-        """Best SARIMA order for THIS product, scored on its own holdout."""
-        if n < MIN_MONTHS_FOR_ANY_FORECAST + SARIMA_SELECTION_HOLDOUT:
+        """
+        Best SARIMA order for THIS product: lowest AVERAGE error over up to
+        SELECTION_FOLDS rolling 3-month windows, MAE-first -- the same rule as
+        generate_forecasts.py::_pick_sarima_order (see there for why one
+        window was not enough). Plausible in every window, or disqualified.
+        """
+        h = SARIMA_SELECTION_HOLDOUT
+        folds = []
+        for k in range(1, SELECTION_FOLDS + 1):
+            cut = n - h * k
+            if cut < MIN_MONTHS_FOR_ANY_FORECAST:
+                break
+            folds.append((series.iloc[:cut], series.iloc[cut:cut + h].to_numpy(dtype=float)))
+        if not folds:
             return None
-
-        train = series.iloc[:-SARIMA_SELECTION_HOLDOUT]
-        observed = series.iloc[-SARIMA_SELECTION_HOLDOUT:].to_numpy(dtype=float)
-        holdout_dates = pd.date_range(
-            train.index[-1] + pd.offsets.MonthBegin(1), periods=SARIMA_SELECTION_HOLDOUT, freq="MS"
-        )
 
         best = None
-        for order, seasonal_order in SARIMA_CANDIDATES:
-            try:
-                rows = sarimax_rows(order, seasonal_order, train, holdout_dates, SARIMA_SELECTION_HOLDOUT)
-            except Exception:
+        for order, seasonal_order in candidates:
+            maes, smapes = [], []
+            for train, observed in folds:
+                dates = pd.date_range(train.index[-1] + pd.offsets.MonthBegin(1), periods=h, freq="MS")
+                try:
+                    rows = sarimax_rows(order, seasonal_order, train, dates, h)
+                except Exception:
+                    rows = None
+
+                if not rows or not plausible(rows):
+                    maes = None
+                    break
+
+                pred = np.array([min(max(0.0, r["forecast_value"]), ceiling) for r in rows[:len(observed)]], dtype=float)
+                err = pred - observed[:len(pred)]
+                maes.append(float(np.mean(np.abs(err))))
+                denom = np.abs(pred) + np.abs(observed[:len(pred)])
+                smapes.append(float(np.mean(np.where(denom == 0, 0.0, np.abs(err) / np.where(denom == 0, 1.0, denom))) * 200.0))
+
+            if not maes:
                 continue
 
-            if not rows or not plausible(rows):
-                continue
-
-            error = selection_error(rows, observed)
-            if error is None:
-                continue
-
-            if best is None or error < best[1]:
-                best = ((order, seasonal_order), error)
+            score = (float(np.mean(maes)), float(np.mean(smapes)))
+            if best is None or score < best[1]:
+                best = ((order, seasonal_order), score)
 
         return best[0] if best else None
 
     winner = pick_order()
     orders_to_try = [winner] if winner else []
-    orders_to_try += [o for o in SARIMA_CANDIDATES if o != winner]
+    orders_to_try += [o for o in candidates if o != winner]
 
     for order, seasonal_order in orders_to_try:
         try:
@@ -404,6 +430,8 @@ def main():
     parser.add_argument("--output", required=True)
     parser.add_argument("--horizon", type=int, default=6)
     parser.add_argument("--env-path", default=None)
+    parser.add_argument("--include-pos", action="store_true",
+                        help="also train on the till's own (non-voided) sales")
     parser.add_argument("--sales-csv", default=None, help="sales_history-shaped CSV (product_sku, sale_date, quantity_sold)")
     parser.add_argument("--price-csv", default=None, help="product master CSV with SKU / Barcode + Selling Price, for revenue conversion")
     parser.add_argument(
@@ -427,7 +455,7 @@ def main():
         # would reject a direct/container invocation supplying credentials
         # purely via environment variables with a misleading "required"
         # error instead of db_credentials()'s more useful missing-key one.
-        raw, prices = load_from_mysql(args.env_path)
+        raw, prices = load_from_mysql(args.env_path, args.include_pos)
 
     if raw.empty:
         raise SystemExit("No historical rows parsed from the given source(s).")

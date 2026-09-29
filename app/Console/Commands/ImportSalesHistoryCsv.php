@@ -7,7 +7,6 @@ use App\Models\SalesHistory;
 use App\Services\AlertService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Schema;
 
 /**
  * Replace `sales_history` from a line-level transaction export.
@@ -34,6 +33,15 @@ use Illuminate\Support\Facades\Schema;
  *
  * Dry run unless `--write` is passed, same as every other destructive command
  * here (pos:backfill, products:classify).
+ *
+ * TWO FORMATS, detected from the header (2026-09-27):
+ *  - the line-level export (Product_Name / Transaction_Date DD/MM/YYYY /
+ *    Quantity), matched on NAME -- its Product_ID is a different namespace;
+ *  - a DAILY file (product_sku / sale_date Y-m-d / quantity_sold, plus
+ *    product_name), matched on SKU first and name only as a fallback. That is
+ *    database/data/sales_history_daily_red_pharmacy_2022-2026.csv, built from the 56
+ *    "Sales by Product" monthly files (2022-01-01 .. 2026-08-15), whose
+ *    barcodes all match products.sku exactly.
  */
 class ImportSalesHistoryCsv extends Command
 {
@@ -76,6 +84,18 @@ class ImportSalesHistoryCsv extends Command
         $header[0] = preg_replace('/^\xEF\xBB\xBF/', '', (string) $header[0]);
         $idx = array_flip(array_map('trim', $header));
 
+        // The daily file names its columns differently and is already one row
+        // per (product, day); map it onto the same three roles.
+        $daily = isset($idx['product_sku'], $idx['sale_date'], $idx['quantity_sold']);
+
+        if ($daily) {
+            $idx['Product_Name'] = $idx['product_name'] ?? $idx['product_sku'];
+            $idx['Transaction_Date'] = $idx['sale_date'];
+            $idx['Quantity'] = $idx['quantity_sold'];
+            $skus = array_flip(array_values($skuByName));
+            $this->info('Daily format: matching on product_sku, name as fallback.');
+        }
+
         foreach (['Product_Name', 'Transaction_Date', 'Quantity'] as $needed) {
             if (! isset($idx[$needed])) {
                 $this->error("The file has no `{$needed}` column.");
@@ -97,7 +117,14 @@ class ImportSalesHistoryCsv extends Command
 
             $rows++;
             $name = mb_strtoupper(trim((string) ($row[$idx['Product_Name']] ?? '')));
-            $sku = $skuByName[$name] ?? null;
+            $sku = null;
+
+            if ($daily) {
+                $candidate = trim((string) ($row[$idx['product_sku']] ?? ''));
+                $sku = isset($skus[$candidate]) ? $candidate : null;
+            }
+
+            $sku ??= $skuByName[$name] ?? null;
 
             if ($sku === null) {
                 $unmatched[$name] = ($unmatched[$name] ?? 0) + 1;
@@ -105,7 +132,9 @@ class ImportSalesHistoryCsv extends Command
                 continue;
             }
 
-            $date = $this->parseDate((string) ($row[$idx['Transaction_Date']] ?? ''));
+            $date = $daily
+                ? $this->parseIsoDate((string) ($row[$idx['Transaction_Date']] ?? ''))
+                : $this->parseDate((string) ($row[$idx['Transaction_Date']] ?? ''));
 
             if ($date === null) {
                 $badDates++;
@@ -157,15 +186,18 @@ class ImportSalesHistoryCsv extends Command
         }
 
         // 1. Archive. Done OUTSIDE the transaction below and checked, because
-        //    losing the four-year record is the one thing this must not do.
-        if (! Schema::hasTable('sales_history_archive')) {
-            DB::statement('CREATE TABLE sales_history_archive LIKE sales_history');
-            $this->info('Created sales_history_archive.');
-        }
-
-        DB::table('sales_history_archive')->truncate();
-        DB::statement('INSERT INTO sales_history_archive SELECT * FROM sales_history');
-        $archived = DB::table('sales_history_archive')->count();
+        //    losing a record is the one thing this must not do.
+        //
+        //    A NEW, dated table every run -- never truncate an existing one.
+        //    The first version reused `sales_history_archive` and TRUNCATED it,
+        //    so a second import would have destroyed the record the first one
+        //    saved (the generated four-year history the user asked to keep).
+        //    Restore any of them with
+        //    INSERT INTO sales_history SELECT * FROM <archive table>.
+        $archive = 'sales_history_archive_'.now()->format('Ymd_His');
+        DB::statement("CREATE TABLE `{$archive}` LIKE sales_history");
+        DB::statement("INSERT INTO `{$archive}` SELECT * FROM sales_history");
+        $archived = DB::table($archive)->count();
 
         if ($archived !== $existing) {
             $this->error("Archive mismatch: {$archived} archived vs {$existing} existing. Aborting before any delete.");
@@ -173,7 +205,7 @@ class ImportSalesHistoryCsv extends Command
             return self::FAILURE;
         }
 
-        $this->info('Archived '.number_format($archived).' rows to sales_history_archive.');
+        $this->info('Archived '.number_format($archived)." rows to {$archive}.");
 
         // 2. Replace.
         $now = now();
@@ -215,6 +247,14 @@ class ImportSalesHistoryCsv extends Command
         $this->warn('Forecasts still describe the OLD record -- re-run forecast:generate and sales-forecast:generate.');
 
         return self::SUCCESS;
+    }
+
+    /** The daily file's Y-m-d, strictly -- a date that does not round-trip is refused. */
+    private function parseIsoDate(string $raw): ?string
+    {
+        $d = \DateTime::createFromFormat('!Y-m-d', trim($raw));
+
+        return $d && $d->format('Y-m-d') === trim($raw) ? $d->format('Y-m-d') : null;
     }
 
     /**

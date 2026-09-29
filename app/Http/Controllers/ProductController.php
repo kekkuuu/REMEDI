@@ -278,7 +278,7 @@ class ProductController extends Controller
         // selling_price, so say so explicitly here.
         if ($skuChanged) {
             SalesHistory::forgetCaches();
-            Cache::forget(SalesForecastService::CACHE_KEY);
+            Cache::forget(SalesForecastService::cacheKey());
         }
 
         return $this->actionOk($request, "Product \"{$product->name}\" updated successfully.", redirect()->route('products.index'));

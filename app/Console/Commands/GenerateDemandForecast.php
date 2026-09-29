@@ -54,6 +54,9 @@ class GenerateDemandForecast extends Command
             '--horizon', (string) $horizon,
             '--workers', (string) (int) $this->option('workers'),
             '--env-path', base_path('.env'),
+            // config('forecast.include_pos'): one switch for the scripts,
+            // the nightly run and both forecast charts.
+            ...(config('forecast.include_pos') ? ['--include-pos'] : []),
             '--metrics', $metricsPath,
         ];
 
@@ -76,7 +79,12 @@ class GenerateDemandForecast extends Command
         $this->info('Running SARIMA forecasting engine (this can take a few minutes for large catalogs)...');
 
         $process = new Process($args, resource_path('python'));
-        $process->setTimeout(1800); // 30 min ceiling for large catalogs
+        // 3 hours. Seasonal SARIMA orders compete per product since 2026-09-29
+        // and are much slower to fit: 2,617 products took ~84 CPU-minutes
+        // locally, so the nightly --workers=1 run on Railway (~1,300 products)
+        // needs ~40 minutes and would hit the old 30-minute ceiling every night,
+        // leaving yesterday's forecasts in place without saying so.
+        $process->setTimeout(10800);
         $process->run(function ($type, $buffer) {
             $this->output->write($buffer);
         });

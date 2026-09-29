@@ -148,6 +148,6 @@ class AppServiceProvider extends ServiceProvider
     private static function forgetRevenueCaches(): void
     {
         SalesHistory::forgetCaches();
-        Cache::forget(SalesForecastService::CACHE_KEY);
+        Cache::forget(SalesForecastService::cacheKey());
     }
 }

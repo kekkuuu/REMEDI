@@ -53,6 +53,9 @@ class GenerateSalesForecast extends Command
             '--horizon', (string) $horizon,
             '--workers', (string) (int) $this->option('workers'),
             '--env-path', base_path('.env'),
+            // config('forecast.include_pos'): one switch for the scripts,
+            // the nightly run and both forecast charts.
+            ...(config('forecast.include_pos') ? ['--include-pos'] : []),
         ];
 
         if ($source === 'csv') {
@@ -73,7 +76,8 @@ class GenerateSalesForecast extends Command
         $this->info('Running sales forecasting engine (this can take a few minutes for large catalogs)...');
 
         $process = new Process($args, resource_path('python'));
-        $process->setTimeout(1800);
+        $process->setTimeout(10800); // 3 hours -- see GenerateDemandForecast
+
         $process->run(function ($type, $buffer) {
             $this->output->write($buffer);
         });
@@ -97,7 +101,7 @@ class GenerateSalesForecast extends Command
         // The Sales Forecasting page caches its whole aggregate (see
         // SalesForecastService); without this the page would keep serving
         // the pre-import numbers until the TTL lapsed.
-        Cache::forget(SalesForecastService::CACHE_KEY);
+        Cache::forget(SalesForecastService::cacheKey());
 
         return self::SUCCESS;
     }

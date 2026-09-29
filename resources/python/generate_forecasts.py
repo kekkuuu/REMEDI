@@ -78,12 +78,33 @@ warnings.filterwarnings("ignore")
 # same equation with P=D=Q=0 and s dropped, i.e. plain ARIMA(p,d,q), offered
 # because a short or irregular series can fail a seasonal fit outright while
 # still supporting a light non-seasonal one.
-SARIMA_CANDIDATES = [
+# SEASONAL + NON-SEASONAL orders COMPETING per product, WITH A LEVEL GUARD, as
+# of 2026-09-29 (the user's choice from measured options -- see
+# forecast_product). History of the choice:
+#   2026-09-27, first zip: seasonal orders projected the record's May-2025
+#   level step forward (MAE 12.07 vs 6.92 without them), so seasonal was cut.
+#   On the RED Pharmacy record (May-Jul 2026 holdout, 330 products): non-
+#   seasonal 15.33 / MAPE 59.5%, seasonal kept 15.93 / 62.6%, seasonal WITH
+#   the guard below 15.62 / 60.3% -- still ahead of both naive baselines
+#   (mean of last 3: 16.61 / 62.9%; repeat last: 18.13 / 72.9%). Those
+#   seasonal figures included DIVERGED fits (see _sarimax_rows); with the
+#   seasonal fits enforced, seasonal FIRST scored 16.16 / 67.3% there and
+#   9.43 / 66.2% on the 2023-2026 transaction file, behind the competing
+#   rule used now (8.47 / 57.7%).
+# The guard (SEASONAL_LEVEL_GUARD in forecast_product) is what stops a
+# seasonal order dragging last year's level into this one.
+SEASONAL_CANDIDATES = [
     ((0, 1, 1), (0, 1, 1, 12)),
     ((1, 1, 1), (0, 1, 1, 12)),
+]
+NONSEASONAL_CANDIDATES = [
     ((1, 1, 1), (0, 0, 0, 0)),
     ((0, 1, 1), (0, 0, 0, 0)),
 ]
+SARIMA_CANDIDATES = SEASONAL_CANDIDATES + NONSEASONAL_CANDIDATES
+# A forecast whose average strays more than this fraction from the product's
+# last-3-month average is refit with NONSEASONAL_CANDIDATES only.
+SEASONAL_LEVEL_GUARD = 0.5
 SARIMA_ORDER, SARIMA_SEASONAL_ORDER = SARIMA_CANDIDATES[0]
 SARIMA_SELECTION_HOLDOUT = 3
 MIN_MONTHS_FOR_ANY_FORECAST = 3
@@ -204,7 +225,7 @@ def db_credentials(env_path: str | None) -> dict:
     return env
 
 
-def load_from_mysql(env_path: str | None) -> pd.DataFrame:
+def load_from_mysql(env_path: str | None, include_pos: bool = False) -> pd.DataFrame:
     """Read historical monthly units sold straight from the app's own database."""
     import pymysql
 
@@ -238,13 +259,19 @@ def load_from_mysql(env_path: str | None) -> pd.DataFrame:
     # more must not keep getting a forecast, and its rows would otherwise flow
     # straight into the store-wide totals on the Sales Forecasting page. The
     # first branch has no join to products, so it excludes by SKU.
+    # The till's branch is OPT-IN (--include-pos, from config forecast.include_pos)
+    # as of 2026-09-27: the imported record runs ~10x the till's volume, and
+    # mixing them made the handoff month read as a crash. Off, training is the
+    # imported record alone.
     query = """
         SELECT sale_date AS date, product_sku, quantity_sold AS qty
         FROM sales_history
         WHERE product_sku NOT IN (
             SELECT sku FROM products WHERE archived_at IS NOT NULL
         )
-
+    """
+    if include_pos:
+        query += """
         UNION ALL
 
         SELECT DATE(sales.created_at) AS date, products.sku AS product_sku,
@@ -253,7 +280,9 @@ def load_from_mysql(env_path: str | None) -> pd.DataFrame:
         JOIN sales ON sales.id = sale_items.sale_id
         JOIN products ON products.id = sale_items.product_id
         WHERE products.archived_at IS NULL
-    """
+          -- A voided sale was reversed and restocked: it is not demand.
+          AND sales.payment_voided = 0
+        """
     df = pd.read_sql(query, conn)
     conn.close()
     df["date"] = pd.to_datetime(df["date"])
@@ -324,12 +353,20 @@ def _sarimax_rows(monthly, future_dates, horizon, order, seasonal_order, method)
     """One SARIMAX fit, returned as raw (unclamped) rows so _plausible can judge it."""
     from statsmodels.tsa.statespace.sarimax import SARIMAX
 
+    # SEASONAL orders are fitted with stationarity/invertibility ENFORCED
+    # (2026-09-29). Left free, the seasonal MA term diverged on real products:
+    # TELMIGEN 40MG came back with ma.S.L12 = -3.5e13 and sigma2 = 0, a point
+    # forecast that just replayed last year and an "80% band" of +/-590
+    # million units -- accepted, because only the point values were checked.
+    # Enforced, the same order fits ma.S.L12 = -0.71 with a 268-673 band.
+    # Non-seasonal orders keep the free fit they were measured with.
+    seasonal = len(seasonal_order) == 4 and seasonal_order[3] > 0
     model = SARIMAX(
         monthly,
         order=order,
         seasonal_order=seasonal_order,
-        enforce_stationarity=False,
-        enforce_invertibility=False,
+        enforce_stationarity=seasonal,
+        enforce_invertibility=seasonal,
     )
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")  # statsmodels forces its own convergence-warning filter
@@ -337,6 +374,11 @@ def _sarimax_rows(monthly, future_dates, horizon, order, seasonal_order, method)
 
     pred = fit.get_forecast(steps=horizon)
     ci = pred.conf_int(alpha=0.2)  # 80% interval
+
+    # A degenerate fit (no noise, or a band that is not a number) has failed,
+    # whatever its point forecast looks like: treat it as a failed fit.
+    if not np.all(np.isfinite(ci.values)) or not float(fit.params.get("sigma2", 1.0)) > 0:
+        raise ValueError("degenerate SARIMA fit")
 
     return [
         {
@@ -385,75 +427,71 @@ def _clamp_rows(rows, ceiling):
     return rows
 
 
-def _sarima_selection_error(rows, observed):
-    """
-    How wrong one SARIMA order was on the months it was not allowed to see.
+# How many rolling windows the order is chosen over (2026-09-27). ONE 3-month
+# window let a lucky order win: tested against two naive baselines on the
+# May-Jul 2026 holdout, SARIMA lost on average (MAE 13.68 vs 6.57 for "mean of
+# the last 3 months") -- entirely from ~5% of products where a SEASONAL order
+# read the source data's May-2025 volume step as year-on-year growth and
+# projected it into 2026 (a steady ~700/month product forecast ~1,000). Scoring
+# each order over several consecutive windows makes it earn its place more than
+# once. Still SARIMA_CANDIDATES only -- never a different model family.
+SELECTION_FOLDS = 3
 
-    MAPE-first, falling back to sMAPE when the holdout sold nothing (MAPE
-    undefined). This is the opposite order from the retired cross-model
-    cascade's criterion, deliberately: that one led with MAE/sMAPE because
-    optimising MAPE directly, across DIFFERENT model families, tended to
-    overfit low-volume products in a way that did not generalise. Choosing
-    only ever stays inside the SARIMA family here, so there is no such risk,
-    and lowering MAPE specifically is the point of trying more than one order.
+
+def _selection_folds(series, holdout):
+    """(train, observed) pairs, newest window first, each training on the months before it."""
+    folds = []
+    for k in range(1, SELECTION_FOLDS + 1):
+        cut = len(series) - holdout * k
+        if cut < MIN_MONTHS_FOR_ANY_FORECAST:
+            break
+        folds.append((series.iloc[:cut], series.iloc[cut:cut + holdout].to_numpy(dtype=float)))
+    return folds
+
+
+def _pick_sarima_order(series, holdout, ceiling, candidates=None):
     """
-    if not rows:
+    Choose the SARIMA order with the lowest AVERAGE error across the rolling
+    windows in _selection_folds, among SARIMA_CANDIDATES only.
+
+    MAE-first (sMAPE to break ties) across windows. Within one product every
+    candidate is scored on the same units, so MAE compares them directly; the
+    MAPE-first rule it replaces could not average over a window that sold
+    nothing (MAPE undefined there). An order must produce a PLAUSIBLE raw
+    forecast in every window to qualify -- judged before clamping, so a fit
+    that wanted negative demand is rejected, not repaired into zeros.
+    """
+    folds = _selection_folds(series, holdout)
+    if not folds:
         return None
-
-    pred = np.array([float(r["forecast_value"]) for r in rows[:len(observed)]], dtype=float)
-    obs = np.asarray(observed, dtype=float)[:len(pred)]
-
-    if len(pred) == 0:
-        return None
-
-    nonzero = obs != 0
-    mape = (
-        float(np.mean(np.abs((pred[nonzero] - obs[nonzero]) / obs[nonzero])) * 100.0)
-        if nonzero.any() else None
-    )
-
-    denom = np.abs(pred) + np.abs(obs)
-    terms = np.where(denom == 0, 0.0, np.abs(pred - obs) / np.where(denom == 0, 1.0, denom))
-    smape = float(np.mean(terms) * 200.0)
-
-    return (mape if mape is not None else float("inf"), smape)
-
-
-def _pick_sarima_order(series, holdout, ceiling):
-    """
-    Choose the SARIMA order that scores best on THIS product's own holdout,
-    among SARIMA_CANDIDATES only -- never a different model family.
-    """
-    if len(series) < MIN_MONTHS_FOR_ANY_FORECAST + holdout:
-        return None
-
-    train = series.iloc[:-holdout]
-    observed = series.iloc[-holdout:].to_numpy(dtype=float)
-    dates = _future_dates(train, holdout)
 
     best = None
 
-    for order, seasonal_order in SARIMA_CANDIDATES:
-        try:
-            rows = _sarimax_rows(train, dates, holdout, order, seasonal_order, "sarima")
-        except Exception:  # noqa: BLE001 - a failed fit just loses the contest
+    for order, seasonal_order in (candidates or SARIMA_CANDIDATES):
+        maes, smapes = [], []
+        for train, observed in folds:
+            try:
+                rows = _sarimax_rows(train, _future_dates(train, holdout), holdout, order, seasonal_order, "sarima")
+            except Exception:  # noqa: BLE001 - a failed fit just loses the contest
+                rows = None
+
+            if not rows or not _plausible([r["forecast_value"] for r in rows], ceiling):
+                maes = None
+                break
+
+            rows = _clamp_rows(rows, ceiling)
+            pred = np.array([r["forecast_value"] for r in rows[:len(observed)]], dtype=float)
+            err = pred - observed[:len(pred)]
+            maes.append(float(np.mean(np.abs(err))))
+            denom = np.abs(pred) + np.abs(observed[:len(pred)])
+            smapes.append(float(np.mean(np.where(denom == 0, 0.0, np.abs(err) / np.where(denom == 0, 1.0, denom))) * 200.0))
+
+        if not maes:
             continue
 
-        if not rows:
-            continue
-
-        rows = _clamp_rows(rows, ceiling)
-
-        if not _plausible([r["forecast_value"] for r in rows], ceiling):
-            continue
-
-        error = _sarima_selection_error(rows, observed)
-
-        if error is None:
-            continue
-
-        if best is None or error < best[1]:
-            best = ((order, seasonal_order), error)
+        score = (float(np.mean(maes)), float(np.mean(smapes)))
+        if best is None or score < best[1]:
+            best = ((order, seasonal_order), score)
 
     return best[0] if best else None
 
@@ -465,10 +503,34 @@ def forecast_product(monthly: pd.Series, horizon: int):
     (see _pick_sarima_order), rather than forcing the same order onto every
     series regardless of how well it fits.
 
+    SEASONAL COMPETES (2026-09-29, the user's choice from measured options):
+    seasonal and non-seasonal orders compete per product on its own rolling
+    windows, so a product follows a seasonal shape only where that shape
+    predicted its past better. Then the LEVEL GUARD: a forecast averaging
+    more than SEASONAL_LEVEL_GUARD from the last three months is refit from
+    NONSEASONAL_CANDIDATES alone -- a seasonal order moving the level that
+    far is repeating last year, not this one. Measured on the 2023-2026
+    transaction file, May-Jul 2026 holdout, 2,616 products: this rule
+    8.47 / MAPE 57.7% (857 moving); non-seasonal only 8.20 / 55.6% (473);
+    seasonal FIRST 9.43 / 66.2% (2,252); "mean of the last 3" 8.42 / 57.4%.
+
     Returns a list of dicts, one per forecasted month, or [] when nothing in
     SARIMA_CANDIDATES produces a usable fit. There is no fallback outside
     the SARIMA family: a rejected fit means no forecast.
     """
+    rows = _forecast_with(monthly, horizon, SARIMA_CANDIDATES)
+
+    recent = float(monthly.asfreq("MS", fill_value=0).iloc[-3:].mean())
+    if rows and recent > 0:
+        level = float(np.mean([r["forecast_value"] for r in rows]))
+        if abs(level - recent) / recent > SEASONAL_LEVEL_GUARD:
+            return _forecast_with(monthly, horizon, NONSEASONAL_CANDIDATES) or rows
+
+    return rows
+
+
+def _forecast_with(monthly: pd.Series, horizon: int, candidates):
+    """forecast_product()'s fit, choosing among `candidates` only."""
     monthly = monthly.asfreq("MS", fill_value=0)
     n = len(monthly)
 
@@ -481,7 +543,7 @@ def forecast_product(monthly: pd.Series, horizon: int):
     dates = _future_dates(monthly, horizon)
 
     if n >= MIN_MONTHS_FOR_ANY_FORECAST + SARIMA_SELECTION_HOLDOUT:
-        winner = _pick_sarima_order(monthly, SARIMA_SELECTION_HOLDOUT, ceiling)
+        winner = _pick_sarima_order(monthly, SARIMA_SELECTION_HOLDOUT, ceiling, candidates)
 
         if winner:
             try:
@@ -489,28 +551,26 @@ def forecast_product(monthly: pd.Series, horizon: int):
             except Exception:  # noqa: BLE001 - refit failed; fall through below
                 rows = None
 
-            if rows:
-                rows = _clamp_rows(rows, ceiling)
-                if _plausible([r["forecast_value"] for r in rows], ceiling):
-                    return rows
+            # Judge the RAW forecast, THEN clamp. The other way round -- the
+            # order this had until 2026-09-27 -- made _plausible() unable to
+            # fail: clamping had already turned negatives into 0 and capped the
+            # rest, so a broken fit was "repaired" and accepted. That is how
+            # ALKALINSE (selling ~450/month) was forecast [0, 9360, 0].
+            if rows and _plausible([r["forecast_value"] for r in rows], ceiling):
+                return _clamp_rows(rows, ceiling)
 
     # Too short to hold out SARIMA_SELECTION_HOLDOUT months, or the winning
     # order failed to refit on the full series (rare -- more data usually
     # helps rather than hurts): try every candidate directly, richest first,
     # first plausible fit wins. Still never leaves the SARIMA family.
-    for order, seasonal_order in SARIMA_CANDIDATES:
+    for order, seasonal_order in candidates:
         try:
             rows = _sarimax_rows(monthly, dates, horizon, order, seasonal_order, "sarima")
         except Exception:  # noqa: BLE001 - any fitting failure means "try the next order"
             continue
 
-        if not rows:
-            continue
-
-        rows = _clamp_rows(rows, ceiling)
-
-        if _plausible([r["forecast_value"] for r in rows], ceiling):
-            return rows
+        if rows and _plausible([r["forecast_value"] for r in rows], ceiling):
+            return _clamp_rows(rows, ceiling)
 
     return []
 
@@ -650,6 +710,8 @@ def main():
         help="Optional path for the holdout accuracy CSV (MAE / RMSE / MAPE / sMAPE per product).",
     )
     parser.add_argument("--env-path", default=None)
+    parser.add_argument("--include-pos", action="store_true",
+                        help="also train on the till's own (non-voided) sales")
     parser.add_argument("--csv-path", default=None)
     parser.add_argument("--xls-path", default=None)
     parser.add_argument(
@@ -665,7 +727,7 @@ def main():
     else:
         # No --env-path is fine on a server: db_credentials() falls back to
         # the process environment, and says what is missing if neither has it.
-        raw = load_from_mysql(args.env_path)
+        raw = load_from_mysql(args.env_path, args.include_pos)
 
     if raw.empty:
         raise SystemExit("No historical rows parsed from the given source(s).")

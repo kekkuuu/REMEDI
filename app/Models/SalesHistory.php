@@ -430,6 +430,67 @@ class SalesHistory extends Model
      * sale_items carries product_id, sales_history carries the SKU string, and
      * products is the only place they meet.
      */
+    /**
+     * The terminal's units per calendar month ('Y-m' => ['units', 'revenue']),
+     * optionally for one SKU. Voided sales excluded; clamped to
+     * reportableThrough(). Revenue is units x the CURRENT selling_price -- the
+     * forecast pages' convention for both halves, so a month that mixes
+     * imported and terminal sales is priced one way.
+     *
+     * Exists because the forecast CHARTS read sales_history alone while both
+     * Python scripts train on sales_history UNION the terminal: once the import
+     * was cut back to 2026-07-31 every "actual" line stopped at July while the
+     * forecast opened in September, with August simply missing. The chart must
+     * draw the series the model was trained on.
+     */
+    public static function posMonthly(?string $sku = null): Collection
+    {
+        return DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('products', 'products.id', '=', 'sale_items.product_id')
+            ->where('sales.payment_voided', false)
+            ->whereDate('sales.created_at', '<=', static::reportableThrough())
+            ->when($sku !== null, fn ($q) => $q->where('products.sku', $sku))
+            ->selectRaw("DATE_FORMAT(sales.created_at, '%Y-%m') AS ym,"
+                .' SUM(sale_items.quantity) AS units,'
+                .' SUM(sale_items.quantity * products.selling_price) AS revenue')
+            ->groupBy('ym')
+            ->get()
+            ->mapWithKeys(fn ($r) => [$r->ym => ['units' => (int) $r->units, 'revenue' => (float) $r->revenue]]);
+    }
+
+    /**
+     * The last COMPLETE month either record covers, as 'Y-m' -- or null with
+     * no data at all. Same rule both Python scripts apply before fitting
+     * (monthly_series drops an incomplete trailing month, judged on the GLOBAL
+     * last date): a month the data stops partway through is half a month, not
+     * a weak one. Read across BOTH records, because the terminal is what runs
+     * to the present.
+     */
+    public static function lastCompleteMonth(): ?string
+    {
+        $through = static::reportableThrough();
+
+        // The till counts only when the forecasts train on it
+        // (config forecast.include_pos) -- otherwise its dates would move the
+        // chart's last month past the one the model actually ended on.
+        $ends = array_filter([
+            DB::table('sales_history')->where('sale_date', '<=', $through)->max('sale_date'),
+            config('forecast.include_pos')
+                ? DB::table('sales')->where('payment_voided', false)->whereDate('created_at', '<=', $through)->max('created_at')
+                : null,
+        ]);
+
+        if (! $ends) {
+            return null;
+        }
+
+        $end = Carbon::parse(max(array_map(fn ($d) => substr((string) $d, 0, 10), $ends)))->startOfDay();
+
+        return ($end->isSameDay($end->copy()->endOfMonth()) ? $end : $end->copy()->subMonthNoOverflow())
+            ->format('Y-m');
+    }
+
     private static function posUnitsBetween(string $start, string $end): Collection
     {
         return DB::table('sale_items')

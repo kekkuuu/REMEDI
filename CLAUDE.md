@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (348 passed, 1157 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (350 passed, 1166 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -243,6 +243,11 @@ php artisan forecast:generate --source=mysql --python=python
 php artisan sales-forecast:generate --source=mysql --python=python
 ```
 
+```bash
+php artisan forecast:evaluate-split --python=python
+```
+**The 80/20 train/test split (added 2026-09-28, asked for by the user for the defence).** `resources/python/evaluate_train_test_split.py` splits each product's monthly series IN TIME ORDER — first 80% train, last 20% test, never shuffled — trains `generate_forecasts.forecast_product()` (the live model, same loader) on the training months and scores every test month against two naive baselines. EVALUATION ONLY: it writes `storage/app/forecasts/train_test_split_80_20.csv` and changes nothing in the database; the live forecasts still train on every month and the Forecasting page's accuracy is still the 3-month holdout. `--ratio=` changes the split. Re-measured 2026-09-29 on the seasonal-first model with enforced seasonal fits (RED record, most products train 2022-01..2025-08 / test 2025-09..2026-07, an 11-month horizon): MAE 16.36 / RMSE 19.78 / MAPE 75.4% / sMAPE 59.6% / WAPE 42.2%, vs mean-of-last-3 15.17 / 18.32 / 74.1% / 52.5% / 39.2% and repeat-last 18.48 / 21.93 / 80.6% — it beats repeat-last but NOT mean-of-last-3 over this long horizon; grades Normal 18 / Acceptable 116 / Not acceptable 196 (non-seasonal only read 13.78 / 16.91 / 66.7%).
+
 **Both commands default to `--workers=1` (sequential) as of 2026-09-13** -- previously `0` (auto, all
 cores but one), which reads `os.cpu_count()` in the Python script and in a container returns the
 HOST's core count, not the container's actual memory allocation. That mismatch is what OOM-killed the
@@ -250,7 +255,10 @@ container the one time this ran unattended (`forecast:generate`'s nightly cron, 
 `Kernel::schedule()` pinning `--workers=1` explicitly), and `sales-forecast:generate` had no scheduled
 run to learn the same lesson from -- it defaulted straight to the unsafe value and this file documented
 running it that way. Pass `--workers=0` explicitly for full parallel fitting on a machine you know has
-the RAM for it (safe locally under XAMPP; not on the ~1GB Railway container). Python deps:
+the RAM for it (safe locally under XAMPP; not on the ~1GB Railway container). **The subprocess ceiling
+is 3 hours (was 30 minutes) as of 2026-09-29**: seasonal orders competing per product made a run ~84
+CPU-minutes on 2,617 products, so the sequential nightly run on Railway (~1,300 products, ~40 min) would
+have timed out every night and silently kept yesterday's forecasts. Python deps:
 `pip install -r resources/python/requirements.txt`.
 
 ```bash
@@ -388,6 +396,19 @@ a surface that needs the same answer, call it rather than re-deriving it.
 
 ### Bug sweep, 2026-09-26 — what was fixed and the rule each one leaves behind
 
+- **Voided sales fed the forecasts.** Both Python scripts' `sale_items` branch now has
+  `AND sales.payment_voided = 0`; regenerate both pipelines after touching that SQL. Same family as
+  `posMonthlyRevenue()` (fixed the day before): **any raw read of `sales`/`sale_items` needs the
+  voided filter by hand.**
+- **The forecast CHARTS read `sales_history` alone while the models train on history + the till**,
+  so once the import was cut back to 2026-07-31 every actual line stopped at July and the forecast
+  opened in September with August missing. `SalesHistory::posMonthly()` (the till per month,
+  non-voided) and `SalesHistory::lastCompleteMonth()` (last complete month across BOTH records) are
+  now the one definition both forecast services read. `SalesForecastService::cacheKey()` carries the
+  POS stamp — forget THAT, never the bare `CACHE_KEY`.
+- **The Sales Forecast chart on `/forecast/{sku}` had a sparse x-axis** (months with sales only), the
+  fault the Demand chart was fixed for long ago. Now continuous with zeros and trimmed to
+  `DemandForecastService::CHART_HISTORY_MONTHS`, so both charts on the page share one axis.
 - **`/admin/backup` streams the `users` table** (password + reset-code hashes, personal emails) and
   was one click from any open admin screen. It now sits in the `password.confirm` group beside
   Safeguard; its link carries `data-password-gate` (`App\Support\PasswordGate::state()`, the one
@@ -1129,6 +1150,149 @@ seeders write `ProductBatch` directly rather than through `addBatch`, so they ar
 this. The counter is scoped per product on purpose — `batch_number` has no unique constraint and
 nothing joins on it, and the letters already separate two different products received the same day, so
 both start at `01`. Covered by `Feature\Inventory\ProductFormTest`.
+
+### The data swap of 2026-09-29, second file — the CURRENT record
+**`transaction_items_2022_2026.csv` replaced the 2023 file the same evening** (same columns): 565,272 lines /
+192,164 orders / **2,617 products, 2022-06-01 .. 2026-08-16**; identical to the 2023 file from 2025 on, a
+longer and different ramp before it (~1,350 units a month in Jun 2022). Cut at 2026-08-15 →
+**`database/data/sales_history_daily_transaction_items_2022-2026.csv`** (421,390 daily rows, 1,535,678
+units), imported; the 2023 file's rows are in `sales_history_archive_20260929_232434`. **Costs: identical
+to the database for all 2,617** (nothing changed); prices untouched. Two products it sells were archived
+and are restored (SYMBICORT 160/4.5MCG TURBOHALER, LACTUM 1-3 2KG, 17 units); three it does NOT sell stay
+ACTIVE because they hold stock (BEAR BRAND JR. 2.4KG, LACTUM 1-3 2.3KG, BEARBRAND JR. 2KG) and simply have
+no forecast — **2,620 active**. Backup: `storage/app/backups/before_transaction_items_2022_import_20260929_232401.sql`.
+**Model switched the same night to SEASONAL COMPETES per product (the user's choice)** — `forecast_product()`
+/ `forecast_series()` choose from `SEASONAL_CANDIDATES + NONSEASONAL_CANDIDATES` on each product's rolling
+windows, then the 50% level guard; seasonal fits stay enforced. Regenerated: 2,617 products, **873 visibly
+moving**; 3-month holdout **MAE 8.46 / RMSE 9.87 / MAPE 56.8% (2,600) / sMAPE 45.1%, grades Normal 441 /
+Acceptable 1,234 / Not acceptable 941** — level with mean-of-last-3 (8.36 / 56.3%), ahead of repeat-last
+(10.16 / 66.9%); 80/20 split 10.05 / 12.20 / 65.0% / 48.2% / 36.8% — behind mean-of-last-3 (8.17 / 61.1%)
+on MAE, ahead of it on MAPE, and just behind repeat-last on MAE (9.80) but well ahead on MAPE (70.6%).
+The seasonal-first figures below are the run this replaced.
+Forecasts regenerated (seasonal-first + guard): 2,617 products, 15,702 rows each pipeline, **2,335 visibly
+moving**. 3-month holdout (2,616 scored): **MAE 9.11 / RMSE 10.58 / MAPE 63.6% (2,600) / sMAPE 47.2%, grades
+Normal 380 / Acceptable 1,123 / Not acceptable 1,113 — behind mean-of-last-3 (8.36 / 56.3%)**, ahead of
+repeat-last (10.16 / 66.9%). 80/20 split (most products train 2022-06..2025-09, test 2025-10..2026-07):
+11.48 / 13.71 / 76.3% / 51.2% / 42.1% against mean-of-last-3 8.17 / 9.98 / 61.1% and repeat-last 9.80 /
+11.72 / 70.6% — behind both. On the 2023 file the three options measured non-seasonal 8.20 / 55.6%
+(473 moving), seasonal-competes 8.47 / 57.7% (857), seasonal-first 9.43 / 66.2% (2,252) against a
+mean-of-3 of 8.42 / 57.4% — not re-measured on this file.
+
+### The data swap of 2026-09-29, first file — superseded by the section above
+The user supplied **`transaction_items_2023_2026.csv`** (line level: Order#, Date / Time, Product ID,
+Name, SKU / Barcode, Category, Unit, Quantity, Unit Price, Unit Cost, Line Total, Line Cost, Gross Profit):
+**610,797 lines / 208,982 orders / 2,618 products, 2023-01-01 .. 2026-09-29**, arithmetic exact, one fixed
+price and one fixed cost per product. It is a shop RAMPING UP — ~116 orders/2k units a month in Jan 2023,
+a steady **~10,000 orders / ~70,000 units a month from May 2025**. At the user's decisions: (1) **cut at
+2026-08-15**, the day before the till's first checkout, same rule as every import (the last 6 weeks of the
+file are left out); aggregated to **`database/data/sales_history_daily_transaction_items_2023-2026.csv`**
+(421,560 daily rows, 1,538,201 units) and imported with `sales-history:import --write` — the RED record is
+in `sales_history_archive_20260929_215821`; (2) **the catalogue follows the file**: the 2,288 archived
+products it sells were restored with the 2,294 batches archived alongside them (402,122 units) — **2,618
+active**, the 20 it does not sell stay archived; (3) **`cost_price` from the file's Unit Cost** — 120
+filled in, 47 changed, 2,451 already equal (it is the receiving file's cost), every active product now has
+one, average margin 20.6%, 2 cost more than they sell for (real in the file). **Selling prices were NOT
+touched**: the 330 RED products keep their RED prices, the file matches the rest on 2,294 of 2,618. Backup
+of products / product_batches / categories / sales_history beforehand:
+`storage/app/backups/before_transaction_items_import_20260929_215741.sql`. Reorder levels were not
+recalculated. **Local database only** — the live one still has the older catalogue and record.
+**Forecasts regenerated on it (seasonal-first + guard, enforced seasonal fits), 2026-09-29:** 2,617 of 2,618
+products forecast (LACTUM 1-3 2.3KG has too little history), 15,702 rows each pipeline, Aug 2026 – Jan
+2027, **2,252 visibly moving**. 3-month holdout (May–Jul 2026, 2,616 scored): **MAE 9.43 / RMSE 10.85 /
+MAPE 66.2% (2,596) / sMAPE 47.4%, grades Normal 342 / Acceptable 1,128 / Not acceptable 1,146** — **BEHIND
+mean-of-last-3 (8.42 / 57.4%)**, ahead of repeat-last (10.18 / 69.7%). 80/20 split (most products train
+2023-01..2025-10, test 2025-11..2026-07): 10.59 / 12.68 / 74.0% / 49.7% / 38.1% against mean-of-last-3
+8.16 / 9.90 / 60.0% and repeat-last 10.04 / 11.90 / 69.0% — behind BOTH. Likely cause: the record grows
+~35× through 2023–2025 and then plateaus, and a seasonal difference carries last year's growth past the
+plateau. The first forecast run on 2,618 products takes ~12 min (demand) + ~6 min (sales) on all cores.
+
+### The data swap of 2026-09-27 — superseded by the section above
+**SUPERSEDED THE SAME DAY — the current record is the RED Pharmacy file.** The user replaced the first
+zip with `Monthly Files 2022 - Aug 16 2026 (RED Pharmacy).zip`: 120,545 line rows, 71,088 orders, **330
+products**, a steady ~300–500 units/day with no level step, prices that rise over time. Now in
+**`database/data/sales_history_daily_red_pharmacy_2022-2026.csv`** (98,688 daily rows, 636,756 units,
+2022-01-02 .. 2026-08-15); the first zip's rows are in `sales_history_archive_20260927_121001`. At the
+user's decision the **catalogue follows the file**: the 981 further products not in it were archived
+(2,308 archived in total, **330 active**; backup `storage/app/backups/products_batches_before_red_
+catalogue_20260927_121042.sql`), and the 330 **selling prices were set to each product's latest Unit
+Price in the file** (324 changed, 232 up / 92 down — revenue figures, past months included, are now at
+those prices). Costs still come from the receiving file (average margin 22.5%, 13 of the 330 have no
+cost). **Re-measured on this record** (May–Jul 2026 holdout): non-seasonal MAE 15.33 / MAPE 59.5%,
+seasonal-included 15.93 / 62.6%, seasonal-with-guard 15.62 / 60.3%, baselines "mean of last 3" 16.61 /
+62.9% and "repeat last" 18.13 / 72.9% — so the model stays non-seasonal and now **beats both baselines
+on MAE, RMSE, sMAPE and MAPE**. **Switched 2026-09-29 to SEASONAL FIRST with a level guard, at the user's request** (a non-seasonal
+forecast is a flat line, and they want every product's seasonal shape): `forecast_product()` /
+`forecast_series()` fit from `SEASONAL_CANDIDATES` only, and fall back to `NONSEASONAL_CANDIDATES` only
+when no seasonal order fits or the forecast averages >50% (`SEASONAL_LEVEL_GUARD`) from the last 3 months.
+**Seasonal orders are now fitted with stationarity/invertibility ENFORCED, and a degenerate fit
+(`sigma2` ≤ 0 or a non-finite band) is a failed fit** (`_sarimax_rows` / `sarimax_rows`). Left free, the
+seasonal MA term DIVERGED — TELMIGEN 40MG fitted `ma.S.L12 = -3.5e13`, `sigma2 = 0`, a point forecast that
+replayed last year and an "80% band" of ±590 million units, clamped on screen to 0..the ceiling — and
+`_plausible()` only checks point values, so it was accepted. Every seasonal measurement taken before this
+fix included those broken fits (seasonal-first read 18.06 / 69.4% with them). Non-seasonal orders keep the
+free fit they were always measured with. Regenerated with the fix: **330 scored, MAE 16.16 / RMSE 18.71 /
+MAPE 67.3% (300) / sMAPE 52.4%, grades Normal 57 / Acceptable 145 / Not acceptable 128; 274 of 330
+forecasts visibly move** (≥5% spread); TELMIGEN 471–541 with a ~270–740 band. On that holdout it beats
+mean-of-last-3 on MAE (16.61) but not on MAPE (62.9%). Same holdout, same fix: seasonal competing on
+accuracy (guarded) 15.33 / 61.9%, moving 116; non-seasonal only 15.33 / 59.5%, moving 57. To go back, make
+`forecast_product()` choose from `SEASONAL_CANDIDATES + NONSEASONAL_CANDIDATES` again (both scripts) and
+regenerate both pipelines. Current: **330 scored, MAE 15.33 / RMSE 17.70 / sMAPE 47.2% / MAPE
+59.5% (300), grades Normal 60 / Acceptable 161 / Not acceptable 109**. The file still runs ~3× the
+till's volume, so `forecast.include_pos` stays off. The bullets below describe the FIRST zip and are
+kept for the measurements; where they give counts, these replace them.
+
+These supersede the figures in "Two sales tables" and the forecasting accuracy notes, which describe
+the records this replaced.
+
+- **`sales_history` is now the 56 "Sales by Product" monthly files** (Jan 2022 – Aug 16 2026, a zip
+  the user supplied), aggregated to one row per product per day in
+  **`database/data/sales_history_daily_2022-2026.csv`** (332,574 rows, 1,537,234 units,
+  2022-01-01 .. 2026-08-15, 1,311 products). Cut at Aug 15 because the terminal's first checkout is
+  Aug 16 and the two records must not both count one day. Every barcode in the files matched
+  `products.sku` exactly. Imported with `php artisan sales-history:import --file=<that csv> --write`,
+  which now reads that DAILY format (product_sku / sale_date / quantity_sold, SKU-first) as well as
+  the old line export, and **archives into a NEW dated table every run** (`sales_history_archive_
+  <Ymd_His>`) — the first version TRUNCATED `sales_history_archive` and a second run would have
+  destroyed the record the first one saved. Current archives: `sales_history_archive` (the generated
+  four-year record, 113,960 rows) and `sales_history_archive_20260927_105817` (the 2026-09-23 export,
+  108,542 rows).
+- **`products.cost_price` comes from the supplier's receiving file**, `database/data/
+  master_inventory_list.csv` (MASTER INVENTORY LIST), via `php artisan products:import-costs
+  --write` (dry run without). Matched on NAME then description — Excel turned every ItemCode into
+  scientific notation, so the codes identify nothing. 2,514 of 2,638 set, average margin 20.5%; two
+  names listed twice with different costs are skipped, blank costs stay NULL ("not known", never 0),
+  and two products cost more than they sell for (Castor Oil Apollo, Fix Clay Doh) — real in the file.
+  **Selling prices were NOT changed**: the monthly files' Unit Price equals the database's
+  `selling_price` on all 1,311 products, and the receiving file's own Price column is the supplier's
+  list price, not this shop's.
+- **The four hand-added second "opening" batches were archived** (`OPENING-4801812140999`,
+  `-4805756332151`, `-4808896601234`, `-4803150893344`; 2,178 units off the shelf). They were not exact
+  duplicates, which is why `batches:dedupe-opening-stock` never found them.
+- **The imported record runs ~10× the terminal's volume** (~1,600 units/day against ~150), so
+  **`config('forecast.include_pos')` / `FORECAST_INCLUDE_POS` is OFF**: both pipelines train on the
+  imported record alone, through July 2026 (its last complete month), and both forecast CHARTS read
+  the same switch (`SalesHistory::lastCompleteMonth()` ignores the till while it is off) so each still
+  draws the series its model saw. With it on, August read as a 42% crash that was only a change of
+  source. Consequence, accepted: the horizon opens in August, so Aug–Sep forecast rows are in the
+  past; the KPIs count from `ForecastHorizon::firstActionableMonth()` regardless. Reorder levels were
+  deliberately NOT recalculated (they still reflect the old volume).
+- **The model was tested against naive baselines, and fixed (2026-09-27).** On the May–Jul 2026
+  holdout the metrics recompute EXACTLY (40 random products refit independently, actuals read straight
+  from SQL), but seasonal SARIMA LOST to "mean of the last 3 months" (MAE 13.68 vs 6.57): the record
+  changes level at its file boundaries (~2× May–Dec 2025), and the seasonal term projected last year's
+  level forward. Three fixes: (1) **`_plausible()` now judges the RAW forecast before `_clamp_rows()`** —
+  clamping first made it impossible to fail, which is how ALKALINSE (~450/month) got [0, 9360, 0];
+  (2) the order is chosen over **`SELECTION_FOLDS` (3) rolling windows, MAE-first**, not one window
+  MAPE-first; (3) **`SARIMA_CANDIDATES` is non-seasonal only** — (1,1,1) and (0,1,1), i.e. ARIMA, the
+  s=0 case of SARIMA — chosen by the user from a measured comparison (seasonal kept: 12.07 / 68.7%;
+  seasonal with a level guard: 7.83 / 61.6%; non-seasonal: **6.92 / 60.2%**; baseline 6.57 / 60.8%).
+  Current: **MAE 6.92 / RMSE 7.99 / MAPE 60.2% (963) / sMAPE 72.7%, grades Normal 468 / Acceptable 269 /
+  Not acceptable 570** over 1,307 scored. Re-measure against both baselines after any model change.
+- **The 1,327 products that never appear in the sales files were ARCHIVED** (with their 1,331 batches,
+  145,755 units), at the user's request — 1,311 products are active, exactly the file's. One audit row
+  records it; backup of both tables beforehand in `storage/app/backups/products_batches_before_archive_
+  20260927_114058.sql`. 27 of them had till sales, which are untouched (archiving never removes
+  history). Low stock fell 662 → 287. Restore any from Products → Archived.
 
 ### Two sales tables — pick the right one
 - `sales` / `sale_items` — live POS checkouts only.
