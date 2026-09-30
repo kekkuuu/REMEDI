@@ -102,6 +102,11 @@
     .filter-low_stock.active { background: #ca8a04; color: #fff; border-color: #ca8a04; --glow: 202 138 4; }
 
     /* Expiring Soon — orange (.badge-expiry-soon) */
+    /* Out of stock wears the graphite the bell, toasts and report use for an
+       empty shelf -- an absence, deliberately off the amber-to-red ramp. */
+    .filter-out_of_stock        { background: #e2e8f0; color: #334155; border-color: #cbd5e1; }
+    .filter-out_of_stock.active { background: #334155; color: #fff; border-color: #334155; --glow: 51 65 85; }
+
     .filter-expiring         { background: #ffedd5; color: #9a3412; border-color: #ffedd5; }
     .filter-expiring.active  { background: #ea580c; color: #fff; border-color: #ea580c; --glow: 234 88 12; }
 
@@ -148,6 +153,24 @@
     }
 
     .category-banner a:hover { text-decoration: underline; }
+
+    /* Expiry window: a month picker or a From/To pair (2026-09-30). */
+    .expiry-bar {
+        display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+        margin: -4px 0 16px; padding: 10px 12px;
+        background: #fff; border: 1px solid #e2e8f0; border-radius: 10px;
+    }
+    .expiry-bar .expiry-label { font-size: 13px; font-weight: 600; color: #334155; display: inline-flex; align-items: center; gap: 6px; }
+    .expiry-bar label { font-size: 12.5px; color: #64748b; display: inline-flex; align-items: center; gap: 6px; }
+    .expiry-bar input { padding: 7px 10px; border: 1px solid #d1d5db; border-radius: 7px; font-size: 13px; font-family: inherit; }
+    .expiry-bar .expiry-sep { color: #cbd5e1; }
+    .expiry-bar .expiry-clear { font-size: 13px; color: #be123c; text-decoration: none; font-weight: 500; }
+    .expiry-bar .expiry-clear[hidden] { display: none; }
+    .expiry-bar .expiry-clear:hover { text-decoration: underline; }
+    @media (max-width: 640px) {
+        .expiry-bar label, .expiry-bar input { width: 100%; }
+        .expiry-bar .expiry-sep { display: none; }
+    }
 </style>
 
 @if($categoryId && $categoryName)
@@ -217,20 +240,43 @@
             data-suggest-url="{{ route('suggest.products') }}" placeholder="Search product by name or SKU..." value="{{ request('search') }}" style="flex:1; min-width:0; padding:9px 12px; border:1px solid #d1d5db; border-radius:7px;" autocomplete="off">
         <input type="hidden" name="filter" id="filter-input" value="{{ $filter }}">
         <input type="hidden" name="category_id" id="category-input" value="{{ $categoryId }}">
+        <input type="hidden" name="expiry_from" id="expiry-from-hidden" value="{{ $expiryFrom }}">
+        <input type="hidden" name="expiry_to" id="expiry-to-hidden" value="{{ $expiryTo }}">
     </form>
 
     @php
-        $filterParams = array_filter(['search' => request('search'), 'category_id' => $categoryId]);
+        $filterParams = array_filter(['search' => request('search'), 'category_id' => $categoryId, 'expiry_from' => $expiryFrom, 'expiry_to' => $expiryTo]);
     @endphp
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
         <a href="{{ route('inventory.index', ['filter' => 'all'] + $filterParams) }}" data-filter="all" class="filter-btn filter-all {{ $filter === 'all' ? 'active' : '' }}">All</a>
         <a href="{{ route('inventory.index', ['filter' => 'low_stock'] + $filterParams) }}" data-filter="low_stock" class="filter-btn filter-low_stock {{ $filter === 'low_stock' ? 'active' : '' }}">Low Stock</a>
+        <a href="{{ route('inventory.index', ['filter' => 'out_of_stock'] + $filterParams) }}" data-filter="out_of_stock" class="filter-btn filter-out_of_stock {{ $filter === 'out_of_stock' ? 'active' : '' }}">Out of Stock</a>
         <a href="{{ route('inventory.index', ['filter' => 'expiring'] + $filterParams) }}" data-filter="expiring" class="filter-btn filter-expiring {{ $filter === 'expiring' ? 'active' : '' }}">Expiring Soon</a>
         <a href="{{ route('inventory.index', ['filter' => 'expired'] + $filterParams) }}" data-filter="expired" class="filter-btn filter-expired {{ $filter === 'expired' ? 'active' : '' }}">Expired</a>
         <a href="{{ route('inventory.index', ['filter' => 'need_to_return'] + $filterParams) }}" data-filter="need_to_return" class="filter-btn filter-need_to_return {{ $filter === 'need_to_return' ? 'active' : '' }}">Need to Return</a>
         <a href="{{ route('inventory.index', ['filter' => 'fail_to_return'] + $filterParams) }}" data-filter="fail_to_return" class="filter-btn filter-fail_to_return {{ $filter === 'fail_to_return' ? 'active' : '' }}">Fail to Return</a>
         <a href="{{ route('inventory.index', ['filter' => 'returned'] + $filterParams) }}" data-filter="returned" class="filter-btn filter-returned {{ $filter === 'returned' ? 'active' : '' }}">Returned</a>
     </div>
+</div>
+
+{{-- Expiry window (2026-09-30): narrows ANY tab to products with stock
+     expiring inside it -- on Expired, what expired then; on Expiring Soon,
+     the chosen dates replace the 90-day horizon. The month picker fills both
+     dates; editing a date clears the month. Applies live, like the tabs. --}}
+@php $expiryMonth = ($expiryFrom && $expiryTo && substr($expiryFrom, 0, 7) === substr($expiryTo, 0, 7)
+        && $expiryFrom === substr($expiryFrom, 0, 7).'-01'
+        && $expiryTo === \Carbon\Carbon::parse($expiryFrom)->endOfMonth()->toDateString())
+        ? substr($expiryFrom, 0, 7) : ''; @endphp
+<div class="expiry-bar" id="expiry-bar">
+    <span class="expiry-label"><i class="ti ti-calendar-event" aria-hidden="true"></i> Expiry</span>
+    <label>Month <input type="month" id="expiry-month" value="{{ $expiryMonth }}" aria-label="Expiry month"></label>
+    <span class="expiry-sep">or</span>
+    <label>From <input type="date" id="expiry-from" value="{{ $expiryFrom }}" aria-label="Expiry from"></label>
+    <label>To <input type="date" id="expiry-to" value="{{ $expiryTo }}" aria-label="Expiry to"></label>
+    <a href="{{ route('inventory.index', array_filter(['filter' => $filter, 'search' => request('search'), 'category_id' => $categoryId])) }}"
+       id="expiry-clear" class="expiry-clear" @unless($expiryFrom || $expiryTo) hidden @endunless>
+        <i class="ti ti-x" aria-hidden="true"></i> Clear dates
+    </a>
 </div>
 
 <div class="card">
@@ -248,6 +294,46 @@
     const resultsWrapper = document.getElementById('results-wrapper');
     const inventoryBaseUrl = "{{ route('inventory.index') }}";
 
+    // ===== Expiry window: month OR from/to, applied live =====
+    const expiryMonthInput = document.getElementById('expiry-month');
+    const expiryFromInput = document.getElementById('expiry-from');
+    const expiryToInput = document.getElementById('expiry-to');
+    const expiryClear = document.getElementById('expiry-clear');
+    let expiryDebounce;
+
+    // The search form's hidden twins (so Enter-to-search keeps the window) and
+    // the Clear link's visibility follow the visible fields.
+    function syncExpiryState() {
+        document.getElementById('expiry-from-hidden').value = expiryFromInput.value;
+        document.getElementById('expiry-to-hidden').value = expiryToInput.value;
+        expiryClear.hidden = !(expiryFromInput.value || expiryToInput.value);
+    }
+
+    // A month is just both dates: its first and its last day.
+    expiryMonthInput.addEventListener('change', () => {
+        const m = expiryMonthInput.value; // "2026-08"
+        if (!/^\d{4}-\d{2}$/.test(m)) return;
+        const [y, mo] = m.split('-').map(Number);
+        const last = new Date(y, mo, 0).getDate(); // day 0 of next month = last day
+        expiryFromInput.value = `${m}-01`;
+        expiryToInput.value = `${m}-${String(last).padStart(2, '0')}`;
+        runInventorySearch();
+    });
+
+    // Editing either date means a custom range, so the month no longer describes it.
+    [expiryFromInput, expiryToInput].forEach((el) => el.addEventListener('change', () => {
+        expiryMonthInput.value = '';
+        clearTimeout(expiryDebounce);
+        expiryDebounce = setTimeout(() => runInventorySearch(), 350);
+    }));
+
+    expiryClear.addEventListener('click', (e) => {
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        expiryMonthInput.value = expiryFromInput.value = expiryToInput.value = '';
+        runInventorySearch();
+    });
+
     let searchDebounce;
     let searchController;
 
@@ -260,6 +346,9 @@
         if (term) url.searchParams.set('search', term);
         url.searchParams.set('filter', filterInput.value);
         if (categoryInput.value) url.searchParams.set('category_id', categoryInput.value);
+        if (expiryFromInput.value) url.searchParams.set('expiry_from', expiryFromInput.value);
+        if (expiryToInput.value) url.searchParams.set('expiry_to', expiryToInput.value);
+        syncExpiryState();
 
         // Swap the stale rows for a skeleton so a search/filter reads as
 
@@ -296,7 +385,9 @@
     });
 
     // Choosing a suggestion runs the same search the field would.
-    searchInput.addEventListener('suggest:live', () => { runProductSearch(); });
+    // (It called runProductSearch(), which does not exist on this page -- a
+    // ReferenceError, so picking a suggestion did nothing. 2026-09-30.)
+    searchInput.addEventListener('suggest:live', () => { runInventorySearch(); });
 
     document.getElementById('search-form').addEventListener('submit', (e) => {
         e.preventDefault();
@@ -340,6 +431,9 @@
         searchInput.value = params.get('search') || '';
         filterInput.value = params.get('filter') || 'all';
         categoryInput.value = params.get('category_id') || '';
+        expiryFromInput.value = params.get('expiry_from') || '';
+        expiryToInput.value = params.get('expiry_to') || '';
+        expiryMonthInput.value = '';
         // Back/forward must move the highlight too, or the tabs keep insisting
         // you are on the filter you just navigated away from.
         document.querySelectorAll('.filter-btn[data-filter]')

@@ -10,9 +10,8 @@
 
      Why off-screen rather than `display:none`: the decoder reads frames from
      a real <video> element, and a display:none element stops rendering, which
-     stops the scan. It keeps its true size (the library sizes its capture
-     from the element, and the stream's own resolution is unaffected by CSS)
-     and is simply parked outside the viewport.
+     stops the scan. It is simply parked outside the viewport -- at a LARGE
+     size, because the library decodes at the element's size (see below).
 
      Whichever way a code arrives -- gun or camera -- it is handed to the
      page's own `handleScannedCode(code)`. This file owns NO lookup logic, so
@@ -48,10 +47,16 @@
      element: html5-qrcode rewrites its own container's `position` to
      `relative` on init, which silently undid an `absolute` set directly on
      the reader and left a 200px hole in the scanner card. The library may do
-     as it likes to the inner div; the shell keeps it out of the flow. --}}
+     as it likes to the inner div; the shell keeps it out of the flow.
+
+     The SIZE is load-bearing (2026-09-30): html5-qrcode draws each frame onto
+     a canvas the size of this element and decodes THAT, not the camera's own
+     resolution. At the 280x200 this used to be, a 720p frame was shrunk to
+     280 px wide and a 1D barcode's bars merged -- the camera ran and never
+     read anything. 1280x720 decodes at roughly the stream's real resolution. --}}
 <div id="camScanShell" aria-hidden="true"
-     style="position:absolute; left:-10000px; top:0; width:280px; height:200px; overflow:hidden; opacity:0; pointer-events:none;">
-    <div id="camScanReader" style="width:280px;"></div>
+     style="position:absolute; left:-10000px; top:0; width:1280px; height:720px; overflow:hidden; opacity:0; pointer-events:none;">
+    <div id="camScanReader" style="width:1280px;"></div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html5-qrcode/2.3.8/html5-qrcode.min.js"></script>
@@ -65,7 +70,13 @@
     let lastCode = '';
     let lastAt = 0;
 
-    const CONFIG = { fps: 10, aspectRatio: 1.4 };
+    const CONFIG = {
+        fps: 10,
+        aspectRatio: 16 / 9,
+        // Ask for a sharp stream: a webcam defaults to 640x480, too coarse
+        // for the thin bars of an EAN-13 unless it is almost touching the lens.
+        videoConstraints: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
+    };
 
     function formats() {
         // Guard the enum rather than assuming it: if the CDN ever serves a
@@ -109,7 +120,13 @@
         if (!navigator.mediaDevices || !window.isSecureContext) return;
 
         starting = true;
-        if (!scanner) scanner = new Html5Qrcode('camScanReader', { formatsToSupport: formats(), verbose: false });
+        if (!scanner) scanner = new Html5Qrcode('camScanReader', {
+            formatsToSupport: formats(),
+            verbose: false,
+            // The browser's built-in barcode reader where it has one (Chrome on
+            // Android and macOS): faster and far better at 1D codes than ZXing.
+            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+        });
 
         // facingMode "environment" is the REAR camera on a phone -- the one
         // pointed at the shelf. A machine with one webcam ignores it.

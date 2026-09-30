@@ -85,4 +85,15 @@ class RouteSurfaceTest extends TestCase
         $this->actingAs($admin)->get('/products/'.$product->id.'/edit')->assertOk();
         $this->actingAs($admin)->get('/products')->assertOk();
     }
+
+    public function test_users_create_leads_to_the_add_user_form(): void
+    {
+        // It matched /users/{user} (PUT/DELETE only) and answered 405 (QA, 2026-09-30).
+        $this->get('/users/create')->assertRedirect(route('login'));
+
+        $this->actingAs(User::factory()->create())->get('/users/create')->assertForbidden();
+
+        $this->actingAs(User::factory()->admin()->create())->get('/users/create')
+            ->assertRedirect('/register');
+    }
 }

@@ -55,7 +55,12 @@
             </td>
             <td class="col-status">
                 <div class="status-stack">
-                @if($product->is_running_out)
+                {{-- Zero says "Out of Stock" in graphite, like the report, the
+                     bell and the Out of Stock tab -- "Low Stock" on an empty
+                     shelf understates it. Still inside the low-stock rule. --}}
+                @if($product->total_stock <= 0)
+                    <span class="badge badge-out">Out of Stock</span>
+                @elseif($product->is_running_out)
                     <span class="badge badge-danger">Low Stock</span>
                 @endif
                 @foreach($product->batches as $batch)

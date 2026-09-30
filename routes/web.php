@@ -123,6 +123,10 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
         // User management (+ register acts as "Add User" form)
         Route::get('/register', [RegisteredUserController::class, 'create'])->name('register');
         Route::post('/register', [RegisteredUserController::class, 'store']);
+        // The conventional address for the Add User form. Without this it
+        // matched /users/{user}, which has PUT/DELETE but no GET, and answered
+        // 405 to a bookmark or a typed URL (QA, 2026-09-30).
+        Route::redirect('/users/create', '/register');
 
         Route::get('/users', [UserController::class, 'index'])->name('users.index');
         Route::get('/users/{user}/edit', [UserController::class, 'edit'])->name('users.edit');

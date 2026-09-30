@@ -61,7 +61,7 @@ class SearchInputTest extends TestCase
         // cannot render it at all (checked against MySQL separately).
         $params = ['filter', 'category_id', 'category', 'days', 'status', 'role', 'sort', 'dir', 'start_date',
             'end_date', 'month', 'period', 'product', 'cashier', 'action', 'user_id', 'date_from', 'date_to',
-            'archived', 'page', 'tab', 'kind'];
+            'archived', 'page', 'tab', 'kind', 'expiry_from', 'expiry_to'];
 
         $failures = [];
         foreach ($pages as $page) {

@@ -2083,6 +2083,7 @@
         .badge-warning  { background: #ffedd5; color: #9a3412; }  /* expiring soon (orange)  */
         .badge-danger   { background: #fef9c3; color: #854d0e; }  /* low stock (yellow)      */
         .badge-critical { background: #fee2e2; color: #991b1b; }  /* expired (red)           */
+        .badge-out      { background: #e2e8f0; color: #334155; }  /* out of stock (graphite) */
         .badge-info     { background: #dbeafe; color: #1e40af; }  /* neutral / actionable      */
         .badge-purple   { background: #ede9fe; color: #5b21b6; }  /* distinct flagged state    */
 

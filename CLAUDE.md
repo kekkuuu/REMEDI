@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (352 passed, 1174 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (359 passed, 1197 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -878,8 +878,11 @@ camera scan and a gun scan cannot drift into doing two different things.
 
 Six things in it are not optional. **The preview is parked off-screen, NOT `display:none`** — the
 decoder reads frames from a real `<video>`, and a `display:none` element stops rendering, which
-stops the scan; CSS size does not change the stream's own resolution, so nothing is lost by moving
-it. **The off-screen wrapper must be a SEPARATE outer element (`#camScanShell`)**: html5-qrcode
+stops the scan. **But the element's SIZE is the decode resolution** — html5-qrcode draws each frame
+onto a canvas the size of its container and decodes that — so at the original 280×200 a 1D barcode's
+bars merged and the camera ran without ever reading one (found 2026-09-30). The hidden reader is now
+1280×720, the stream asks for 1080p, and the browser's native `BarcodeDetector` is used where it
+exists. **The off-screen wrapper must be a SEPARATE outer element (`#camScanShell`)**: html5-qrcode
 rewrites its own container's `position` to `relative` on init, which silently undid an `absolute`
 set directly on `#camScanReader` and left a 200px hole in the scanner card. Formats are restricted
 to the retail 1D symbologies plus QR — leaving every format on makes ZXing try all of them on every
@@ -2531,6 +2534,19 @@ starts at 11; adding a column means bumping the empty-state `colspan` in the sam
 `InventoryController` pushes category and text search down to SQL but filters status (low stock /
 expiring / expired / returned — all computed accessors, not columns) in PHP, then paginates manually
 with `LengthAwarePaginator`.
+
+**Inventory monitoring filters (2026-09-30, at the user's request): an Out of Stock tab and an expiry
+window.** `?filter=out_of_stock` is `total_stock <= 0` — a subset of Low Stock, which still counts zero
+as low; its chip and the row badge are the graphite `#334155` of an empty shelf (`.badge-out`, so an
+empty product now reads "Out of Stock" instead of "Low Stock" on every tab). `?expiry_from=` /
+`?expiry_to=` (strict `Y-m-d`, a reversed pair swapped, garbage a 422) narrow ANY tab to products with
+units on the shelf whose batch expires inside the window, sorted by the earliest such expiry; on
+**Expired** that is "what expired then", on **Expiring Soon** the window REPLACES the 90/30-day horizon,
+and the SQL superset follows the window rather than the fixed 120 days. The page's Month picker only
+fills both dates (first/last day); editing a date clears the month; everything applies live through the
+same `runInventorySearch()` the tabs use, and the tab links carry the window. Also fixed: picking a search
+suggestion called `runProductSearch()`, which does not exist on this page. Covered by
+`Feature\Inventory\InventoryMonitoringFilterTest`; `SearchInputTest` sends both new params as arrays.
 
 ### Every state-changing action answers in two shapes
 There is no `window.confirm()` in the app. Destructive and state-changing actions are real POST forms

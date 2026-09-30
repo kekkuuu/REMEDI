@@ -52,6 +52,33 @@ class InventoryController extends Controller
         // echoes into its filter-tab links and dies on (a 500).
         $filter = is_string($request->get('filter')) ? $request->get('filter') : 'all';
 
+        // Expiry window (2026-09-30, inventory monitoring): only products with
+        // stock on the shelf whose expiry date falls inside it. The month
+        // picker on the page just fills both dates. Validated strictly -- the
+        // date inputs emit Y-m-d, and a value that silently failed to parse
+        // would show the whole list under a filter that looks applied -- and
+        // a reversed pair is put in order, the same rule the sales list keeps.
+        $request->validate([
+            'expiry_from' => 'nullable|date_format:Y-m-d',
+            'expiry_to' => 'nullable|date_format:Y-m-d',
+        ]);
+        $expiryFrom = $request->filled('expiry_from') ? (string) $request->input('expiry_from') : null;
+        $expiryTo = $request->filled('expiry_to') ? (string) $request->input('expiry_to') : null;
+        if ($expiryFrom && $expiryTo && $expiryFrom > $expiryTo) {
+            [$expiryFrom, $expiryTo] = [$expiryTo, $expiryFrom];
+        }
+        $hasExpiryWindow = $expiryFrom !== null || $expiryTo !== null;
+
+        // A batch with units on the shelf whose expiry date sits in the window.
+        $inExpiryWindow = function ($b) use ($expiryFrom, $expiryTo): bool {
+            if ($b->quantity <= 0 || ! $b->expiry_date) {
+                return false;
+            }
+            $date = $b->expiry_date->toDateString();
+
+            return ($expiryFrom === null || $date >= $expiryFrom) && ($expiryTo === null || $date <= $expiryTo);
+        };
+
         // Expiry horizon for the `expiring` filter. Only the two the app
         // actually means are accepted — the dashboards' 30-day action list and
         // this page's 90-day planning view — so an arbitrary ?days= cannot
@@ -73,7 +100,14 @@ class InventoryController extends Controller
         // from there. Measured on this catalogue: the "Need to Return" tab went
         // from scanning 2,637 products (476ms) to a few hundred, with the same
         // 77 results.
-        if (in_array($filter, ['expiring', 'expired', 'need_to_return', 'fail_to_return'], true)) {
+        if ($hasExpiryWindow) {
+            // The window is its own superset, and may reach past 120 days.
+            $query->whereHas('batches', fn ($q) => $q
+                ->where('quantity', '>', 0)
+                ->whereNotNull('expiry_date')
+                ->when($expiryFrom, fn ($w) => $w->whereDate('expiry_date', '>=', $expiryFrom))
+                ->when($expiryTo, fn ($w) => $w->whereDate('expiry_date', '<=', $expiryTo)));
+        } elseif (in_array($filter, ['expiring', 'expired', 'need_to_return', 'fail_to_return'], true)) {
             $query->whereHas('batches', fn ($q) => $q
                 ->where('quantity', '>', 0)
                 ->whereNotNull('expiry_date')
@@ -93,6 +127,22 @@ class InventoryController extends Controller
             // expired units is an Expired problem, and the tab beside this
             // one already lists it. See Product::is_running_out.
             $products = $products->filter(fn ($p) => $p->is_running_out);
+        } elseif ($filter === 'out_of_stock') {
+            // Nothing on the shelf at all. A subset of Low Stock, which still
+            // counts zero as low everywhere (see Product::is_running_out);
+            // this tab is the "refill these first" cut of it.
+            $products = $products->filter(fn ($p) => $p->total_stock <= 0);
+        } elseif ($filter === 'expiring' && $hasExpiryWindow) {
+            // Chosen dates replace the default horizon: not yet expired, and
+            // expiring inside the window.
+            $products = $products->filter(fn ($p) => $p->batches->contains(
+                fn ($b) => $inExpiryWindow($b) && ! $b->is_expired
+            ));
+        } elseif ($filter === 'expired' && $hasExpiryWindow) {
+            // Stock that expired inside the window, e.g. "what expired in August".
+            $products = $products->filter(fn ($p) => $p->batches->contains(
+                fn ($b) => $inExpiryWindow($b) && $b->is_expired
+            ));
         } elseif ($filter === 'expiring') {
             // The horizon is a parameter, because two different ones are in
             // legitimate use and they were silently disagreeing.
@@ -121,11 +171,22 @@ class InventoryController extends Controller
             $products = $products->filter(fn ($p) => $p->has_returned_batches);
         }
 
+        // Every other tab, with a window: the tab's own rule AND stock expiring
+        // in the window (the SQL above already narrowed to this superset).
+        if ($hasExpiryWindow && ! in_array($filter, ['expiring', 'expired'], true)) {
+            $products = $products->filter(fn ($p) => $p->batches->contains($inExpiryWindow));
+        }
+
         // Order each filtered view by the thing it is about, so the row that
         // needs acting on first is the one you see first. Sorting happens here
         // rather than in SQL because every one of these keys is a computed
         // accessor over the batches, not a column.
-        if ($filter === 'low_stock') {
+        if ($hasExpiryWindow && $filter !== 'low_stock') {
+            // Earliest expiry inside the window first -- the date the person
+            // asked about, so the list reads as a calendar of that window.
+            $products = $products->sortBy(fn ($p) => $p->batches->filter($inExpiryWindow)
+                ->min(fn ($b) => $b->expiry_date->toDateString()) ?? '9999-12-31');
+        } elseif ($filter === 'low_stock') {
             // Emptiest shelf first: the products nearest to being unsellable
             // are the ones to reorder. Sorted on sellable_stock, which is what
             // is_low_stock itself compares against -- total_stock would put a
@@ -187,6 +248,8 @@ class InventoryController extends Controller
             'products' => $paginated,
             'filter' => $filter,
             'expiringDays' => $expiringDays,
+            'expiryFrom' => $expiryFrom,
+            'expiryTo' => $expiryTo,
             'categoryId' => $categoryId,
             'categoryName' => $category?->name,
         ]);
