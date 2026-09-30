@@ -20,6 +20,9 @@
         <a href="{{ route('products.stock-card', $product) }}" class="btn btn-secondary">
             <i class="ti ti-list-details" aria-hidden="true"></i> Stock Card
         </a>
+        <a href="{{ route('barcodes.index', ['product' => $product->id]) }}" class="btn btn-secondary">
+            <i class="ti ti-barcode" aria-hidden="true"></i> Print Barcode
+        </a>
     </div>
 </div>
 

@@ -145,6 +145,9 @@
                 <a href="{{ route('products.index') }}" class="{{ request()->routeIs('products.*') ? 'active' : '' }}">
                     <i class="ti ti-pill" aria-hidden="true"></i> Products
                 </a>
+                <a href="{{ route('barcodes.index') }}" class="{{ request()->routeIs('barcodes.*') ? 'active' : '' }}">
+                    <i class="ti ti-barcode" aria-hidden="true"></i> Print barcodes
+                </a>
                 <a href="{{ route('reports.index') }}" class="{{ request()->routeIs('reports.*') ? 'active' : '' }}">
                     <i class="ti ti-chart-bar" aria-hidden="true"></i> Reports
                 </a>
@@ -463,9 +466,12 @@
             {{-- Shown only after picking the reason a form names in
                  data-confirm-note-for (Void -> "Other"): that reason has to be
                  explained, so it opens this box instead of submitting, and
-                 the Confirm button stands in until something is typed. --}}
+                 the Confirm button stands in until something is typed.
+                 Also shown from the start, OPTIONAL, for a form with
+                 data-confirm-note="optional" (staff Notify admin): whatever
+                 is typed goes in the form's [name="note"], blank is fine. --}}
             <div class="remedi-modal__note" id="confirmModalNote" hidden>
-                <label for="confirmModalNoteInput">Reason</label>
+                <label for="confirmModalNoteInput" id="confirmModalNoteLabel">Reason</label>
                 <input type="text" id="confirmModalNoteInput" maxlength="255" autocomplete="off"
                        placeholder="Type the reason">
             </div>

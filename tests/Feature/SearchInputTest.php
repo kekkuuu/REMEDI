@@ -56,7 +56,7 @@ class SearchInputTest extends TestCase
     public function test_no_filter_parameter_crashes_a_page_when_sent_as_an_array(): void
     {
         $admin = User::factory()->admin()->create();
-        $pages = ['/inventory', '/pos', '/sales', '/products', '/users', '/audit', '/notifications'];
+        $pages = ['/inventory', '/pos', '/sales', '/products', '/users', '/audit', '/notifications', '/barcodes', '/barcodes/products', '/stock-reports'];
         // /forecast is left out: its queries are MySQL-only, so this suite's sqlite
         // cannot render it at all (checked against MySQL separately).
         $params = ['filter', 'category_id', 'category', 'days', 'status', 'role', 'sort', 'dir', 'start_date',

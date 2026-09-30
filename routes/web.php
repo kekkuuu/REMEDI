@@ -4,6 +4,7 @@ use App\Http\Controllers\AlertController;
 use App\Http\Controllers\AuditTrailController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\BackupController;
+use App\Http\Controllers\BarcodeController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DemandForecastController;
@@ -160,6 +161,10 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
         // discrepancy can be read off directly instead of pieced together from
         // batches + sale_items + the audit trail. See StockMovement.
         Route::get('/products/{product}/stock-card', [ProductController::class, 'stockCard'])->name('products.stock-card');
+        // Print Barcodes: CODE 128 labels of each SKU, drawn in the browser.
+        // Read-only -- see BarcodeController.
+        Route::get('/barcodes', [BarcodeController::class, 'index'])->name('barcodes.index');
+        Route::get('/barcodes/products', [BarcodeController::class, 'products'])->name('barcodes.products');
 
         // Categories
         Route::get('/categories', [CategoryController::class, 'index'])->name('categories.index');

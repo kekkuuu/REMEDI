@@ -86,7 +86,10 @@ class StockReportController extends Controller
 
         StockReport::forgetPendingCount();
 
-        AuditTrail::log('Requested', "Stock report: {$typeLabel} — {$product->name}, reported by {$request->user()->name}");
+        // The staff member's optional note rides along, so the admin reads it
+        // in the bell without opening the page.
+        $note = isset($data['note']) && $data['note'] !== '' ? " — Note: \"{$data['note']}\"" : '';
+        AuditTrail::log('Requested', "Stock report: {$typeLabel} — {$product->name}, reported by {$request->user()->name}{$note}");
 
         return $this->actionOk($request, "The admin has been notified about {$product->name} ({$typeLabel}).", back());
     }

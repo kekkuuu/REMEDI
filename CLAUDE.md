@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (359 passed, 1197 assertions — measured 2026-09-28) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (366 passed, 1228 assertions — measured 2026-09-30) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -2508,7 +2508,7 @@ products and inventory read as one pattern.
 
 **No Reset password button, "Reset requested" badge or "Password Resets" card in User Management (removed 2026-09-28, at the user's request).** An admin sets a new password from Edit user, which also clears a pending request; `UserController::resetPassword()` stays routed (and tested) but unlinked. **Every password change now notifies the admins** as an account event: own change logs `Password changed: {name}` (`PasswordController`, was "Changed own account password", which matched nothing and filed as a generic "Record updated"), an admin setting one logs `Password changed by an admin: {name}` — both match `AlertService`'s `str_starts_with($details, 'Password changed')` and pop live with "Manage users" (measured: 27 s on the 15 s poll). A reset by email code already did (`Password reset …`). Covered by `Feature\Alerts\PasswordChangeNotificationTest`.
 
-**Stock reports: staff notify an admin, an admin approves (2026-09-28).** `stock_reports` (`App\Models\StockReport`, `StockReportController`). A staff Inventory row with a real problem — `StockReport::applies()`, the ONE check behind both the button and the endpoint (`is_running_out` for low stock, an unreturned expired batch holding units for expired) — gets a "Notify: Low stock" / "Notify: Expired stock" js-confirm button, then a "notified" marker while a report waits. One pending report per product+type (a second click answers success and writes nothing). The admin is told through the audit trail: details beginning `Stock report` become `AlertService::STOCK_REPORT_KIND` rows in the bell (Alerts tab, "Review" pill, linking at `/stock-reports`) and a toast (added to `$toastKinds`), and the sidebar's "Stock reports" link carries a pending count (`StockReport::pendingCount()`, cached 60s, forgotten on every write). `/stock-reports` is shared — staff see only their own — while approve/reject are `role:admin`, locked-and-rechecked so a report is decided exactly once, and audited as `Approved` / `Rejected` (new `AuditTrail::ACTIONS`). **Approval moves no stock**: it records that the admin authorised the fix, which happens through Add New Batch / Mark Returned / a batch adjustment with its own stock-card row. Needs migration `2026_09_28_000001` on deploy. Covered by `Feature\Inventory\StockReportTest`.
+**Stock reports: staff notify an admin, an admin approves (2026-09-28).** `stock_reports` (`App\Models\StockReport`, `StockReportController`). A staff Inventory row with a real problem — `StockReport::applies()`, the ONE check behind both the button and the endpoint (`is_running_out` for low stock, an unreturned expired batch holding units for expired) — gets a "Notify: Low stock" / "Notify: Expired stock" js-confirm button, then a "notified" marker while a report waits. One pending report per product+type (a second click answers success and writes nothing). The admin is told through the audit trail: details beginning `Stock report` become `AlertService::STOCK_REPORT_KIND` rows in the bell (Alerts tab, "Review" pill, linking at `/stock-reports`) and a toast (added to `$toastKinds`), and the sidebar's "Stock reports" link carries a pending count (`StockReport::pendingCount()`, cached 60s, forgotten on every write). `/stock-reports` is shared — staff see only their own — while approve/reject are `role:admin`, locked-and-rechecked so a report is decided exactly once, and audited as `Approved` / `Rejected` (new `AuditTrail::ACTIONS`). **Approval moves no stock**: it records that the admin authorised the fix, which happens through Add New Batch / Mark Returned / a batch adjustment with its own stock-card row. Needs migration `2026_09_28_000001` on deploy. Covered by `Feature\Inventory\StockReportTest`. **Staff may add an optional note (2026-09-30):** the Notify dialog opens with a "Note for the admin (optional)" box (`data-confirm-note="optional"` on the form — the shared confirm dialog's third note mode, beside Void's required "Other" reason); it lands in `stock_reports.note` (the Note column) and is appended to the audit line as `— Note: "…"`, so the admin reads it in the bell.
 
 **The staff member who sent a stock report is told the answer (2026-09-28, at the user's request).** `AlertService::stockReportDecisionsFor($user)` — their own reports approved/rejected in the last 14 days, per user and uncached — and `activityFor($user)`, the ONE fork the view composer, `/alerts` and `/notifications` all call (audit feed for an admin, these rows for staff). Rows are `group: alerts` (the only tab a staff bell has) and `STOCK_REPORT_KIND`, so the toast pops them live: measured 16.9 s after the admin approved, "Your stock report was approved — Low stock — … · by …" with a View pill. A colleague's feed stays empty. Covered by `StockReportTest::test_the_reporter_is_notified_of_the_decision`. The Inventory report also has an **OK** KPI card (and print card) reading the same `$okCount` as the filter and the chart.
 
@@ -2542,6 +2542,21 @@ fills both dates (first/last day); editing a date clears the month; everything a
 same `runInventorySearch()` the tabs use, and the tab links carry the window. Also fixed: picking a search
 suggestion called `runProductSearch()`, which does not exist on this page. Covered by
 `Feature\Inventory\InventoryMonitoringFilterTest`; `SearchInputTest` sends both new params as arrays.
+
+**Print Barcodes (2026-09-30, at the user's request) — `/barcodes`, `BarcodeController`, `role:admin`.**
+Sidebar "Print barcodes" under Products, and a "Print Barcode" button on the product edit page
+(`?product=ID` preselects it). Pick products (the `/suggest/products` search; a scanner gun's SKU +
+Enter adds the exact match) or "Add all" for a category (`/barcodes/products?category_id=`, active
+products only, capped at `MAX_PRODUCTS` 300, skipping ones already on the sheet), set copies (1–100),
+Small/Medium/Large (5/3/2 across A4), optional price, Print. **The bars are drawn in the browser
+(JsBarcode, cdnjs) as CODE 128 of the SKU exactly as stored — never EAN-13**, because many SKUs here
+carry no valid EAN check digit and an EAN encoder would print a different number, and never a Word
+barcode font: the user's font-made Code 39 labels had no `*` start/stop characters (65 bars for 13
+digits where a real one has 75) and nothing could read them. Printing copies the sheet into a direct
+`<body>` child (`#bcPrintRoot`) and print CSS hides every other child, so no layout chrome reaches
+the paper. The sheet persists per viewer in `localStorage['remedi.barcodeSheet']`; nothing is saved
+server-side. Verified: labels rasterised at 300 dpi decode with the camera scanner's own reader at
+all three sizes. Covered by `Feature\Inventory\PrintBarcodesTest`.
 
 ### Every state-changing action answers in two shapes
 There is no `window.confirm()` in the app. Destructive and state-changing actions are real POST forms

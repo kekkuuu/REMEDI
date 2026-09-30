@@ -75,6 +75,47 @@ class StockReportTest extends TestCase
         $this->assertSame('Review', $row['action']);
     }
 
+    /** The optional note (2026-09-30): kept, shown to the admin, and blank is fine. */
+    public function test_an_optional_note_reaches_the_admin(): void
+    {
+        $staff = User::factory()->create();
+        $low = $this->product(2, now()->addYear()->toDateString());
+
+        $this->actingAs($staff)->postJson('/stock-reports', [
+            'product_id' => $low->id, 'type' => 'low_stock', 'note' => 'Customers keep asking for it',
+        ])->assertOk();
+
+        $this->assertDatabaseHas('stock_reports', ['product_id' => $low->id, 'note' => 'Customers keep asking for it']);
+        $this->assertStringContainsString('Note: "Customers keep asking for it"', AuditTrail::latest('id')->value('details'));
+
+        $this->actingAs(User::factory()->admin()->create())->get('/stock-reports')
+            ->assertOk()->assertSee('Customers keep asking for it');
+
+        // Left blank: still a report, no note, nothing appended.
+        $other = $this->product(1, now()->addYear()->toDateString());
+        $this->actingAs($staff)->postJson('/stock-reports', [
+            'product_id' => $other->id, 'type' => 'low_stock', 'note' => '',
+        ])->assertOk();
+        $this->assertNull(StockReport::where('product_id', $other->id)->value('note'));
+        $this->assertStringNotContainsString('Note:', AuditTrail::latest('id')->value('details'));
+
+        // Past the column's 255 characters: refused, not a 500.
+        $third = $this->product(1, now()->addYear()->toDateString());
+        $this->actingAs($staff)->postJson('/stock-reports', [
+            'product_id' => $third->id, 'type' => 'low_stock', 'note' => str_repeat('x', 256),
+        ])->assertStatus(422);
+    }
+
+    public function test_the_staff_notify_button_offers_a_note_box(): void
+    {
+        $this->product(2, now()->addYear()->toDateString());
+
+        $this->actingAs(User::factory()->create())->get('/inventory')
+            ->assertOk()
+            ->assertSee('data-confirm-note="optional"', false)
+            ->assertSee('<input type="hidden" name="note" value="">', false);
+    }
+
     public function test_staff_can_report_expired_stock(): void
     {
         $staff = User::factory()->create();
