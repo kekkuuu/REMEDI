@@ -860,61 +860,41 @@ filters the list in place: `products.edit` is `role:admin`, so sending a staff s
 trade a useful lookup for a 403. `isAdmin` in the page's JS is what forks the two, and the branch
 returns early rather than falling through to the search path.
 
-**The CAMERA is a scanner too, as of 2026-09-23 — running, with NO visible preview.**
-`partials/_barcode-camera.blade.php`, included inside both scanner cards. **"Hidden" here means the
-VIDEO, not the feature**: hold a barcode up to the machine's camera and it rings up (POS) or opens
-Manage Product (Inventory), exactly as a gun scan would, while the page still looks like a plain
-text field. It arrived in three shapes in one day and the last is the one to keep — a "Camera"
-button opening a modal (rejected: a gun costs the person nothing, so a camera costing two clicks per
-item is a worse feature, not the same one), then an inline live preview in the card (rejected: the
-counter does not want a picture of itself on screen), then this.
+**The CAMERA is a scanner too** (`partials/_barcode-camera.blade.php`, inside both scanner cards):
+hold a barcode up to the machine's camera and it rings up (POS) or opens Manage Product (Inventory),
+exactly as a gun scan would. History, 2026-09-23: a "Camera" button opening a modal (rejected: a gun
+costs nothing, so two clicks per item is a worse feature), an inline preview (rejected then), then a
+hidden-preview scanner. **2026-09-30, three fixes at the user's request, after it turned out it had
+never read a printed barcode:**
 
-**A SMALL aiming preview came back 2026-09-30, at the user's request** — once scanning actually worked
-(see the decode-resolution note below), aiming blind at a webcam was the remaining problem. It is a
-176×99 `<video id="camPreview">` under the input, playing the SAME `MediaStream` as the hidden reader
-(`srcObject` copied after `start()` resolves), with a red aim line, mirrored unless the track reports
-`facingMode: 'environment'`, flashing green (`.is-hit`) on a read. **Never shrink the reader itself to
-make the preview** — the reader's size is the decode resolution. It shows only while the camera is
-running, so a refused or missing camera still leaves the card as a plain text field. Verified with a
-synthetic `captureStream()` camera: preview shown, green flash, "Added: 3D MASK DISPOSABLE X10".
+- **The decoder is `BarcodeDetector`, not html5-qrcode.** The browser's own where it exists and reads
+  EAN-13 (Chrome on Android/macOS; Chrome on Windows has none), else the `barcode-detector` ponyfill
+  (jsdelivr, pinned `@3.2.2`) — the same API over **ZXing C++ in WebAssembly** (~1 MB wasm, fetched
+  on first use from the zxing-wasm version the ponyfill pins). html5-qrcode's ZXing-js failed twice
+  over: it decoded at its container's CSS size (a hidden 280×200 reader shrank every frame until the
+  bars merged), and even at 1280×720 it read NONE of five synthetic camera pictures (straight, 10°
+  tilt, sideways, a bit blurry, further away) where ZXing C++ read all five, the tilted+blurred one in
+  0.2 s. `detect(video)` reads the stream's own frames, so the visible preview IS the source — no
+  off-screen reader any more.
+- **A 176×99 aiming preview** (`#camPreview`, red aim line, green `.is-hit` flash on a read,
+  mirrored unless the track reports `facingMode: 'environment'`), shown only while the camera runs.
+- **A failure is ONE QUIET amber line, never a pop-up** (`#camStatus`): camera blocked, no camera,
+  camera in use, an address without camera access (needs https or localhost; `http://<LAN-ip>` has no
+  camera API), or the scanner not loading. "Try again" retries, and a permission flipped to Allow
+  starts the camera without a reload (`navigator.permissions` change, where supported).
 
-A USB/bluetooth gun never needed code — it presents itself as a KEYBOARD, types into `barcode-input`
-and sends Enter, which is what the keydown handler always read. The camera is the same act without
-the hardware. `html5-qrcode` (cdnjs, the same per-page CDN convention Chart.js and qrcodejs follow)
-decodes off the video and hands the result to **`window.handleScannedCode(code)`** — **the one
-definition of what a scan MEANS**, since the partial owns no lookup logic at all and therefore a
-camera scan and a gun scan cannot drift into doing two different things.
-
-Six things in it are not optional. **The preview is parked off-screen, NOT `display:none`** — the
-decoder reads frames from a real `<video>`, and a `display:none` element stops rendering, which
-stops the scan. **But the element's SIZE is the decode resolution** — html5-qrcode draws each frame
-onto a canvas the size of its container and decodes that — so at the original 280×200 a 1D barcode's
-bars merged and the camera ran without ever reading one (found 2026-09-30). The hidden reader is now
-1280×720, the stream asks for 1080p, and the browser's native `BarcodeDetector` is used where it
-exists. **The off-screen wrapper must be a SEPARATE outer element (`#camScanShell`)**: html5-qrcode
-rewrites its own container's `position` to `relative` on init, which silently undid an `absolute`
-set directly on `#camScanReader` and left a 200px hole in the scanner card. Formats are restricted
-to the retail 1D symbologies plus QR — leaving every format on makes ZXing try all of them on every
-frame and visibly drops the frame rate on a mid-range phone. A held barcode decodes on EVERY frame,
-so the same code inside 2.5s is swallowed as ONE physical scan; that matters more with no preview to
-pull away, since an item can sit in view for seconds. `scanner.stop()` REJECTS when it was never
-running (permission refused, no camera), so every caller swallows that or a backgrounded tab logs an
-unhandled rejection. And the camera is released on `visibilitychange` and re-acquired on return,
-which is what makes an always-on scanner affordable at all.
-
-**A failure is ONE QUIET LINE, never a pop-up (2026-09-30, at the user's request — it used to be
-silent, and silence made "the preview is not showing" indistinguishable from a broken page).**
-`#camStatus` (amber, under the input) names the cause: camera blocked (allow it in the address bar),
-no camera found, camera in use by another app, an address with no camera access (needs https or
-localhost; a tablet on `http://<LAN-ip>` has no camera API), or the scanner script not loading.
-`explain()` matches the browser's error NAME inside html5-qrcode's rejection, which is a STRING, not
-the DOMException. "Try again" retries with a FRESH `Html5Qrcode` (a failed start can leave the old
-instance mid-transition), a synchronous throw no longer leaves `starting` stuck true, and a
-permission flipped to Allow starts the camera without a reload (`navigator.permissions` change event,
-where the browser supports querying `camera`). Verified each message in the browser pane (which
-blocks the camera), then Try again with a working stream hid the line and showed the preview.
-`$cameraScannerEnabled` at the top of the partial turns the whole thing off — markup, CDN script and
-`getUserMedia` all absent, not merely invisible — if the camera ever needs to stop being used at all.
+A USB/bluetooth gun never needed code — it types into `barcode-input` and sends Enter. The camera
+hands its result to **`window.handleScannedCode(code)`, the one definition of what a scan MEANS**; the
+partial owns no lookup logic, so the two cannot drift. Rules in the partial: one `detect()` in flight
+at a time (the next is scheduled after it settles); **a code is ONE scan for as long as it stays in
+view** — every sighting pushes `REPEAT_GAP_MS` (1.5 s) on, and it scans again only after leaving view
+that long (a fixed 2.5 s window from the first read added an item twice when held for 3 s; verified
+held 5 s = 1 add, away and back = 2); the stream asks for 1080p and continuous focus where offered;
+formats are the retail 1D set plus QR; and the camera is released on `visibilitychange` / `pagehide`
+and re-acquired on return. `$cameraScannerEnabled` turns the whole thing off — markup, CDN script and
+`getUserMedia` all absent. Verified in the browser pane (which blocks the real camera: the blocked
+line shows) with a synthetic `captureStream()` camera: preview, green flash, "Added: 3D MASK
+DISPOSABLE X10".
 
 **Every POS surface must report the same number checkout will honour** — `pos/_grid.blade.php`
 (badge, `is-out` class, `data-true-stock`, and the `addToCart` ceiling) and
