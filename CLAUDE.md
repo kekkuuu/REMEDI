@@ -902,11 +902,17 @@ running (permission refused, no camera), so every caller swallows that or a back
 unhandled rejection. And the camera is released on `visibilitychange` and re-acquired on return,
 which is what makes an always-on scanner affordable at all.
 
-**Every failure is SILENT by design** — a refused permission, no camera, or an insecure origin
-(camera needs https or localhost; a tablet reaching the XAMPP box over `http://<LAN-ip>` has no
-camera API at all). There is no widget to put a message in, and none of them is worth interrupting
-anyone over, because the text field and a scanner gun both keep working regardless. The browser's
-own camera-in-use indicator is what tells the person it is on, and is deliberately not suppressed.
+**A failure is ONE QUIET LINE, never a pop-up (2026-09-30, at the user's request — it used to be
+silent, and silence made "the preview is not showing" indistinguishable from a broken page).**
+`#camStatus` (amber, under the input) names the cause: camera blocked (allow it in the address bar),
+no camera found, camera in use by another app, an address with no camera access (needs https or
+localhost; a tablet on `http://<LAN-ip>` has no camera API), or the scanner script not loading.
+`explain()` matches the browser's error NAME inside html5-qrcode's rejection, which is a STRING, not
+the DOMException. "Try again" retries with a FRESH `Html5Qrcode` (a failed start can leave the old
+instance mid-transition), a synchronous throw no longer leaves `starting` stuck true, and a
+permission flipped to Allow starts the camera without a reload (`navigator.permissions` change event,
+where the browser supports querying `camera`). Verified each message in the browser pane (which
+blocks the camera), then Try again with a working stream hid the line and showed the preview.
 `$cameraScannerEnabled` at the top of the partial turns the whole thing off — markup, CDN script and
 `getUserMedia` all absent, not merely invisible — if the camera ever needs to stop being used at all.
 

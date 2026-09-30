@@ -35,12 +35,13 @@
      Camera access needs a SECURE CONTEXT: https, or localhost. Both deploys
      are https and local dev is localhost, so all three are fine -- a tablet
      reaching the XAMPP box over `http://<LAN-ip>` has no camera API at all.
-     That, a refused permission and a machine with no camera are all SILENT
-     here on purpose: there is no widget to put a message in, and none of them
-     is a failure worth interrupting anyone over, because the text field above
-     and a scanner gun both keep working regardless. The browser's own
-     camera-in-use indicator is what tells the person it is on -- deliberately
-     not suppressed. --}}
+     When the camera cannot start, one quiet line says WHY (2026-09-30, at the
+     user's request -- silence made "the preview is not showing" impossible to
+     tell apart from a broken page): blocked permission, no camera, camera
+     busy, an http address, or the scanner script not loading. Never a pop-up:
+     the text field above and a scanner gun both keep working regardless. A
+     "Try again" link retries, and a permission changed to Allow in the
+     address bar starts the camera without a reload. --}}
 
 @php
     /* Flip to false to stop the camera being used as a scanner at all: no
@@ -61,7 +62,15 @@
     .cam-preview__box.is-hit .cam-preview__aim { background: #22c55e; box-shadow: 0 0 4px #22c55e; }
     .cam-preview__hint { font-size: .8rem; color: #64748b; line-height: 1.35; }
     .cam-preview__hint strong { color: #334155; font-weight: 600; }
+    .cam-status { display: flex; align-items: flex-start; gap: 6px; margin-top: 8px; padding: 6px 10px; border-radius: 6px; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; font-size: .8rem; line-height: 1.35; }
+    .cam-status[hidden] { display: none; }
+    .cam-status i { font-size: 1rem; line-height: 1.1; flex: none; }
+    .cam-status button { background: none; border: 0; padding: 0; margin-left: 4px; color: #b45309; font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
 </style>
+<div class="cam-status" id="camStatus" role="status" hidden>
+    <i class="ti ti-camera-off" aria-hidden="true"></i>
+    <span><span id="camStatusText"></span><button type="button" id="camStatusRetry" hidden>Try again</button></span>
+</div>
 <div class="cam-preview" id="camPreviewWrap" hidden>
     <div class="cam-preview__box" id="camPreviewBox">
         <video id="camPreview" muted playsinline autoplay aria-label="Camera preview for aiming a barcode"></video>
@@ -182,31 +191,92 @@
         preview.srcObject = null;
     }
 
+    const statusBox = document.getElementById('camStatus');
+    const statusText = document.getElementById('camStatusText');
+    const statusRetry = document.getElementById('camStatusRetry');
+
+    function showStatus(text, canRetry) {
+        if (!statusBox) return;
+        statusText.textContent = text + ' ';
+        statusRetry.hidden = !canRetry;
+        statusBox.hidden = false;
+    }
+
+    function hideStatus() { if (statusBox) statusBox.hidden = true; }
+
+    /* html5-qrcode rejects with a STRING ("Error getting userMedia, error =
+       NotAllowedError: Permission denied"), not the DOMException, so the
+       browser's error name is matched inside it. */
+    function explain(err) {
+        const msg = String((err && err.name ? err.name + ': ' + err.message : err) || '');
+        if (/NotAllowed|Permission|denied|SecurityError/i.test(msg)) {
+            return 'Camera blocked. Click the camera icon in the address bar, choose Allow, then reload.';
+        }
+        if (/NotFound|DevicesNotFound|device not found|Overconstrained/i.test(msg)) {
+            return 'No camera found on this device. The barcode box and a scanner gun still work.';
+        }
+        if (/NotReadable|TrackStart|Could not start|in use/i.test(msg)) {
+            return 'The camera is being used by another app (Zoom, Messenger, Camera). Close it, then try again.';
+        }
+        return 'The camera could not start.';
+    }
+
     function start() {
         if (running || starting) return;
-        if (typeof Html5Qrcode === 'undefined') return;
-        if (!navigator.mediaDevices || !window.isSecureContext) return;
+        if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showStatus('Camera scanning needs the https:// address (or localhost). This address has no camera access.', false);
+            return;
+        }
+        if (typeof Html5Qrcode === 'undefined') {
+            showStatus('The camera scanner could not load. Check the internet connection, then reload.', false);
+            return;
+        }
 
         starting = true;
-        if (!scanner) scanner = new Html5Qrcode('camScanReader', {
-            formatsToSupport: formats(),
-            verbose: false,
-            // The browser's built-in barcode reader where it has one (Chrome on
-            // Android and macOS): faster and far better at 1D codes than ZXing.
-            experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-        });
-
-        // facingMode "environment" is the REAR camera on a phone -- the one
-        // pointed at the shelf. A machine with one webcam ignores it.
-        scanner.start({ facingMode: 'environment' }, CONFIG, onDecoded, function () { /* no barcode this frame */ })
-            .then(function () { starting = false; running = true; showPreview(); })
-            .catch(function () {
-                // Refused, missing, or already in use by something else. The
-                // text field and a scanner gun both still work, so there is
-                // nothing here worth surfacing.
-                starting = false;
-                running = false;
+        try {
+            if (!scanner) scanner = new Html5Qrcode('camScanReader', {
+                formatsToSupport: formats(),
+                verbose: false,
+                // The browser's built-in barcode reader where it has one (Chrome on
+                // Android and macOS): faster and far better at 1D codes than ZXing.
+                experimentalFeatures: { useBarCodeDetectorIfSupported: true },
             });
+
+            // facingMode "environment" is the REAR camera on a phone -- the one
+            // pointed at the shelf. A machine with one webcam ignores it.
+            scanner.start({ facingMode: 'environment' }, CONFIG, onDecoded, function () { /* no barcode this frame */ })
+                .then(function () { starting = false; running = true; hideStatus(); showPreview(); })
+                .catch(failed);
+        } catch (err) {
+            // A synchronous throw would otherwise leave `starting` stuck true
+            // and every later start() a silent no-op.
+            failed(err);
+        }
+    }
+
+    function failed(err) {
+        starting = false;
+        running = false;
+        // A fresh instance for the next attempt: a failed start can leave the
+        // library mid-transition, refusing to start again.
+        scanner = null;
+        const reader = document.getElementById('camScanReader');
+        if (reader) reader.innerHTML = '';
+        showStatus(explain(err), true);
+    }
+
+    if (statusRetry) statusRetry.addEventListener('click', function () { hideStatus(); start(); });
+
+    /* Allowing the camera from the address bar fires a permission change --
+       start straight away rather than making the person reload. Not every
+       browser supports querying "camera"; where it does not, Try again and a
+       reload still work. */
+    if (navigator.permissions && navigator.permissions.query) {
+        navigator.permissions.query({ name: 'camera' }).then(function (perm) {
+            perm.addEventListener('change', function () {
+                if (perm.state === 'granted') { hideStatus(); start(); }
+            });
+        }).catch(function () {});
     }
 
     function stop() {
