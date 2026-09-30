@@ -220,9 +220,9 @@
         placeholder="Click here, then scan a product's barcode to look it up..."
         autocomplete="off"
         style="width:100%; padding:12px; border:1px solid #d1d5db; border-radius:6px; font-size:1.1rem; margin-top:6px;">
-    {{-- The camera scans too, with no preview shown -- hold a barcode up to it
-         and it opens Manage Product like a gun scan. Renders nothing here; see
-         the partial. --}}
+    {{-- The camera scans too -- hold a barcode up to it and it opens Manage
+         Product like a gun scan. A small aiming preview appears here once the
+         camera is on; see the partial. --}}
     @include('partials._barcode-camera')
     <div id="barcode-status" style="margin-top:6px; font-size:.85rem; min-height:1.2em;"></div>
 </div>

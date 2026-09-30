@@ -260,9 +260,9 @@
         autocomplete="off"
         autofocus
         class="pos-input pos-input-lg">
-    {{-- The camera scans too, with no preview shown -- hold a barcode up to it
-         and it rings up like a gun scan. Renders nothing here; see the
-         partial. --}}
+    {{-- The camera scans too -- hold a barcode up to it and it rings up like a
+         gun scan. A small aiming preview appears here once the camera is on;
+         see the partial. --}}
     @include('partials._barcode-camera')
     <div id="barcode-status" style="margin-top:6px; font-size:.85rem; min-height:1.2em;"></div>
 </div>

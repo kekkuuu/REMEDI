@@ -869,6 +869,15 @@ button opening a modal (rejected: a gun costs the person nothing, so a camera co
 item is a worse feature, not the same one), then an inline live preview in the card (rejected: the
 counter does not want a picture of itself on screen), then this.
 
+**A SMALL aiming preview came back 2026-09-30, at the user's request** — once scanning actually worked
+(see the decode-resolution note below), aiming blind at a webcam was the remaining problem. It is a
+176×99 `<video id="camPreview">` under the input, playing the SAME `MediaStream` as the hidden reader
+(`srcObject` copied after `start()` resolves), with a red aim line, mirrored unless the track reports
+`facingMode: 'environment'`, flashing green (`.is-hit`) on a read. **Never shrink the reader itself to
+make the preview** — the reader's size is the decode resolution. It shows only while the camera is
+running, so a refused or missing camera still leaves the card as a plain text field. Verified with a
+synthetic `captureStream()` camera: preview shown, green flash, "Added: 3D MASK DISPOSABLE X10".
+
 A USB/bluetooth gun never needed code — it presents itself as a KEYBOARD, types into `barcode-input`
 and sends Enter, which is what the keydown handler always read. The camera is the same act without
 the hardware. `html5-qrcode` (cdnjs, the same per-page CDN convention Chart.js and qrcodejs follow)

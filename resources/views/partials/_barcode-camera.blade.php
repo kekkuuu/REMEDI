@@ -1,5 +1,14 @@
-{{-- Camera barcode scanning, RUNNING but with no visible preview, shared by
-     the POS and Inventory scanner cards.
+{{-- Camera barcode scanning, shared by the POS and Inventory scanner cards,
+     with a SMALL aiming preview (2026-09-30, at the user's request).
+
+     The preview is a second <video> playing the SAME MediaStream as the
+     hidden reader below -- not the reader itself shrunk onto the card, since
+     the reader's size is the decode resolution and a 176px reader reads
+     nothing (measured: 280px read nothing at any distance). It appears only
+     once the camera is actually running, so a refused or missing camera still
+     leaves the card exactly as it was. Mirrored for a webcam facing the
+     person (moving the box left moves it left on screen), not for a phone's
+     rear camera. It flashes green when a code is read.
 
      The camera really is watching -- hold a barcode up to it and the product
      is rung up (POS) or its Manage Product page opens (Inventory), exactly as
@@ -40,6 +49,30 @@
 @endphp
 
 @if($cameraScannerEnabled)
+<style>
+    .cam-preview { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+    .cam-preview[hidden] { display: none; }
+    .cam-preview__box { position: relative; width: 176px; height: 99px; flex: none; border-radius: 8px; overflow: hidden; background: #0f172a; border: 2px solid #cbd5e1; transition: border-color .15s ease, box-shadow .15s ease; }
+    .cam-preview__box video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cam-preview__box.is-mirrored video { transform: scaleX(-1); }
+    /* The aim line: where to put the barcode. */
+    .cam-preview__aim { position: absolute; left: 12%; right: 12%; top: 50%; height: 2px; margin-top: -1px; background: rgba(239, 68, 68, .85); box-shadow: 0 0 4px rgba(239, 68, 68, .8); pointer-events: none; }
+    .cam-preview__box.is-hit { border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, .35); }
+    .cam-preview__box.is-hit .cam-preview__aim { background: #22c55e; box-shadow: 0 0 4px #22c55e; }
+    .cam-preview__hint { font-size: .8rem; color: #64748b; line-height: 1.35; }
+    .cam-preview__hint strong { color: #334155; font-weight: 600; }
+</style>
+<div class="cam-preview" id="camPreviewWrap" hidden>
+    <div class="cam-preview__box" id="camPreviewBox">
+        <video id="camPreview" muted playsinline autoplay aria-label="Camera preview for aiming a barcode"></video>
+        <span class="cam-preview__aim" aria-hidden="true"></span>
+    </div>
+    <div class="cam-preview__hint">
+        <strong><i class="ti ti-camera" aria-hidden="true"></i> Camera scanner on</strong><br>
+        Hold the barcode across the red line, about 15&ndash;25&nbsp;cm away.
+    </div>
+</div>
+
 {{-- Parked off-screen: present and rendering (so frames decode), but never
      seen. Not display:none -- see the note above.
 
@@ -109,9 +142,44 @@
         lastCode = code;
         lastAt = now;
 
+        flashHit();
         if (typeof window.handleScannedCode === 'function') {
             window.handleScannedCode(code);
         }
+    }
+
+    const previewWrap = document.getElementById('camPreviewWrap');
+    const previewBox = document.getElementById('camPreviewBox');
+    const preview = document.getElementById('camPreview');
+    let hitTimer = null;
+
+    function flashHit() {
+        if (!previewBox) return;
+        previewBox.classList.add('is-hit');
+        clearTimeout(hitTimer);
+        hitTimer = setTimeout(function () { previewBox.classList.remove('is-hit'); }, 700);
+    }
+
+    /* Show the reader's own stream in the small box. The library creates its
+       <video> inside #camScanReader during start(), so this runs after it. */
+    function showPreview() {
+        if (!preview || !previewWrap) return;
+        const src = document.querySelector('#camScanReader video');
+        const stream = src && src.srcObject;
+        if (!stream) return;
+        preview.srcObject = stream;
+        const track = stream.getVideoTracks()[0];
+        const facing = track && track.getSettings ? track.getSettings().facingMode : undefined;
+        previewBox.classList.toggle('is-mirrored', facing !== 'environment');
+        const played = preview.play();
+        if (played && played.catch) played.catch(function () {});
+        previewWrap.hidden = false;
+    }
+
+    function hidePreview() {
+        if (!preview || !previewWrap) return;
+        previewWrap.hidden = true;
+        preview.srcObject = null;
     }
 
     function start() {
@@ -131,7 +199,7 @@
         // facingMode "environment" is the REAR camera on a phone -- the one
         // pointed at the shelf. A machine with one webcam ignores it.
         scanner.start({ facingMode: 'environment' }, CONFIG, onDecoded, function () { /* no barcode this frame */ })
-            .then(function () { starting = false; running = true; })
+            .then(function () { starting = false; running = true; showPreview(); })
             .catch(function () {
                 // Refused, missing, or already in use by something else. The
                 // text field and a scanner gun both still work, so there is
@@ -142,6 +210,7 @@
     }
 
     function stop() {
+        hidePreview();
         if (!scanner || !running) { running = false; return Promise.resolve(); }
         running = false;
         // stop() REJECTS when it was never really running; swallow it or a
