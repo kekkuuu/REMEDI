@@ -50,6 +50,8 @@
     .bc-preview-card { background: #e2e8f0; border-radius: 12px; padding: 18px; }
     .bc-preview-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 10px; font-size: 13px; color: #334155; }
     .bc-preview-head strong { font-size: 14px; }
+    .bc-print-tip { display: flex; gap: 8px; align-items: flex-start; margin-bottom: 12px; padding: 8px 12px; border-radius: 8px; background: #eff6ff; border: 1px solid #bfdbfe; color: #1e3a8a; font-size: 12.5px; line-height: 1.4; }
+    .bc-print-tip i { font-size: 16px; line-height: 1.2; flex: none; }
     /* One A4 page's width on screen, so the preview is the printout. */
     .bc-page { background: #fff; width: 100%; max-width: 210mm; margin: 0 auto; padding: 8mm; box-shadow: 0 2px 10px rgba(15, 23, 42, .12); min-height: 120px; }
     .bc-empty { text-align: center; color: #64748b; font-size: 13.5px; padding: 40px 10px; }
@@ -71,7 +73,7 @@
 
     #bcPrintRoot { display: none; }
     @media print {
-        @page { size: A4; margin: 8mm; }
+        @page { margin: 8mm; }
         html, body { background: #fff !important; margin: 0 !important; padding: 0 !important; height: auto !important; overflow: visible !important; }
         body > *:not(#bcPrintRoot) { display: none !important; }
         #bcPrintRoot { display: block !important; }
@@ -145,7 +147,14 @@
     <div class="bc-preview-card">
         <div class="bc-preview-head">
             <strong>Preview</strong>
-            <span>A4 paper. Dashed lines are for cutting.</span>
+            <span>A4 or Letter paper. Dashed lines are for cutting.</span>
+        </div>
+        {{-- A browser remembers the last print scale it was given (a user's
+             preview came up at "Custom 28%", shrinking every label to a
+             sliver), and a page cannot set it. So say it where it is read. --}}
+        <div class="bc-print-tip">
+            <i class="ti ti-info-circle" aria-hidden="true"></i>
+            <span>In the print window, open <strong>More settings</strong>: set <strong>Scale</strong> to <strong>Default</strong> (100%) and untick <strong>Headers and footers</strong>.</span>
         </div>
         <div class="bc-page">
             <div id="bcSheet" class="bc-sheet size-medium"></div>
