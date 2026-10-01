@@ -189,4 +189,71 @@ class SettingsTest extends TestCase
         $this->assertFalse(Setting::checkVoidPasscode('111111'));
         $this->assertTrue(Setting::checkVoidPasscode('222222'));
     }
+
+    /** A made-up but well-formed static QR Ph payload -- never a real account. */
+    private function fakeQrPh(string $name = 'REMEDI TEST'): string
+    {
+        $tlv = fn (string $id, string $v) => $id.str_pad((string) strlen($v), 2, '0', STR_PAD_LEFT).$v;
+        $body = $tlv('00', '01').$tlv('01', '11')
+            .$tlv('27', $tlv('00', 'com.example.p2p').$tlv('01', '000000000000'))
+            .$tlv('52', '6016').$tlv('53', '608').$tlv('58', 'PH')
+            .$tlv('59', $name).$tlv('60', 'MANILA').'6304';
+
+        return $body.Setting::qrPhCrc($body);
+    }
+
+    /** The shop's GCash QR (2026-10-01): saved on Safeguard, drawn at the till. */
+    public function test_an_admin_saves_the_gcash_qr_and_the_till_draws_it(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $payload = $this->fakeQrPh();
+        $this->assertTrue(Setting::isQrPhPayload($payload));
+
+        $this->actingAs($admin)->withSession($this->confirmed())
+            ->putJson('/safeguard/gcash-qr', ['gcash_qr' => $payload])
+            ->assertOk()->assertJson(['success' => true]);
+        $this->assertSame($payload, Setting::gcashQrPayload());
+
+        // The audit trail never carries the payload.
+        $details = \App\Models\AuditTrail::latest('id')->value('details');
+        $this->assertSame('Set the POS GCash QR', $details);
+
+        $this->actingAs($admin)->withSession($this->confirmed())->get('/safeguard')
+            ->assertOk()->assertSee('A GCash QR is saved')->assertSee('REMEDI TEST');
+
+        $this->actingAs(User::factory()->create())->get('/pos')
+            ->assertOk()->assertSee('data-qr-payload="'.$payload.'"', false)
+            ->assertSee('Scan with GCash or any bank app');
+
+        // Removed: the till falls back to the plain REMEDI code.
+        $this->actingAs($admin)->withSession($this->confirmed())
+            ->putJson('/safeguard/gcash-qr', ['gcash_qr' => ''])->assertOk();
+        $this->assertNull(Setting::gcashQrPayload());
+        $this->actingAs(User::factory()->create())->get('/pos')
+            ->assertSee('data-qr-payload=""', false);
+    }
+
+    public function test_only_a_real_qr_ph_code_is_saved_and_only_by_an_admin(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $good = $this->fakeQrPh();
+        $badCrc = substr($good, 0, -4).($good[-1] === '0' ? 'FFF1' : '0000');
+
+        foreach (['REMEDI', '09454553998', $badCrc, '000201'.str_repeat('9', 30), substr($good, 0, -10)] as $bad) {
+            $this->actingAs($admin)->withSession($this->confirmed())
+                ->putJson('/safeguard/gcash-qr', ['gcash_qr' => $bad])
+                ->assertStatus(422)->assertJsonValidationErrors('gcash_qr');
+        }
+        $this->actingAs($admin)->withSession($this->confirmed())
+            ->putJson('/safeguard/gcash-qr', ['gcash_qr' => [$good]])->assertStatus(422);
+        $this->assertNull(Setting::gcashQrPayload());
+
+        $this->actingAs(User::factory()->create())->withSession($this->confirmed())
+            ->putJson('/safeguard/gcash-qr', ['gcash_qr' => $good])->assertForbidden();
+
+        $this->flushSession();
+        $this->actingAs($admin)->put('/safeguard/gcash-qr', ['gcash_qr' => $good])
+            ->assertRedirect(route('password.confirm'));
+        $this->assertNull(Setting::gcashQrPayload());
+    }
 }

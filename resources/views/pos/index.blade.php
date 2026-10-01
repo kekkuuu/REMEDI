@@ -364,10 +364,18 @@
              labelled "QR".
              Hidden for Cash, and rebuilt whenever the method or the total
              changes -- see updateQrPayment() below. --}}
-        <div id="qr-payment-box" style="display:none; margin-bottom:14px; padding:12px; border:1px dashed #a5b4fc; border-radius:8px; background:#f8fafc; text-align:center;">
+        {{-- With the shop's GCash QR saved on the Safeguard page (2026-10-01)
+             the box draws THAT code, which any GCash or bank app can pay. It is
+             a static QR Ph code with no amount in it, so the customer is told
+             what to type. --}}
+        <div id="qr-payment-box" data-qr-payload="{{ $gcashQrPayload }}" style="display:none; margin-bottom:14px; padding:12px; border:1px dashed #a5b4fc; border-radius:8px; background:#f8fafc; text-align:center;">
             <div id="qr-code-canvas" style="display:inline-flex; justify-content:center;"></div>
             <p style="margin:8px 0 0; font-size:.78rem; color:#64748b;">
-                Scan to pay &#8369;<span id="qr-amount">0.00</span>
+                @if($gcashQrPayload)
+                    Scan with GCash or any bank app, then enter <strong style="color:#111827;">&#8369;<span id="qr-amount">0.00</span></strong>
+                @else
+                    Scan to pay &#8369;<span id="qr-amount">0.00</span>
+                @endif
             </p>
             <p style="margin:2px 0 0; font-size:.85rem; font-weight:600; letter-spacing:.06em; color:#111827;">REMEDI</p>
         </div>
@@ -740,15 +748,21 @@
 
         amountEl.textContent = cartTotal.toFixed(2);
 
-        // The shop's name (2026-10-01, at the user's request).
-        const payload = 'REMEDI';
+        // The shop's GCash QR when one is saved (Safeguard page), else the
+        // shop's name -- which no payment app accepts, see the Safeguard note.
+        const payload = box.dataset.qrPayload || 'REMEDI';
+        const isPayable = payload !== 'REMEDI';
 
         if (typeof QRCode === 'undefined') return;
 
         if (!qrPaymentInstance) {
+            // A QR Ph code is ~170 characters, far denser than a word, so it
+            // is drawn larger and at medium error correction: at 128px a
+            // phone held up to the screen struggles to resolve the modules.
             qrPaymentInstance = new QRCode(canvas, {
-                text: payload, width: 128, height: 128,
+                text: payload, width: isPayable ? 208 : 128, height: isPayable ? 208 : 128,
                 colorDark: '#111827', colorLight: '#ffffff',
+                correctLevel: isPayable ? QRCode.CorrectLevel.M : QRCode.CorrectLevel.H,
             });
         } else {
             qrPaymentInstance.clear();

@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (365 passed, 1221 assertions — measured 2026-10-01) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (367 passed, 1256 assertions — measured 2026-10-01) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -1061,7 +1061,7 @@ needed no migration. The default matters: every sale before this existed, and ev
 post today, really is cash, so a missing field must resolve to the true historical value, not an
 arbitrary one.
 
-**The QR holds "REMEDI" (2026-10-01, at the user's request), with "REMEDI" printed beneath it.** It encoded a per-attempt reference string (described below), then for a few hours a mobile number set on the Safeguard page; that setting was removed again the same day, so the QR is now the same word on every checkout and the reference-string detail below is history.
+**The QR is the shop's real GCash / InstaPay QR when one is saved (2026-10-01, at the user's request).** A QR holding plain text — "REMEDI", or a phone number (both tried that day) — is refused by every e-wallet as INVALID: payment apps only pay EMV **QR Ph** codes (tag-length-value fields starting `000201`, ending in a CRC-16/CCITT check, tag 63). Safeguard's "GCash QR for the Till" box takes a screenshot of GCash → My QR, decodes it IN THE BROWSER with the camera scanner's reader (barcode-detector ponyfill) and posts only the decoded text; `SettingsController::updateGcashQr()` refuses anything that is not a well-formed QR Ph payload (`Setting::isQrPhPayload()`, CRC included) and stores it as `Setting::GCASH_QR_KEY` — in the database, never the code (the repository is public; the payload carries the account). Blank removes it. The audit entry never carries the payload. The POS draws it for GCash and Other QR at 208px / correction level M (a ~170-character code is too dense at 128px), with "Scan with GCash or any bank app, then enter ₱X" — it is a STATIC code with no amount — and "REMEDI" beneath; with none saved it falls back to a QR of the word "REMEDI", which no app can pay. Verified with the user's own QR (decoded in the browser, never printed): the server accepted it and the till's QR decoded back to the identical payload for both methods. Covered by two `SettingsTest` cases using a made-up payload.
 **GCash / Other QR show an actual QR code to scan, and lock the payment field to the exact total.**
 No real payment gateway sits behind this till, so the code (`qrcodejs`, loaded from cdnjs on this one
 page) encodes a plain reference string — store, method, the order total, this checkout ATTEMPT's

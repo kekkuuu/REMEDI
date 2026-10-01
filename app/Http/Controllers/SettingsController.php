@@ -17,7 +17,42 @@ class SettingsController extends Controller
     {
         return view('admin.settings.edit', [
             'voidPasscodeSet' => Setting::voidPasscodeIsSet(),
+            'gcashQrName' => ($p = Setting::gcashQrPayload()) ? (Setting::qrPhMerchantName($p) ?? 'your account') : null,
         ]);
+    }
+
+    /**
+     * Save (or, blank, remove) the shop's GCash QR. The page decodes the
+     * uploaded "My QR" image in the browser and posts the TEXT; the image is
+     * never stored. Checked here as a real QR Ph code, CRC included.
+     */
+    public function updateGcashQr(Request $request)
+    {
+        $request->validate([
+            'gcash_qr' => ['nullable', 'string', 'max:512'],
+        ]);
+
+        $payload = trim((string) $request->input('gcash_qr', ''));
+
+        if ($payload === '') {
+            Setting::put(Setting::GCASH_QR_KEY, null);
+            AuditTrail::log('Updated', 'Removed the POS GCash QR');
+
+            return $this->actionOk($request, 'GCash QR removed. The till shows the plain REMEDI code again.', redirect()->route('safeguard.edit'));
+        }
+
+        if (! Setting::isQrPhPayload($payload)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'gcash_qr' => 'That is not a GCash / QR Ph code. Upload the QR from GCash → My QR.',
+            ]);
+        }
+
+        Setting::put(Setting::GCASH_QR_KEY, $payload);
+
+        // Never the payload itself: the trail is readable by every admin.
+        AuditTrail::log('Updated', 'Set the POS GCash QR');
+
+        return $this->actionOk($request, 'GCash QR saved. The till shows it for GCash and Other QR.', redirect()->route('safeguard.edit'));
     }
 
     /**

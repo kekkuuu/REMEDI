@@ -39,7 +39,10 @@ class PosController extends Controller
             ]);
         }
 
-        return view('pos.index', compact('products'));
+        // The shop's GCash / InstaPay QR, uploaded on the Safeguard page.
+        $gcashQrPayload = \App\Models\Setting::gcashQrPayload();
+
+        return view('pos.index', compact('products', 'gcashQrPayload'));
     }
 
     /**
