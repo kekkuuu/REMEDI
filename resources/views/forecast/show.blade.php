@@ -445,7 +445,9 @@ new Chart(document.getElementById('productForecastChart'), {
         },
         scales: {
             x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 18 } },
-            y: { beginAtZero: true, grid: { color: '#e2e8f0' } },
+            // Whole units only (2026-10-01): on a product selling ~1 a month
+            // the axis read 0, 0.1 … 1.0, and nobody sells 0.3 of a box.
+            y: { beginAtZero: true, grid: { color: '#e2e8f0' }, ticks: { precision: 0 } },
         },
     },
 });
@@ -516,7 +518,8 @@ new Chart(document.getElementById('productSalesForecastChart'), {
         },
         scales: {
             x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 18 } },
-            y: { beginAtZero: true, grid: { color: '#e2e8f0' }, ticks: { callback: (v) => '₱' + (v / 1000) + 'k' } },
+            // Under ₱1,000 in pesos, not "₱0.02k".
+            y: { beginAtZero: true, grid: { color: '#e2e8f0' }, ticks: { callback: (v) => (Math.abs(v) >= 1000 ? '₱' + (v / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 }) + 'k' : '₱' + v.toLocaleString()) } },
         },
     },
 });
@@ -542,7 +545,7 @@ new Chart(document.getElementById('productSeasonalChart'), {
             tooltip: { callbacks: { label: (ctx) => `${ctx.parsed.y} units avg` } },
         },
         scales: {
-            y: { beginAtZero: true, ticks: { color: '#94a3b8', font: { size: 11 } }, grid: { color: '#f1f5f9' } },
+            y: { beginAtZero: true, ticks: { color: '#94a3b8', font: { size: 11 }, precision: 0 }, grid: { color: '#f1f5f9' } },
             x: { ticks: { color: '#334155', font: { size: 11, weight: '600' } }, grid: { display: false } },
         },
     },

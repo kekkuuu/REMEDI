@@ -1987,6 +1987,8 @@ month. The Python `monthly_series()` applies the identical rules before fitting,
 the series the model was actually trained on — keep the two in step. The KPI is labelled **"Last
 complete month"** because that is what it now is, and the chart subtitle says the month in progress
 is excluded rather than leaving the omission silent.
+**Unit axes count whole units (2026-10-01, at the user's request).** On a product selling about 1 a quarter the detail chart's axis read 0, 0.1 … 1.0 — Chart.js picks fine steps when the maximum is 1 — which read as "less than 1 unit". The unit axes on both forecast pages carry `ticks: { precision: 0 }`, and the peso axes print amounts under ₱1,000 as pesos (₱20, not ₱0.02k). Such a product's FORECAST is genuinely 0: it averages ~0.3 a month and forecasts are whole units.
+**The store-wide forecast is whole units per month too (same day).** `sales_forecasts.forecast_units` is stored to two decimals per product, so the summed month read 73,783.83: the chart rounded it per month while the "Forecast total, units (3-month)" card summed the raw figures and rounded once — 73,784 + 75,107 + 75,440 = 224,331 on the chart against 224,330 on the card. `SalesForecastService::overallMonthlyTrend()` now rounds the three unit series per month, so every reader adds the same numbers; `CACHE_KEY` became `sales_forecast_overall_trend_v2` so a payload cached in the old shape is not served for its 6 hours after a deploy.
 **A zero forecast is usually correct, not a bug.** Once the zeros are visible the reason is plain:
 the 14 products forecasting all-zero sell in single digits across scattered months and most sold
 nothing at all in the last three (the busiest managed 144 units over 17 months). The demo history is

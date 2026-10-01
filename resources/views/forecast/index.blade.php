@@ -291,7 +291,7 @@ new Chart(document.getElementById('unitsTrendChart'), {
         },
         scales: {
             x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12 } },
-            y: { beginAtZero: true, grid: { color: '#e2e8f0' } },
+            y: { beginAtZero: true, grid: { color: '#e2e8f0' }, ticks: { precision: 0 } },
         },
     },
 });
@@ -359,7 +359,7 @@ new Chart(document.getElementById('revenueTrendChart'), {
         },
         scales: {
             x: { grid: { display: false }, ticks: { maxRotation: 45, autoSkip: true, maxTicksLimit: 12 } },
-            y: { beginAtZero: true, grid: { color: '#e2e8f0' }, ticks: { callback: (v) => '₱' + (v / 1000) + 'k' } },
+            y: { beginAtZero: true, grid: { color: '#e2e8f0' }, ticks: { callback: (v) => (Math.abs(v) >= 1000 ? '₱' + (v / 1000).toLocaleString(undefined, { maximumFractionDigits: 1 }) + 'k' : '₱' + v.toLocaleString()) } },
         },
     },
 });

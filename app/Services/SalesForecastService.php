@@ -26,7 +26,9 @@ class SalesForecastService
      * between imports. GenerateSalesForecast clears the key after it
      * imports, which covers the other half of what the page reads.
      */
-    public const CACHE_KEY = 'sales_forecast_overall_trend';
+    // v2 (2026-10-01): forecast units became whole numbers per month, so a
+    // payload cached in the old shape must not be served after a deploy.
+    public const CACHE_KEY = 'sales_forecast_overall_trend_v2';
 
     public const CACHE_TTL_HOURS = 6;
 
@@ -120,9 +122,16 @@ class SalesForecastService
             ->orderBy('month')
             ->get();
 
-        $forecastUnits = $forecastAgg->pluck('units', 'month');
-        $forecastUnitsLower = $forecastAgg->pluck('units_lo', 'month');
-        $forecastUnitsUpper = $forecastAgg->pluck('units_hi', 'month');
+        // Whole units per month (2026-10-01). Each product's sales forecast is
+        // stored to two decimals, so the store-wide sum was 73,783.83 etc.:
+        // the chart showed it rounded while the 3-month KPI summed the raw
+        // figures and rounded once, and the two disagreed by a unit
+        // (73,784 + 75,107 + 75,440 = 224,331 on the chart, 224,330 on the
+        // card). Rounding here gives every reader the same whole numbers.
+        $wholeUnits = fn ($v) => $v === null ? null : (int) round((float) $v);
+        $forecastUnits = $forecastAgg->pluck('units', 'month')->map($wholeUnits);
+        $forecastUnitsLower = $forecastAgg->pluck('units_lo', 'month')->map($wholeUnits);
+        $forecastUnitsUpper = $forecastAgg->pluck('units_hi', 'month')->map($wholeUnits);
         $forecastRevenue = $forecastAgg->pluck('revenue', 'month');
         $forecastRevenueLower = $forecastAgg->pluck('revenue_lo', 'month');
         $forecastRevenueUpper = $forecastAgg->pluck('revenue_hi', 'month');
