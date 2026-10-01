@@ -167,6 +167,12 @@
                                 ->sortBy('return_days')
                                 ->first();
                         @endphp
+                        {{-- Manage FIRST, Return after it only where a batch can go back
+                             (2026-10-02, at the user's request). Return used to lead,
+                             with an invisible copy on rows that had none to keep Manage
+                             in one column -- which pushed Manage to the far right of
+                             every row. Leading with it aligns it without a placeholder. --}}
+                        <a href="{{ route('products.edit', $product) }}" class="btn btn-info btn-sm"><i class="ti ti-pencil" aria-hidden="true"></i> Manage</a>
                         @if($returnable)
                             <form method="POST" action="{{ route('batches.return', $returnable) }}"
                                   class="js-confirm"
@@ -181,14 +187,7 @@
                                     Return
                                 </button>
                             </form>
-                        @else
-                            {{-- Same element, just invisible: reserves the exact
-                                 width a real Return button takes so Manage lands
-                                 in the same column on every row rather than
-                                 sliding left on rows with nothing to return. --}}
-                            <button type="button" class="btn btn-success btn-sm" style="visibility:hidden;" aria-hidden="true" tabindex="-1">Return</button>
                         @endif
-                        <a href="{{ route('products.edit', $product) }}" class="btn btn-info btn-sm"><i class="ti ti-pencil" aria-hidden="true"></i> Manage</a>
                     </div>
                 </td>
             @else

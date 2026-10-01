@@ -716,6 +716,18 @@
        without leaking canvases. */
     let qrPaymentInstance = null;
 
+    /* The confirm button's words follow the payment method (2026-10-02, at
+       the user's request). A QR payment goes straight from the customer's
+       app to the shop's GCash -- nothing reaches this till, so it cannot see
+       the money arrive -- and the cashier confirms it from the GCash
+       notification. "Customer has paid" says that is what the tap means;
+       the sale and receipt then finish in that one tap, as Checkout always
+       did. */
+    function checkoutLabel() {
+        const m = paymentMethodHidden.value;
+        return (m === 'gcash' || m === 'qr') ? 'Customer has paid — Complete Sale' : 'Checkout';
+    }
+
     /* QR Ph with the amount in it (2026-10-02, at the user's request) -- what
        GCash's own "Add amount" button produces. An EMV QR is a run of
        tag-length-value fields; this rewrites the saved STATIC code as a
@@ -767,6 +779,7 @@
         const method = paymentMethodHidden.value;
         const isQr = method === 'gcash' || method === 'qr';
         box.style.display = isQr ? 'block' : 'none';
+        modalConfirmBtn.textContent = checkoutLabel();
 
         // GCash / Other QR are EXACT-payment methods -- the customer's
         // e-wallet app charges them the precise total, so there is no
@@ -1034,7 +1047,7 @@
             })
             .finally(() => {
                 clearTimeout(timeoutId);
-                modalConfirmBtn.textContent = 'Checkout';
+                modalConfirmBtn.textContent = checkoutLabel();
             });
     }
 
