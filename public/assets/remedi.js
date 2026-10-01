@@ -1617,7 +1617,9 @@
             noteMode = false;
             noteOptional = !reasons && d.confirmNote === 'optional';
             noteWrap.hidden = !noteOptional;
-            noteInput.value = '';
+            // data-confirm-note-value: the note already saved, so editing it
+            // starts from what is there (staff Edit note on Stock Reports).
+            noteInput.value = noteOptional ? (d.confirmNoteValue || '') : '';
             if (noteLabel) noteLabel.textContent = noteOptional ? (d.confirmNoteTitle || 'Note (optional)') : 'Reason';
             noteInput.placeholder = noteOptional ? (d.confirmNotePlaceholder || 'Add a note') : 'Type the reason';
             askEl.hidden = true;
@@ -2210,6 +2212,73 @@
 
             play();
         }
+
+        /* -- The scan beep (2026-10-01, at the user's request) ------------
+           REMEDI.scanBeep(true) when a scanned code found its product, false
+           when it did not -- called from each page's handleScannedCode(), so
+           a camera read and a scanner gun sound the same. A camera makes no
+           noise of its own, and on a busy counter the till's answer has to be
+           heard, not looked for. Shares the chime's one AudioContext (see
+           above) rather than opening a second.
+
+           Its own mute, 'remedi.scanSound' = 'off' via REMEDI.scanSound(false):
+           silencing the alert pop-ups should not silence the till. */
+        function scanMuted() {
+            try { return localStorage.getItem('remedi.scanSound') === 'off'; }
+            catch (e) { return false; }
+        }
+
+        window.REMEDI.scanSound = function (on) {
+            try {
+                if (on === false) localStorage.setItem('remedi.scanSound', 'off');
+                else localStorage.removeItem('remedi.scanSound');
+            } catch (e) { /* storage unavailable; nothing to remember */ }
+            return on !== false;
+        };
+
+        function tone(ctx, freq, at, dur, peak, type) {
+            var osc = ctx.createOscillator();
+            var gain = ctx.createGain();
+            osc.type = type;
+            osc.frequency.value = freq;
+            gain.gain.setValueAtTime(0.0001, at);
+            gain.gain.exponentialRampToValueAtTime(peak, at + 0.008);
+            gain.gain.setValueAtTime(peak, at + dur - 0.02);
+            gain.gain.exponentialRampToValueAtTime(0.0001, at + dur);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start(at);
+            osc.stop(at + dur + 0.02);
+        }
+
+        window.REMEDI.scanBeep = function (found) {
+            if (!AudioCtx || scanMuted()) return;
+            if (!audio) {
+                try { audio = new AudioCtx(); } catch (e) { return; }
+            }
+
+            function play() {
+                var t = audio.currentTime + 0.01;
+                if (found !== false) {
+                    // One short high beep -- the sound a scanner gun makes.
+                    tone(audio, 1975.5, t, 0.11, 0.12, 'triangle');
+                } else {
+                    // Two low falling tones: not a product, look at the screen.
+                    tone(audio, 330, t, 0.14, 0.14, 'triangle');
+                    tone(audio, 247, t + 0.17, 0.2, 0.14, 'triangle');
+                }
+            }
+
+            // Same autoplay handling as the chime: a blocked beep is silent,
+            // never an error.
+            if (audio.state === 'suspended') {
+                var r = audio.resume();
+                if (r && r.then) { r.then(play).catch(function () {}); }
+                else { play(); }
+                return;
+            }
+            play();
+        };
 
         /* -- The card ----------------------------------------------------
            Built here rather than fetched as rendered HTML: /alerts answers JSON

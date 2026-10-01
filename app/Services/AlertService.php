@@ -548,6 +548,8 @@ class AlertService
                     $isStockReport && $row->action === 'Requested' => ['alerts', 'ti-bell-ringing', $stockReportCls, 'Stock report from staff'],
                     $isStockReport && $row->action === 'Approved' => ['updates', 'ti-circle-check', 'is-update', 'Stock report approved'],
                     $isStockReport && $row->action === 'Rejected' => ['updates', 'ti-circle-x', 'is-update', 'Stock report rejected'],
+                    // The reporter added or changed the note on a waiting report.
+                    $isStockReport && $row->action === 'Updated' => ['alerts', 'ti-notes', $stockReportCls, 'Stock report note from staff'],
                     $isAccount && $row->action === 'Login' => ['system', 'ti-login', 'is-system', 'Signed in'],
                     $isAccount && $row->action === 'Logout' => ['system', 'ti-logout', 'is-system', 'Signed out'],
                     $isAccount && $row->action === 'Created' => ['system', 'ti-user-plus', 'is-system', 'New user added'],
@@ -582,7 +584,7 @@ class AlertService
                     // stack useless by lunchtime. Nothing filters the bell on
                     // `kind` -- its tabs read `group` -- so this is free there.
                     'kind' => match (true) {
-                        $isStockReport && $row->action === 'Requested' => self::STOCK_REPORT_KIND,
+                        $isStockReport && in_array($row->action, ['Requested', 'Updated'], true) => self::STOCK_REPORT_KIND,
                         $isAccount && ! $isSession => self::ACCOUNT_KIND,
                         default => 'activity',
                     },
@@ -630,7 +632,7 @@ class AlertService
                     // toast card render. Null everywhere else: a pill that said
                     // "View" on every row would be furniture, not an action.
                     'action' => match (true) {
-                        $isStockReport && $row->action === 'Requested' => 'Review',
+                        $isStockReport && in_array($row->action, ['Requested', 'Updated'], true) => 'Review',
                         $isAccount && ! $isSession => 'Manage users',
                         default => null,
                     },

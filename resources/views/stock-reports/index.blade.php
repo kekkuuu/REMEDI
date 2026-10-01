@@ -18,6 +18,7 @@
     .sr-product { font-weight: 600; color: var(--ink, #0f172a); line-height: 1.3; }
     .sr-sub { font-size: 11.5px; color: var(--ink-soft, #64748b); }
     .sr-note { max-width: 260px; white-space: normal; color: #475569; font-size: 12.5px; }
+    .sr-note-form { margin-top: 6px; }
 </style>
 
 <div class="page-head">
@@ -89,7 +90,31 @@
                     {{ $report->reporter->name ?? 'Unknown' }}
                     <div class="sr-sub">{{ $report->created_at->format('M d, Y g:i A') }}</div>
                 </td>
-                <td class="sr-note">{{ $report->note ?: '—' }}</td>
+                <td class="sr-note">
+                    {{ $report->note ?: '—' }}
+                    {{-- The reporter's own waiting report: add or change its
+                         note (2026-10-01). The endpoint makes the same check. --}}
+                    @if($report->isPending() && (int) $report->reported_by === (int) auth()->id())
+                        <form method="POST" action="{{ route('stock-reports.note', $report) }}"
+                              class="js-confirm sr-note-form"
+                              data-confirm-title="{{ $report->note ? 'Edit your note' : 'Add a note for the admin' }}"
+                              data-confirm-body="{{ $report->type_label }} — {{ $product->name ?? 'this product' }}. The admin sees the note with your report.{{ $report->note ? ' Clear the box to remove it.' : '' }}"
+                              data-confirm-label="Save note"
+                              data-confirm-icon="ti-notes"
+                              data-confirm-tone="neutral"
+                              data-confirm-note="optional"
+                              data-confirm-note-title="Note for the admin"
+                              data-confirm-note-placeholder="{{ $report->type === \App\Models\StockReport::TYPE_EXPIRED ? 'e.g. 2 boxes on the top shelf' : 'e.g. customers keep asking for it' }}"
+                              data-confirm-note-value="{{ $report->note }}">
+                            @csrf
+                            @method('PATCH')
+                            <input type="hidden" name="note" value="">
+                            <button type="submit" class="btn btn-secondary btn-sm">
+                                <i class="ti ti-notes" aria-hidden="true"></i> {{ $report->note ? 'Edit note' : 'Add note' }}
+                            </button>
+                        </form>
+                    @endif
+                </td>
                 <td class="col-status">
                     <span class="badge {{ $report->status === 'approved' ? 'badge-success' : ($report->status === 'rejected' ? 'badge-danger' : 'badge-warning') }}">
                         {{ $report->status_label }}

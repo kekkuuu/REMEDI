@@ -503,8 +503,13 @@
                 })
                 .then(function (data) {
                     if (data.found) {
+                        if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(true);
                         if (isAdmin) {
-                            window.location.href = `${productEditUrlBase}/${data.id}/edit`;
+                            // A moment for the beep to sound before the page
+                            // it is playing on is replaced.
+                            setTimeout(function () {
+                                window.location.href = `${productEditUrlBase}/${data.id}/edit`;
+                            }, 150);
                             return;
                         }
                         barcodeStatus.textContent = '\u2705 Found: ' + data.name;
@@ -512,11 +517,13 @@
                         searchInput.value = data.name;
                         runInventorySearch();
                     } else {
+                        if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(false);
                         barcodeStatus.textContent = '\u274C Product not found for code: ' + code;
                         barcodeStatus.style.color = '#dc2626';
                     }
                 })
                 .catch(function () {
+                    if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(false);
                     barcodeStatus.textContent = '\u274C Product not found for code: ' + code;
                     barcodeStatus.style.color = '#dc2626';
                 });

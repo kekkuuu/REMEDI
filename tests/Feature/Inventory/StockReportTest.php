@@ -106,6 +106,67 @@ class StockReportTest extends TestCase
         ])->assertStatus(422);
     }
 
+    /** Add / Edit note on your own waiting report (2026-10-01). */
+    public function test_the_reporter_can_add_change_and_clear_the_note_while_it_waits(): void
+    {
+        $staff = User::factory()->create();
+        $low = $this->product(2, now()->addYear()->toDateString());
+        $this->report($staff, $low, 'low_stock')->assertOk();
+        $report = StockReport::where('product_id', $low->id)->firstOrFail();
+
+        // The button is on the reporter's own list.
+        $this->actingAs($staff)->get('/stock-reports')->assertOk()
+            ->assertSee(route('stock-reports.note', $report), false)
+            ->assertSee('Add note');
+
+        $this->actingAs($staff)->patchJson(route('stock-reports.note', $report), ['note' => '  Customers keep asking  '])
+            ->assertOk()->assertJson(['success' => true]);
+        $this->assertSame('Customers keep asking', $report->fresh()->note);
+
+        // The admin is told, in the bell, with the note in the row.
+        Cache::flush();
+        $row = collect(app(AlertService::class)->activity())->firstWhere('title', 'Stock report note from staff');
+        $this->assertNotNull($row);
+        $this->assertSame(AlertService::STOCK_REPORT_KIND, $row['kind']);
+        $this->assertStringContainsString('Note: "Customers keep asking"', $row['body']);
+
+        // Editing starts from the saved note.
+        $this->actingAs($staff)->get('/stock-reports')
+            ->assertSee('data-confirm-note-value="Customers keep asking"', false)
+            ->assertSee('Edit note');
+
+        $this->actingAs($staff)->patchJson(route('stock-reports.note', $report), ['note' => ''])->assertOk();
+        $this->assertNull($report->fresh()->note);
+        $this->assertStringEndsWith('note removed', AuditTrail::latest('id')->value('details'));
+
+        $this->actingAs($staff)->patchJson(route('stock-reports.note', $report), ['note' => str_repeat('x', 256)])
+            ->assertStatus(422);
+    }
+
+    public function test_only_the_reporter_may_change_the_note_and_only_before_an_answer(): void
+    {
+        $staff = User::factory()->create();
+        $colleague = User::factory()->create();
+        $admin = User::factory()->admin()->create();
+        $low = $this->product(2, now()->addYear()->toDateString());
+        $this->report($staff, $low, 'low_stock')->assertOk();
+        $report = StockReport::where('product_id', $low->id)->firstOrFail();
+
+        $this->actingAs($colleague)->patchJson(route('stock-reports.note', $report), ['note' => 'not mine'])->assertForbidden();
+        $this->actingAs($admin)->patchJson(route('stock-reports.note', $report), ['note' => 'not mine'])->assertForbidden();
+        $this->assertNull($report->fresh()->note);
+
+        // The admin answers; the note is now part of what they answered.
+        $this->actingAs($admin)->patchJson(route('stock-reports.approve', $report))->assertOk();
+        $this->actingAs($staff)->patchJson(route('stock-reports.note', $report), ['note' => 'too late'])
+            ->assertStatus(422)->assertJson(['success' => false]);
+        $this->assertNull($report->fresh()->note);
+
+        // And the button is gone from the list.
+        $this->actingAs($staff)->get('/stock-reports')
+            ->assertDontSee(route('stock-reports.note', $report), false);
+    }
+
     public function test_the_staff_notify_button_offers_a_note_box(): void
     {
         $this->product(2, now()->addYear()->toDateString());

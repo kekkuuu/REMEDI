@@ -1208,15 +1208,20 @@
                 })
                 .then(function (data) {
                     if (data.found) {
+                        // The till answers out loud: a beep for a product,
+                        // a low double tone for a code it does not know.
+                        if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(true);
                         addToCart(data.id, data.name, data.price, data.stock, code);
                         barcodeStatus.textContent = '\u2705 Added: ' + data.name;
                         barcodeStatus.style.color = '#16a34a';
                     } else {
+                        if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(false);
                         barcodeStatus.textContent = '\u274C Product not found for code: ' + code;
                         barcodeStatus.style.color = '#dc2626';
                     }
                 })
                 .catch(function () {
+                    if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(false);
                     barcodeStatus.textContent = '\u274C Product not found for code: ' + code;
                     barcodeStatus.style.color = '#dc2626';
                 });
