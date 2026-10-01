@@ -1617,9 +1617,7 @@
             noteMode = false;
             noteOptional = !reasons && d.confirmNote === 'optional';
             noteWrap.hidden = !noteOptional;
-            // data-confirm-note-value: the note already saved, so editing it
-            // starts from what is there (staff Edit note on Stock Reports).
-            noteInput.value = noteOptional ? (d.confirmNoteValue || '') : '';
+            noteInput.value = '';
             if (noteLabel) noteLabel.textContent = noteOptional ? (d.confirmNoteTitle || 'Note (optional)') : 'Reason';
             noteInput.placeholder = noteOptional ? (d.confirmNotePlaceholder || 'Add a note') : 'Type the reason';
             askEl.hidden = true;

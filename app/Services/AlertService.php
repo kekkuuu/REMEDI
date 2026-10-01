@@ -549,6 +549,8 @@ class AlertService
                     $isStockReport && $row->action === 'Approved' => ['updates', 'ti-circle-check', 'is-update', 'Stock report approved'],
                     $isStockReport && $row->action === 'Rejected' => ['updates', 'ti-circle-x', 'is-update', 'Stock report rejected'],
                     // The reporter added or changed the note on a waiting report.
+                    // The button was removed the same day (2026-10-01); kept so
+                    // the rows it wrote still read correctly.
                     $isStockReport && $row->action === 'Updated' => ['alerts', 'ti-notes', $stockReportCls, 'Stock report note from staff'],
                     $isAccount && $row->action === 'Login' => ['system', 'ti-login', 'is-system', 'Signed in'],
                     $isAccount && $row->action === 'Logout' => ['system', 'ti-logout', 'is-system', 'Signed out'],

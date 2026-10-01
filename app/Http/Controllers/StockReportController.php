@@ -104,52 +104,6 @@ class StockReportController extends Controller
         return $this->decide($request, $stockReport, StockReport::STATUS_REJECTED, 'Rejected');
     }
 
-    /**
-     * Add, change or clear the note on a report you sent (2026-10-01, at the
-     * user's request). Only the REPORTER, and only while it is still waiting:
-     * once an admin has answered, the note is part of what they answered and
-     * must not change under them. Checked here, not only on the button.
-     */
-    public function note(Request $request, StockReport $stockReport)
-    {
-        $data = $request->validate([
-            'note' => ['nullable', 'string', 'max:255'],
-        ]);
-        $note = isset($data['note']) && trim($data['note']) !== '' ? trim($data['note']) : null;
-
-        if ((int) $stockReport->reported_by !== (int) $request->user()->id) {
-            abort(403);
-        }
-
-        // Locked and re-checked, so a note cannot land on a report an admin
-        // is deciding at the same moment.
-        $saved = DB::transaction(function () use ($stockReport, $note) {
-            $fresh = StockReport::whereKey($stockReport->id)->lockForUpdate()->first();
-
-            if (! $fresh || ! $fresh->isPending()) {
-                return false;
-            }
-
-            $fresh->update(['note' => $note]);
-
-            return true;
-        });
-
-        $stockReport->load('product');
-        $name = $stockReport->product->name ?? 'a product';
-
-        if (! $saved) {
-            return $this->actionFailed($request, "The admin has already answered your report on {$name}, so its note can no longer be changed.");
-        }
-
-        // "Stock report note: ..." -- AlertService files it beside the report
-        // itself, so the admin is told the note changed.
-        AuditTrail::log('Updated', "Stock report note: {$stockReport->type_label} — {$name}, by {$request->user()->name}"
-            .($note !== null ? " — Note: \"{$note}\"" : ' — note removed'));
-
-        return $this->actionOk($request, $note !== null ? "Note saved for {$name}." : "Note removed from {$name}.", back());
-    }
-
     private function decide(Request $request, StockReport $stockReport, string $status, string $verb)
     {
         // Locked and re-checked inside the transaction, so two admins

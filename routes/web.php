@@ -94,8 +94,6 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
     // (StockReportController::index) -- deciding is admin-only, below.
     Route::get('/stock-reports', [StockReportController::class, 'index'])->name('stock-reports.index');
     Route::post('/stock-reports', [StockReportController::class, 'store'])->name('stock-reports.store');
-    // The reporter's own note, while the report waits -- see note().
-    Route::patch('/stock-reports/{stockReport}/note', [StockReportController::class, 'note'])->name('stock-reports.note');
 
     // ===== ADMIN-ONLY routes =====
     Route::middleware('role:admin')->group(function () {

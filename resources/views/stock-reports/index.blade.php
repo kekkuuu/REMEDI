@@ -17,8 +17,6 @@
     .sr-tab.is-active .sr-count { background: rgba(255, 255, 255, .25); }
     .sr-product { font-weight: 600; color: var(--ink, #0f172a); line-height: 1.3; }
     .sr-sub { font-size: 11.5px; color: var(--ink-soft, #64748b); }
-    .sr-note { max-width: 260px; white-space: normal; color: #475569; font-size: 12.5px; }
-    .sr-note-form { margin-top: 6px; }
 </style>
 
 <div class="page-head">
@@ -56,12 +54,8 @@
                 <th>Problem</th>
                 <th>Stock now</th>
                 <th>Reported</th>
-                {{-- No Note column for the admin (2026-10-01, at the user's request):
-                     they read a note in the bell. Staff keep it -- their Add / Edit
-                     note button lives there. --}}
-                @unless(auth()->user()->isAdmin())
-                    <th>Note</th>
-                @endunless
+                {{-- No Note column (2026-10-01, at the user's request): staff add a
+                     note in the Inventory Notify dialog; the admin reads it in the bell. --}}
                 <th class="col-status">Status</th>
                 @if(auth()->user()->isAdmin())
                     <th class="col-actions">Actions</th>
@@ -95,33 +89,6 @@
                     {{ $report->reporter->name ?? 'Unknown' }}
                     <div class="sr-sub">{{ $report->created_at->format('M d, Y g:i A') }}</div>
                 </td>
-                @unless(auth()->user()->isAdmin())
-                <td class="sr-note">
-                    {{ $report->note ?: '—' }}
-                    {{-- The reporter's own waiting report: add or change its
-                         note (2026-10-01). The endpoint makes the same check. --}}
-                    @if($report->isPending() && (int) $report->reported_by === (int) auth()->id())
-                        <form method="POST" action="{{ route('stock-reports.note', $report) }}"
-                              class="js-confirm sr-note-form"
-                              data-confirm-title="{{ $report->note ? 'Edit your note' : 'Add a note for the admin' }}"
-                              data-confirm-body="{{ $report->type_label }} — {{ $product->name ?? 'this product' }}. The admin sees the note with your report.{{ $report->note ? ' Clear the box to remove it.' : '' }}"
-                              data-confirm-label="Save note"
-                              data-confirm-icon="ti-notes"
-                              data-confirm-tone="neutral"
-                              data-confirm-note="optional"
-                              data-confirm-note-title="Note for the admin"
-                              data-confirm-note-placeholder="{{ $report->type === \App\Models\StockReport::TYPE_EXPIRED ? 'e.g. 2 boxes on the top shelf' : 'e.g. customers keep asking for it' }}"
-                              data-confirm-note-value="{{ $report->note }}">
-                            @csrf
-                            @method('PATCH')
-                            <input type="hidden" name="note" value="">
-                            <button type="submit" class="btn btn-secondary btn-sm">
-                                <i class="ti ti-notes" aria-hidden="true"></i> {{ $report->note ? 'Edit note' : 'Add note' }}
-                            </button>
-                        </form>
-                    @endif
-                </td>
-                @endunless
                 <td class="col-status">
                     <span class="badge {{ $report->status === 'approved' ? 'badge-success' : ($report->status === 'rejected' ? 'badge-danger' : 'badge-warning') }}">
                         {{ $report->status_label }}
@@ -168,7 +135,7 @@
             </tr>
         @empty
             <tr>
-                <td colspan="6" style="text-align:center;color:#94a3b8;padding:28px;">
+                <td colspan="{{ auth()->user()->isAdmin() ? 6 : 5 }}" style="text-align:center;color:#94a3b8;padding:28px;">
                     @if(auth()->user()->isAdmin())
                         No stock reports{{ $status ? ' with this status' : '' }}.
                     @else
