@@ -246,6 +246,17 @@ class PosController extends Controller
                     ];
                 }
 
+                // GCash / Other QR are paid to the exact total -- there is no
+                // change on an e-wallet transfer. The till locks its field to
+                // the total; this is the endpoint's own check, since a gated
+                // field is not a gated endpoint.
+                if (in_array($validated['payment_method'] ?? 'cash', Sale::EXACT_PAYMENT_METHODS, true)
+                    && (int) round($amountPaid * 100) !== (int) round($totalAmount * 100)) {
+                    return [
+                        'error' => 'A QR payment must be the exact amount: '.number_format($totalAmount, 2).'. Received: '.number_format($amountPaid, 2),
+                    ];
+                }
+
                 $sale = Sale::create([
                     // Per-day sequence, read under a row lock. See
                     // Sale::nextTransactionNo() for why the old Sale::count()+1

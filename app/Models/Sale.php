@@ -59,6 +59,13 @@ class Sale extends Model
     ];
 
     /**
+     * Methods paid to the EXACT total (2026-10-02, at the user's request): the
+     * customer's app sends precisely the amount in the QR, so there is never
+     * change, and checkout refuses any other amount for them.
+     */
+    public const EXACT_PAYMENT_METHODS = ['gcash', 'qr'];
+
+    /**
      * Every reason SaleController::void() accepts, read the same way
      * User::ARCHIVE_REASONS is -- by the confirm dialog's reason-picker
      * (data-confirm-reasons) and by the validation rule together, so a third

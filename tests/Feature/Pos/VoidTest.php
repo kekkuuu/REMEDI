@@ -350,6 +350,41 @@ class VoidTest extends TestCase
         $this->assertSame('gcash', Sale::latest('id')->first()->payment_method);
     }
 
+    /** QR payments are exact (2026-10-02): no change, and no other amount. */
+    public function test_a_qr_payment_must_be_the_exact_total(): void
+    {
+        [$product, $batch] = $this->checkoutProduct(10, '10.00');
+        $cashier = $this->cashier();
+
+        foreach (['gcash', 'qr'] as $method) {
+            foreach ([10.01, 20, 9.99] as $wrong) {
+                $this->actingAs($cashier)->postJson('/pos/checkout', [
+                    'items' => [['product_id' => $product->id, 'quantity' => 1]],
+                    'amount_paid' => $wrong,
+                    'payment_method' => $method,
+                ])->assertStatus(422);
+            }
+        }
+        $this->assertSame(0, Sale::count());
+        $this->assertSame(10, (int) $batch->fresh()->quantity);
+
+        // The exact total goes through, with no change.
+        $this->actingAs($cashier)->postJson('/pos/checkout', [
+            'items' => [['product_id' => $product->id, 'quantity' => 1]],
+            'amount_paid' => 10,
+            'payment_method' => 'qr',
+        ])->assertOk();
+        $this->assertEquals(0.0, (float) Sale::latest('id')->value('change_due'));
+
+        // Cash still takes more than the total and gives change.
+        $this->actingAs($cashier)->postJson('/pos/checkout', [
+            'items' => [['product_id' => $product->id, 'quantity' => 1]],
+            'amount_paid' => 20,
+            'payment_method' => 'cash',
+        ])->assertOk();
+        $this->assertEquals(10.0, (float) Sale::latest('id')->value('change_due'));
+    }
+
     public function test_checkout_refuses_an_unknown_payment_method(): void
     {
         [$product] = $this->checkoutProduct();

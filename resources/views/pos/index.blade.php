@@ -398,7 +398,9 @@
             autofocus
             class="pos-input pos-input-lg">
 
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
+        {{-- Hidden for GCash / Other QR: an exact-amount payment has no change
+             (Sale::EXACT_PAYMENT_METHODS). --}}
+        <div id="change-row" style="display:flex; justify-content:space-between; align-items:center; margin-top:10px;">
             <span style="font-weight:600;">Change:</span>
             <span id="change-due" style="font-weight:700; font-size:1.1rem;">&#8369;0.00</span>
         </div>
@@ -779,6 +781,8 @@
         const method = paymentMethodHidden.value;
         const isQr = method === 'gcash' || method === 'qr';
         box.style.display = isQr ? 'block' : 'none';
+        const changeRow = document.getElementById('change-row');
+        if (changeRow) changeRow.style.display = isQr ? 'none' : 'flex';
         modalConfirmBtn.textContent = checkoutLabel();
 
         // GCash / Other QR are EXACT-payment methods -- the customer's
