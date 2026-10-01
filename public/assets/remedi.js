@@ -1442,7 +1442,6 @@
         const passcodeInput = document.getElementById('confirmModalPasscodeInput');
         const noteWrap = document.getElementById('confirmModalNote');
         const noteInput = document.getElementById('confirmModalNoteInput');
-        const noteLabel = document.getElementById('confirmModalNoteLabel');
         const askEl = document.getElementById('confirmModalAsk');
         const confirmBtn = document.getElementById('confirmModalConfirm');
         const cancelBtn = document.getElementById('confirmModalCancel');
@@ -1457,9 +1456,6 @@
         let askFirst = false;
         let selected = null;
         let noteMode = false;
-        // data-confirm-note="optional": the text box is open from the start
-        // and may be left blank (staff Notify admin, 2026-09-30).
-        let noteOptional = false;
 
         let form = null;
         let lastFocus = null;
@@ -1615,18 +1611,15 @@
             askFirst = !!reasons && d.confirmAsk === '1';
             selected = null;
             noteMode = false;
-            noteOptional = !reasons && d.confirmNote === 'optional';
-            noteWrap.hidden = !noteOptional;
+            noteWrap.hidden = true;
             noteInput.value = '';
-            if (noteLabel) noteLabel.textContent = noteOptional ? (d.confirmNoteTitle || 'Note (optional)') : 'Reason';
-            noteInput.placeholder = noteOptional ? (d.confirmNotePlaceholder || 'Add a note') : 'Type the reason';
             askEl.hidden = true;
             cancelBtn.textContent = 'Cancel';
             syncPasscodeGate();
 
             modal.classList.add('is-open');
             unlockScroll = REMEDI.lockScroll();
-            (passcodeRequired ? passcodeInput : (noteOptional ? noteInput : (reasonButtons[0] || confirmBtn))).focus({ preventScroll: true });
+            (passcodeRequired ? passcodeInput : (reasonButtons[0] || confirmBtn)).focus({ preventScroll: true });
         }
 
         function close() {
@@ -1735,8 +1728,7 @@
                 // is showing. Cycles either way with Shift.
                 const items = (passcodeRequired ? [passcodeInput] : [])
                     .concat([cancelBtn], reasonButtons.length ? reasonButtons : [confirmBtn])
-                    .concat(selected ? (noteMode ? [noteInput, confirmBtn] : [confirmBtn]) : [])
-                    .concat(noteOptional ? [noteInput] : []);
+                    .concat(selected ? (noteMode ? [noteInput, confirmBtn] : [confirmBtn]) : []);
                 const idx = items.indexOf(document.activeElement);
                 const next = e.shiftKey
                     ? items[(idx <= 0 ? items.length : idx) - 1]
@@ -1822,9 +1814,6 @@
             }
             if (noteMode) {
                 if (noteInput.value.trim() === '') return;
-                const note = form.querySelector('[name="note"]');
-                if (note) note.value = noteInput.value.trim();
-            } else if (noteOptional) {
                 const note = form.querySelector('[name="note"]');
                 if (note) note.value = noteInput.value.trim();
             }

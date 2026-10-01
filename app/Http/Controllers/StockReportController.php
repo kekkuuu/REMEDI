@@ -52,7 +52,6 @@ class StockReportController extends Controller
         $data = $request->validate([
             'product_id' => ['bail', 'required', 'integer', Rule::exists('products', 'id')->whereNull('archived_at')],
             'type' => ['required', 'string', Rule::in(array_keys(StockReport::TYPES))],
-            'note' => ['nullable', 'string', 'max:255'],
         ]);
 
         $product = Product::with('batches')->findOrFail($data['product_id']);
@@ -79,17 +78,13 @@ class StockReportController extends Controller
         StockReport::create([
             'product_id' => $product->id,
             'type' => $data['type'],
-            'note' => $data['note'] ?? null,
             'status' => StockReport::STATUS_PENDING,
             'reported_by' => $request->user()->id,
         ]);
 
         StockReport::forgetPendingCount();
 
-        // The staff member's optional note rides along, so the admin reads it
-        // in the bell without opening the page.
-        $note = isset($data['note']) && $data['note'] !== '' ? " — Note: \"{$data['note']}\"" : '';
-        AuditTrail::log('Requested', "Stock report: {$typeLabel} — {$product->name}, reported by {$request->user()->name}{$note}");
+        AuditTrail::log('Requested', "Stock report: {$typeLabel} — {$product->name}, reported by {$request->user()->name}");
 
         return $this->actionOk($request, "The admin has been notified about {$product->name} ({$typeLabel}).", back());
     }

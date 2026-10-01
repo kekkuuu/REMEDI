@@ -75,49 +75,21 @@ class StockReportTest extends TestCase
         $this->assertSame('Review', $row['action']);
     }
 
-    /** The optional note (2026-09-30): kept, shown to the admin, and blank is fine. */
-    public function test_an_optional_note_reaches_the_admin(): void
+    /** No note any more (2026-10-01): one posted is ignored, not stored. */
+    public function test_a_report_carries_no_note(): void
     {
         $staff = User::factory()->create();
         $low = $this->product(2, now()->addYear()->toDateString());
 
         $this->actingAs($staff)->postJson('/stock-reports', [
-            'product_id' => $low->id, 'type' => 'low_stock', 'note' => 'Customers keep asking for it',
+            'product_id' => $low->id, 'type' => 'low_stock', 'note' => 'ignored',
         ])->assertOk();
 
-        $this->assertDatabaseHas('stock_reports', ['product_id' => $low->id, 'note' => 'Customers keep asking for it']);
-        $this->assertStringContainsString('Note: "Customers keep asking for it"', AuditTrail::latest('id')->value('details'));
-
-        // Neither Stock Reports list has a Note column (2026-10-01) -- the
-        // admin reads the note in the bell.
-        $this->actingAs($staff)->get('/stock-reports')
-            ->assertOk()->assertDontSee('<th>Note</th>', false);
-        $this->actingAs(User::factory()->admin()->create())->get('/stock-reports')
-            ->assertOk()->assertDontSee('<th>Note</th>', false);
-
-        // Left blank: still a report, no note, nothing appended.
-        $other = $this->product(1, now()->addYear()->toDateString());
-        $this->actingAs($staff)->postJson('/stock-reports', [
-            'product_id' => $other->id, 'type' => 'low_stock', 'note' => '',
-        ])->assertOk();
-        $this->assertNull(StockReport::where('product_id', $other->id)->value('note'));
+        $this->assertNull(StockReport::where('product_id', $low->id)->value('note'));
         $this->assertStringNotContainsString('Note:', AuditTrail::latest('id')->value('details'));
 
-        // Past the column's 255 characters: refused, not a 500.
-        $third = $this->product(1, now()->addYear()->toDateString());
-        $this->actingAs($staff)->postJson('/stock-reports', [
-            'product_id' => $third->id, 'type' => 'low_stock', 'note' => str_repeat('x', 256),
-        ])->assertStatus(422);
-    }
-
-    public function test_the_staff_notify_button_offers_a_note_box(): void
-    {
-        $this->product(2, now()->addYear()->toDateString());
-
-        $this->actingAs(User::factory()->create())->get('/inventory')
-            ->assertOk()
-            ->assertSee('data-confirm-note="optional"', false)
-            ->assertSee('<input type="hidden" name="note" value="">', false);
+        $this->actingAs($staff)->get('/inventory')->assertOk()
+            ->assertDontSee('data-confirm-note="optional"', false);
     }
 
     public function test_staff_can_report_expired_stock(): void

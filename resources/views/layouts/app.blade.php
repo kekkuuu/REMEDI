@@ -466,12 +466,9 @@
             {{-- Shown only after picking the reason a form names in
                  data-confirm-note-for (Void -> "Other"): that reason has to be
                  explained, so it opens this box instead of submitting, and
-                 the Confirm button stands in until something is typed.
-                 Also shown from the start, OPTIONAL, for a form with
-                 data-confirm-note="optional" (staff Notify admin): whatever
-                 is typed goes in the form's [name="note"], blank is fine. --}}
+                 the Confirm button stands in until something is typed. --}}
             <div class="remedi-modal__note" id="confirmModalNote" hidden>
-                <label for="confirmModalNoteInput" id="confirmModalNoteLabel">Reason</label>
+                <label for="confirmModalNoteInput">Reason</label>
                 <input type="text" id="confirmModalNoteInput" maxlength="255" autocomplete="off"
                        placeholder="Type the reason">
             </div>

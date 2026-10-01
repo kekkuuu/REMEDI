@@ -211,13 +211,9 @@
                                       data-confirm-body="Tell the admin that {{ $product->name }} {{ $type === 'expired' ? 'is holding expired stock that needs pulling' : 'is low on stock ('.$product->sellable_stock.' '.$product->unit.' sellable, reorder at '.$product->reorder_level.')' }}. They will see it in their notifications and can approve it."
                                       data-confirm-label="Notify admin"
                                       data-confirm-icon="ti-bell-ringing"
-                                      data-confirm-tone="neutral"
-                                      data-confirm-note="optional"
-                                      data-confirm-note-title="Note for the admin (optional)"
-                                      data-confirm-note-placeholder="{{ $type === 'expired' ? 'e.g. 2 boxes on the top shelf' : 'e.g. customers keep asking for it' }}">
+                                      data-confirm-tone="neutral">
                                     @csrf
                                     <input type="hidden" name="product_id" value="{{ $product->id }}">
-                                    <input type="hidden" name="note" value="">
                                     <input type="hidden" name="type" value="{{ $type }}">
                                     <button type="submit" class="btn {{ $type === 'expired' ? 'btn-danger' : 'btn-warning' }} btn-sm">
                                         <i class="ti ti-bell-ringing" aria-hidden="true"></i> Notify: {{ $typeLabel }}
