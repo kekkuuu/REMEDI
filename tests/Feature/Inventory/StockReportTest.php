@@ -88,8 +88,13 @@ class StockReportTest extends TestCase
         $this->assertDatabaseHas('stock_reports', ['product_id' => $low->id, 'note' => 'Customers keep asking for it']);
         $this->assertStringContainsString('Note: "Customers keep asking for it"', AuditTrail::latest('id')->value('details'));
 
+        // The staff member's own list shows it in the Note column; the admin's
+        // list has no Note column (2026-10-01) -- they read it in the bell.
+        $this->actingAs($staff)->get('/stock-reports')
+            ->assertOk()->assertSee('<th>Note</th>', false)->assertSee('<td class="sr-note">', false)
+            ->assertSee('Customers keep asking for it');
         $this->actingAs(User::factory()->admin()->create())->get('/stock-reports')
-            ->assertOk()->assertSee('Customers keep asking for it');
+            ->assertOk()->assertDontSee('<th>Note</th>', false)->assertDontSee('<td class="sr-note">', false);
 
         // Left blank: still a report, no note, nothing appended.
         $other = $this->product(1, now()->addYear()->toDateString());

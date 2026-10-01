@@ -56,7 +56,12 @@
                 <th>Problem</th>
                 <th>Stock now</th>
                 <th>Reported</th>
-                <th>Note</th>
+                {{-- No Note column for the admin (2026-10-01, at the user's request):
+                     they read a note in the bell. Staff keep it -- their Add / Edit
+                     note button lives there. --}}
+                @unless(auth()->user()->isAdmin())
+                    <th>Note</th>
+                @endunless
                 <th class="col-status">Status</th>
                 @if(auth()->user()->isAdmin())
                     <th class="col-actions">Actions</th>
@@ -90,6 +95,7 @@
                     {{ $report->reporter->name ?? 'Unknown' }}
                     <div class="sr-sub">{{ $report->created_at->format('M d, Y g:i A') }}</div>
                 </td>
+                @unless(auth()->user()->isAdmin())
                 <td class="sr-note">
                     {{ $report->note ?: '—' }}
                     {{-- The reporter's own waiting report: add or change its
@@ -115,6 +121,7 @@
                         </form>
                     @endif
                 </td>
+                @endunless
                 <td class="col-status">
                     <span class="badge {{ $report->status === 'approved' ? 'badge-success' : ($report->status === 'rejected' ? 'badge-danger' : 'badge-warning') }}">
                         {{ $report->status_label }}
@@ -161,7 +168,7 @@
             </tr>
         @empty
             <tr>
-                <td colspan="{{ auth()->user()->isAdmin() ? 7 : 6 }}" style="text-align:center;color:#94a3b8;padding:28px;">
+                <td colspan="6" style="text-align:center;color:#94a3b8;padding:28px;">
                     @if(auth()->user()->isAdmin())
                         No stock reports{{ $status ? ' with this status' : '' }}.
                     @else
