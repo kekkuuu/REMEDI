@@ -39,10 +39,7 @@ class PosController extends Controller
             ]);
         }
 
-        // The number the GCash / Other QR encodes, set on the Safeguard page.
-        $qrPaymentNumber = \App\Models\Setting::qrPaymentNumber();
-
-        return view('pos.index', compact('products', 'qrPaymentNumber'));
+        return view('pos.index', compact('products'));
     }
 
     /**

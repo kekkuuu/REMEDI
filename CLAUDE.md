@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (367 passed, 1252 assertions — measured 2026-10-01) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (365 passed, 1221 assertions — measured 2026-10-01) and is a usable regression gate.** It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -1061,7 +1061,7 @@ needed no migration. The default matters: every sale before this existed, and ev
 post today, really is cash, so a missing field must resolve to the true historical value, not an
 arbitrary one.
 
-**The QR can encode the shop's GCash mobile number (2026-10-01, at the user's request).** Set on the Safeguard page ("POS QR Payment Number", `PUT /safeguard/qr-number`, behind the same `password.confirm` gate) and stored as `Setting::QR_PAYMENT_NUMBER_KEY`, NOT in the code — the repository is public and the number is a person's phone. `Setting::normalisePhMobile()` folds `+63 945-455-3998` / `9454553998` to `09454553998` and refuses anything else (422); blank clears it; the audit entry names the last four digits only. With it set, the QR encodes exactly that number and the number is printed beneath it (`0945 455 3998`); with none, the reference string below. A plain number is NOT a QR Ph code, so the GCash app's own scanner may not open a transfer from it — a phone camera reads it as text. Verified: the POS GCash QR decodes to `09454553998`. Covered by two `SettingsTest` cases.
+**The QR holds "REMEDI" (2026-10-01, at the user's request), with "REMEDI" printed beneath it.** It encoded a per-attempt reference string (described below), then for a few hours a mobile number set on the Safeguard page; that setting was removed again the same day, so the QR is now the same word on every checkout and the reference-string detail below is history.
 **GCash / Other QR show an actual QR code to scan, and lock the payment field to the exact total.**
 No real payment gateway sits behind this till, so the code (`qrcodejs`, loaded from cdnjs on this one
 page) encodes a plain reference string — store, method, the order total, this checkout ATTEMPT's

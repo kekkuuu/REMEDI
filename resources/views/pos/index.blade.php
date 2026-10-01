@@ -357,25 +357,19 @@
         </div>
 
         {{-- GCash / Other QR -- there is no real payment gateway behind this
-             till, so the code encodes a plain reference string (store,
-             method, amount, this checkout attempt's idempotency key) rather
-             than a live payment link. It exists so the payment METHOD reads
-             as an actual QR to scan, not just a button labelled "QR".
+             till, so the code holds the shop's name, "REMEDI" (2026-10-01, at
+             the user's request -- it was a reference string, then briefly a
+             mobile number), rather than a live payment link. It exists so the
+             payment METHOD reads as an actual QR to scan, not just a button
+             labelled "QR".
              Hidden for Cash, and rebuilt whenever the method or the total
              changes -- see updateQrPayment() below. --}}
-        {{-- With a QR payment number set on the Safeguard page (2026-10-01),
-             the code encodes THAT number instead, and the number is printed
-             beneath it for anyone typing it in by hand. --}}
-        <div id="qr-payment-box" data-qr-number="{{ $qrPaymentNumber }}" style="display:none; margin-bottom:14px; padding:12px; border:1px dashed #a5b4fc; border-radius:8px; background:#f8fafc; text-align:center;">
+        <div id="qr-payment-box" style="display:none; margin-bottom:14px; padding:12px; border:1px dashed #a5b4fc; border-radius:8px; background:#f8fafc; text-align:center;">
             <div id="qr-code-canvas" style="display:inline-flex; justify-content:center;"></div>
             <p style="margin:8px 0 0; font-size:.78rem; color:#64748b;">
                 Scan to pay &#8369;<span id="qr-amount">0.00</span>
             </p>
-            @if($qrPaymentNumber)
-                <p style="margin:2px 0 0; font-size:.85rem; font-weight:600; color:#111827;">
-                    {{ substr($qrPaymentNumber, 0, 4) }} {{ substr($qrPaymentNumber, 4, 3) }} {{ substr($qrPaymentNumber, 7) }}
-                </p>
-            @endif
+            <p style="margin:2px 0 0; font-size:.85rem; font-weight:600; letter-spacing:.06em; color:#111827;">REMEDI</p>
         </div>
 
         {{-- Label text swaps for GCash/Other QR -- see updateQrPayment()
@@ -708,10 +702,7 @@
 
     /* GCash / Other QR -- shows an actual QR code to scan rather than just a
        selected button. No real payment gateway sits behind this till, so the
-       code encodes a plain reference string (not a live payment link):
-       store name, method, the order total, and this checkout ATTEMPT's
-       idempotency key (see generateIdempotencyKey() below), which is what
-       makes the code change between two carts of the same total. qrcodejs
+       code holds the shop's name, "REMEDI" (not a live payment link). qrcodejs
        (loaded above) redraws in place via .clear()/.makeCode() rather than
        being torn down and rebuilt, so this can run on every total change
        without leaking canvases. */
@@ -749,12 +740,8 @@
 
         amountEl.textContent = cartTotal.toFixed(2);
 
-        // The QR payment number when one is set (Safeguard page), else the
-        // reference string.
-        const qrNumber = box.dataset.qrNumber || '';
-        const payload = qrNumber !== ''
-            ? qrNumber
-            : 'REMEDI|' + method.toUpperCase() + '|' + cartTotal.toFixed(2) + '|' + (idempotencyKeyHidden.value || '');
+        // The shop's name (2026-10-01, at the user's request).
+        const payload = 'REMEDI';
 
         if (typeof QRCode === 'undefined') return;
 
