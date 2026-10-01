@@ -365,14 +365,14 @@
              Hidden for Cash, and rebuilt whenever the method or the total
              changes -- see updateQrPayment() below. --}}
         {{-- With the shop's GCash QR saved on the Safeguard page (2026-10-01)
-             the box draws THAT code, which any GCash or bank app can pay. It is
-             a static QR Ph code with no amount in it, so the customer is told
-             what to type. --}}
+             the box draws THAT code, which any GCash or bank app can pay -- and
+             with the ORDER TOTAL written into it (2026-10-02), so the paying
+             app opens with the amount already filled in. See qrPhWithAmount(). --}}
         <div id="qr-payment-box" data-qr-payload="{{ $gcashQrPayload }}" style="display:none; margin-bottom:14px; padding:12px; border:1px dashed #a5b4fc; border-radius:8px; background:#f8fafc; text-align:center;">
             <div id="qr-code-canvas" style="display:inline-flex; justify-content:center;"></div>
             <p style="margin:8px 0 0; font-size:.78rem; color:#64748b;">
                 @if($gcashQrPayload)
-                    Scan with GCash or any bank app, then enter <strong style="color:#111827;">&#8369;<span id="qr-amount">0.00</span></strong>
+                    Scan with GCash or any bank app &middot; <strong style="color:#111827;">&#8369;<span id="qr-amount">0.00</span></strong> is filled in
                 @else
                     Scan to pay &#8369;<span id="qr-amount">0.00</span>
                 @endif
@@ -716,6 +716,47 @@
        without leaking canvases. */
     let qrPaymentInstance = null;
 
+    /* QR Ph with the amount in it (2026-10-02, at the user's request) -- what
+       GCash's own "Add amount" button produces. An EMV QR is a run of
+       tag-length-value fields; this rewrites the saved STATIC code as a
+       DYNAMIC one: tag 01 (point of initiation) "11" -> "12", tag 54
+       (transaction amount) set to the total, fields kept in tag order, and the
+       CRC-16 in tag 63 recomputed over the result -- an app refuses a code
+       whose checksum does not match. Nothing is stored: the saved code stays
+       static and this is rebuilt for every total. */
+    function qrPhCrc(data) {
+        let crc = 0xFFFF;
+        for (let k = 0; k < data.length; k++) {
+            crc ^= data.charCodeAt(k) << 8;
+            for (let b = 0; b < 8; b++) {
+                crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : (crc << 1);
+                crc &= 0xFFFF;
+            }
+        }
+        return crc.toString(16).toUpperCase().padStart(4, '0');
+    }
+
+    function qrPhWithAmount(payload, amount) {
+        const fields = [];
+        for (let i = 0; i + 4 <= payload.length;) {
+            const id = payload.substr(i, 2);
+            const len = parseInt(payload.substr(i + 2, 2), 10);
+            if (isNaN(len)) return payload;          // not a QR Ph code after all
+            fields.push([id, payload.substr(i + 4, len)]);
+            i += 4 + len;
+        }
+        const value = Number(amount || 0);
+        if (!(value > 0)) return payload;            // nothing to charge: keep it static
+
+        const kept = fields.filter(([id]) => id !== '54' && id !== '63')
+            .map(([id, v]) => [id, id === '01' ? '12' : v]);
+        const at = kept.findIndex(([id]) => id > '54');
+        kept.splice(at === -1 ? kept.length : at, 0, ['54', value.toFixed(2)]);
+
+        const body = kept.map(([id, v]) => id + String(v.length).padStart(2, '0') + v).join('') + '6304';
+        return body + qrPhCrc(body);
+    }
+
     function updateQrPayment() {
         const box = document.getElementById('qr-payment-box');
         const canvas = document.getElementById('qr-code-canvas');
@@ -748,10 +789,12 @@
 
         amountEl.textContent = cartTotal.toFixed(2);
 
-        // The shop's GCash QR when one is saved (Safeguard page), else the
-        // shop's name -- which no payment app accepts, see the Safeguard note.
-        const payload = box.dataset.qrPayload || 'REMEDI';
-        const isPayable = payload !== 'REMEDI';
+        // The shop's GCash QR when one is saved (Safeguard page), with this
+        // sale's total in it; else the shop's name -- which no payment app
+        // accepts, see the Safeguard note.
+        const savedQr = box.dataset.qrPayload || '';
+        const isPayable = savedQr !== '';
+        const payload = isPayable ? qrPhWithAmount(savedQr, cartTotal) : 'REMEDI';
 
         if (typeof QRCode === 'undefined') return;
 
