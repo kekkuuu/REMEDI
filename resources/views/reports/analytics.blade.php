@@ -122,7 +122,7 @@
                 <span class="kpi-label">Slow-Moving Items</span>
             </div>
             <span class="kpi-value">{{ number_format($slowMovingCount) }}</span>
-            <span class="kpi-sub">under 5 units &middot; showing slowest 10</span>
+            <span class="kpi-sub">under 5 units &middot; most stock first</span>
         </div>
     </div>
 
@@ -164,10 +164,14 @@
         <div style="border:0.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;">
             <div style="padding:14px 16px;border-bottom:0.5px solid #e5e7eb;display:flex;align-items:center;gap:8px;">
                 <span style="font-size:14px;font-weight:500;color:#111;">Top-Selling Products</span>
+                {{-- The top 100 (2026-10-02), scrolling like Slow-Moving beside it. --}}
+                @if($topProducts->count() > 10)
+                    <span style="font-size:11px;color:#94a3b8;">top {{ number_format($topProducts->count()) }} &middot; scroll</span>
+                @endif
                 <span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:20px;background:#EAF3DE;color:#27500A;">High Demand</span>
             </div>
-            <div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:13px;">
-                <thead>
+            <div class="table-scroll list-scroll"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+                <thead class="sticky-head">
                     <tr style="background:#f9fafb;">
                         <th style="width:38px;padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">#</th>
                         <th style="padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Product</th>
@@ -205,7 +209,7 @@
         <div style="border:0.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;">
             <div style="padding:14px 16px;border-bottom:0.5px solid #e5e7eb;display:flex;align-items:center;gap:8px;">
                 <span style="font-size:14px;font-weight:500;color:#111;">Slow-Moving Products</span>
-                <span style="font-size:11px;color:#94a3b8;">{{ $slowMovingCount > $slowMoving->count() ? 'slowest '.number_format($slowMoving->count()).' of '.number_format($slowMovingCount) : 'all '.number_format($slowMovingCount) }} &middot; scroll</span>
+                <span style="font-size:11px;color:#94a3b8;">{{ $slowMovingCount > $slowMoving->count() ? 'slowest '.number_format($slowMoving->count()).' of '.number_format($slowMovingCount) : 'all '.number_format($slowMovingCount) }} &middot; most stock first &middot; scroll</span>
                 <span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:20px;background:#FAEEDA;color:#633806;">Low Demand</span>
             </div>
             <div class="table-scroll list-scroll"><table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -321,7 +325,8 @@
                 <i class="ti ti-trending-up" style="font-size:14px;vertical-align:-1px;margin-right:6px;color:#185FA5;"></i>
                 Sales Trend &mdash; {{ $month ? \Carbon\Carbon::createFromFormat('Y-m', $month)->format('F Y') : 'All Time' }}
             </span>
-            <span style="font-size:12px;color:#6b7280;">{{ $salesTrend->count() }} days with sales</span>
+            {{-- Rows are months over a long range, days over a short one. --}}
+            <span style="font-size:12px;color:#6b7280;">{{ number_format($salesTrend->count()) }} {{ ($granularity ?? 'day') === 'month' ? 'months' : 'days' }} with sales &middot; scroll</span>
         </div>
         <div style="padding:16px;">
             @if($salesTrend->isNotEmpty())
@@ -330,8 +335,10 @@
                 <p style="color:#9ca3af;font-size:13px;text-align:center;padding:12px 0;">No sales data for this period.</p>
             @endif
         </div>
-        <div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:13px;">
-            <thead>
+        {{-- Scrolls in its card (2026-10-02, at the user's request), like the
+             Top-Selling and Slow-Moving lists: over all time it is 50+ rows. --}}
+        <div class="table-scroll list-scroll"><table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead class="sticky-head">
                 <tr style="background:#f9fafb;">
                     <th style="width:38px;padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">#</th>
                     <th style="padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Date</th>
@@ -475,7 +482,7 @@
     <div class="print-section-title" style="font-size:13px;font-weight:600;color:#111;margin-bottom:8px;">
         Slow-Moving Products
         @if($slowMovingCount > $slowMoving->count())
-            <span style="color:#6b7280;font-weight:400;">&mdash; the slowest {{ number_format($slowMoving->count()) }} of {{ number_format($slowMovingCount) }}</span>
+            <span style="color:#6b7280;font-weight:400;">&mdash; the slowest {{ number_format($slowMoving->count()) }} of {{ number_format($slowMovingCount) }}, most stock first</span>
         @endif
     </div>
     <div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:24px;">
@@ -586,10 +593,10 @@
     new Chart(document.getElementById('topProductsChart'), {
         type: 'bar',
         data: {
-            labels: {!! json_encode($topProducts->map(fn ($tp) => $tp->name ?? 'Unknown')) !!},
+            labels: {!! json_encode($topProducts->take(10)->map(fn ($tp) => $tp->name ?? 'Unknown')->values()) !!},
             datasets: [{
                 label: 'Revenue',
-                data: {!! json_encode($topProducts->pluck('total_revenue')) !!},
+                data: {!! json_encode($topProducts->take(10)->pluck('total_revenue')->values()) !!},
                 backgroundColor: (ctx) => chartGradient(ctx, '#22c55e', true),
                 borderRadius: 4,
                 maxBarThickness: 16,

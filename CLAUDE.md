@@ -1663,7 +1663,7 @@ over ONE MONTH it asks "did this sell 5 units in 30 days?", and on a small pharm
 most of the catalogue — 2,400 of 2,638 products flagged, and a **3.25 MB** print page of them.
 `SLOW_MOVING_PER_30_DAYS` now scales with the window so the rule means the same thing in any period,
 and `SLOW_MOVING_LIST_CAP` (100) bounds what is rendered while `$slowMovingCount` still reports the
-true total, which both views print as "the slowest 100 of N". The page is **0.45 MB**.
+true total, which both views print as "the slowest 100 of N". The page is **0.45 MB**. **The Top-Selling table lists the top 100 too (2026-10-02, at the user's request)** — `ReportController::TOP_SELLING_LIST_CAP`, scrolling in its card (`.list-scroll`, sticky head) like Slow-Moving, and the print copy and Excel sheet follow it; the bar chart above still draws the first 10 (`->take(10)`). **The Slow-Moving list is shown by stock, high to low (same day, at the user's request)** — the SET is still the slowest 100 (units sold ascending, deepest stock among equals), then those 100 are re-sorted by `total_stock` descending, so the chart's bars and the table read high to low. Ranking every slow mover by stock was tried first and rejected: it changed the set, pulling in products holding thousands of units that still sold a little. The Sales Trend table scrolls in its card the same way (`.list-scroll`, sticky head), and its header counts MONTHS when the rows are months (it said "53 days with sales" over all time).
 
 **The inventory report filters on category plus ONE status.** `expired` was missing for years while
 the page still carried an "Expired Stock" KPI, so it reported a non-zero count with no way to see

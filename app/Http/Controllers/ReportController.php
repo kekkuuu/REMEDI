@@ -24,6 +24,13 @@ class ReportController extends Controller
     /** How many rows the analytics top/bottom lists show. */
     private const TOP_N = 10;
 
+    /**
+     * How many products the Top-Selling TABLE lists (2026-10-02, at the user's
+     * request): 100, scrolling in its card like the Slow-Moving list beside
+     * it. The bar chart above still draws the first TOP_N.
+     */
+    private const TOP_SELLING_LIST_CAP = 100;
+
     /** Units sold below which a product counts as slow-moving. */
     /**
      * "Slow moving" is a RATE, not a count.
@@ -878,7 +885,7 @@ class ReportController extends Controller
         // only the end and leave the range inverted.
         [$start, $end] = $this->clampRange($start, $end, $dataStart, $dataEnd);
 
-        $topProducts = SalesHistory::topProductsBetween($start, $end, self::TOP_N);
+        $topProducts = SalesHistory::topProductsBetween($start, $end, self::TOP_SELLING_LIST_CAP);
 
         // Slow movers: catalogued products selling below SLOW_MOVING_PER_30_DAYS
         // for the LENGTH of the window (including those that sold none at all).
@@ -915,13 +922,19 @@ class ReportController extends Controller
 
         $slowMovingCount = $slowAll->count();
 
-        // Ranked slowest-first, deepest stock first among equals, then CAPPED:
-        // the rows past the cap are all "sold nothing, holds nothing", which is
-        // neither actionable nor worth a page of paper. $slowMovingCount still
-        // carries the true total so the view can say how many were left out.
+        // WHICH products: the slowest sellers (fewest units sold, deepest stock
+        // among equals), CAPPED -- the rows past the cap are all "sold nothing,
+        // holds nothing", neither actionable nor worth a page of paper.
+        // $slowMovingCount still carries the true total.
+        // In what ORDER: by stock, high to low (2026-10-02, at the user's
+        // request). The chart and the table plot stock, and in sold-order they
+        // read as an unordered column of numbers. Reordering only -- ranking
+        // EVERY slow mover by stock would change the set itself, pulling in
+        // products holding thousands of units that still sold a little.
         $slowMoving = $slowAll
             ->sortBy([['units_sold', 'asc'], ['total_stock', 'desc']])
             ->take(self::SLOW_MOVING_LIST_CAP)
+            ->sortBy([['total_stock', 'desc'], ['units_sold', 'asc']])
             ->values();
 
         $trend = SalesHistory::trendBetween($start, $end);
