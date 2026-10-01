@@ -111,6 +111,7 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
         Route::middleware('password.confirm')->group(function () {
             Route::get('/safeguard', [SettingsController::class, 'edit'])->name('safeguard.edit');
             Route::put('/safeguard/void-passcode', [SettingsController::class, 'updateVoidPasscode'])->name('safeguard.void-passcode.update');
+            Route::put('/safeguard/qr-number', [SettingsController::class, 'updateQrNumber'])->name('safeguard.qr-number.update');
 
             // The backup streams the `users` table -- password hashes, reset-code
             // hashes, personal emails. One click from any admin screen left open

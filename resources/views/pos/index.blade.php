@@ -363,11 +363,19 @@
              as an actual QR to scan, not just a button labelled "QR".
              Hidden for Cash, and rebuilt whenever the method or the total
              changes -- see updateQrPayment() below. --}}
-        <div id="qr-payment-box" style="display:none; margin-bottom:14px; padding:12px; border:1px dashed #a5b4fc; border-radius:8px; background:#f8fafc; text-align:center;">
+        {{-- With a QR payment number set on the Safeguard page (2026-10-01),
+             the code encodes THAT number instead, and the number is printed
+             beneath it for anyone typing it in by hand. --}}
+        <div id="qr-payment-box" data-qr-number="{{ $qrPaymentNumber }}" style="display:none; margin-bottom:14px; padding:12px; border:1px dashed #a5b4fc; border-radius:8px; background:#f8fafc; text-align:center;">
             <div id="qr-code-canvas" style="display:inline-flex; justify-content:center;"></div>
             <p style="margin:8px 0 0; font-size:.78rem; color:#64748b;">
                 Scan to pay &#8369;<span id="qr-amount">0.00</span>
             </p>
+            @if($qrPaymentNumber)
+                <p style="margin:2px 0 0; font-size:.85rem; font-weight:600; color:#111827;">
+                    {{ substr($qrPaymentNumber, 0, 4) }} {{ substr($qrPaymentNumber, 4, 3) }} {{ substr($qrPaymentNumber, 7) }}
+                </p>
+            @endif
         </div>
 
         {{-- Label text swaps for GCash/Other QR -- see updateQrPayment()
@@ -741,7 +749,12 @@
 
         amountEl.textContent = cartTotal.toFixed(2);
 
-        const payload = 'REMEDI|' + method.toUpperCase() + '|' + cartTotal.toFixed(2) + '|' + (idempotencyKeyHidden.value || '');
+        // The QR payment number when one is set (Safeguard page), else the
+        // reference string.
+        const qrNumber = box.dataset.qrNumber || '';
+        const payload = qrNumber !== ''
+            ? qrNumber
+            : 'REMEDI|' + method.toUpperCase() + '|' + cartTotal.toFixed(2) + '|' + (idempotencyKeyHidden.value || '');
 
         if (typeof QRCode === 'undefined') return;
 

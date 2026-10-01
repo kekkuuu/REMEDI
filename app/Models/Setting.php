@@ -24,6 +24,43 @@ class Setting extends Model
      */
     public const VOID_PASSCODE_KEY = 'pos_void_passcode';
 
+    /**
+     * The mobile number the POS GCash / Other QR code encodes (2026-10-01,
+     * at the user's request). Kept here, not in the code, because the
+     * repository is public and the number is someone's own phone. Not a
+     * secret, so stored as typed (normalised), not hashed.
+     */
+    public const QR_PAYMENT_NUMBER_KEY = 'pos_qr_payment_number';
+
+    public static function qrPaymentNumber(): ?string
+    {
+        $number = static::get(self::QR_PAYMENT_NUMBER_KEY);
+
+        return $number !== null && $number !== '' ? $number : null;
+    }
+
+    /**
+     * A Philippine mobile number in its 11-digit 09XXXXXXXXX form, or null if
+     * it is not one. "+63 945 455 3998", "0945-455-3998" and "9454553998" are
+     * the same handset, the same normalisation SmsService applies.
+     */
+    public static function normalisePhMobile(string $raw): ?string
+    {
+        $digits = preg_replace('/\D+/', '', $raw);
+
+        if (preg_match('/^639(\d{9})$/', $digits, $m)) {
+            return '09'.$m[1];
+        }
+        if (preg_match('/^09\d{9}$/', $digits)) {
+            return $digits;
+        }
+        if (preg_match('/^9\d{9}$/', $digits)) {
+            return '0'.$digits;
+        }
+
+        return null;
+    }
+
     public static function get(string $key, ?string $default = null): ?string
     {
         return static::where('key', $key)->value('value') ?? $default;

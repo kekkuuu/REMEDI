@@ -17,7 +17,43 @@ class SettingsController extends Controller
     {
         return view('admin.settings.edit', [
             'voidPasscodeSet' => Setting::voidPasscodeIsSet(),
+            'qrPaymentNumber' => Setting::qrPaymentNumber(),
         ]);
+    }
+
+    /**
+     * The number the POS GCash / Other QR code encodes. Blank clears it, and
+     * the till goes back to its reference-string QR.
+     */
+    public function updateQrNumber(Request $request)
+    {
+        $request->validate([
+            'qr_payment_number' => ['nullable', 'string', 'max:20'],
+        ]);
+
+        $raw = trim((string) $request->input('qr_payment_number', ''));
+
+        if ($raw === '') {
+            Setting::put(Setting::QR_PAYMENT_NUMBER_KEY, null);
+            AuditTrail::log('Updated', 'Cleared the POS QR payment number');
+
+            return $this->actionOk($request, 'QR payment number removed.', redirect()->route('safeguard.edit'));
+        }
+
+        $number = Setting::normalisePhMobile($raw);
+
+        if ($number === null) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'qr_payment_number' => 'Enter a Philippine mobile number, for example 09454553998.',
+            ]);
+        }
+
+        Setting::put(Setting::QR_PAYMENT_NUMBER_KEY, $number);
+
+        // The last four only: the trail is a log, not a directory.
+        AuditTrail::log('Updated', 'Set the POS QR payment number (ending '.substr($number, -4).')');
+
+        return $this->actionOk($request, 'QR payment number saved.', redirect()->route('safeguard.edit'));
     }
 
     /**
