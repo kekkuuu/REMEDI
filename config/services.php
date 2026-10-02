@@ -31,4 +31,14 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    // PayMongo QR Ph (2026-10-02): the till's automatic QR payments. Set in
+    // the hosting dashboards / .env by the account owner, never in the code.
+    // With either key missing the till falls back to the uploaded GCash QR
+    // and the "Customer has paid" button. See App\Services\PayMongo.
+    'paymongo' => [
+        'secret_key' => env('PAYMONGO_SECRET_KEY'),
+        'public_key' => env('PAYMONGO_PUBLIC_KEY'),
+        'webhook_secret' => env('PAYMONGO_WEBHOOK_SECRET'),
+    ],
+
 ];

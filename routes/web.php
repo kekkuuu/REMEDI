@@ -12,6 +12,7 @@ use App\Http\Controllers\InventoryController;
 use App\Http\Controllers\PosController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\QrPaymentController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\SaleController;
 use App\Http\Controllers\SalesForecastController;
@@ -58,6 +59,9 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
     Route::get('/pos', [PosController::class, 'index'])->name('pos.index');
     Route::get('/pos/lookup', [PosController::class, 'lookupBySku'])->name('pos.lookup');
     Route::post('/pos/checkout', [PosController::class, 'checkout'])->name('pos.checkout');
+    // Automatic QR payments through PayMongo (QrPaymentController).
+    Route::post('/pos/qr-payments', [QrPaymentController::class, 'store'])->middleware('throttle:30,1')->name('pos.qr-payments.store');
+    Route::get('/pos/qr-payments/{qrPayment}', [QrPaymentController::class, 'show'])->middleware('throttle:120,1')->name('pos.qr-payments.show');
     Route::get('/pos/receipt/{sale}', [PosController::class, 'receipt'])->name('pos.receipt');
 
     // Typeahead sources for the search boxes (see SuggestController). Shared
@@ -197,3 +201,7 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
 });
 
 require __DIR__.'/auth.php';
+
+// PayMongo's payment notifications: no session, CSRF-exempt, signature-checked
+// first thing in QrPaymentController::webhook().
+Route::post('/webhooks/paymongo', [QrPaymentController::class, 'webhook'])->middleware('throttle:120,1')->name('webhooks.paymongo');

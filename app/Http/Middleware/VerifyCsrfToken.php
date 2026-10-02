@@ -12,6 +12,9 @@ class VerifyCsrfToken extends Middleware
      * @var array<int, string>
      */
     protected $except = [
-        //
+        // PayMongo posts here from its servers, with no session to carry a
+        // token. Its own signature (Paymongo-Signature) is checked instead,
+        // first thing -- see QrPaymentController::webhook().
+        'webhooks/paymongo',
     ];
 }

@@ -368,16 +368,31 @@
              the box draws THAT code, which any GCash or bank app can pay -- and
              with the ORDER TOTAL written into it (2026-10-02), so the paying
              app opens with the amount already filled in. See qrPhWithAmount(). --}}
-        <div id="qr-payment-box" data-qr-payload="{{ $gcashQrPayload }}" style="display:none; margin-bottom:14px; padding:12px; border:1px dashed #a5b4fc; border-radius:8px; background:#f8fafc; text-align:center;">
+        <div id="qr-payment-box" data-qr-payload="{{ $gcashQrPayload }}"
+             data-paymongo="{{ $paymongoEnabled ? '1' : '' }}" data-paymongo-url="{{ route('pos.qr-payments.store', [], false) }}"
+             style="display:none; margin-bottom:14px; padding:12px; border:1px dashed #a5b4fc; border-radius:8px; background:#f8fafc; text-align:center;">
+            {{-- PayMongo (2026-10-02): a fresh QR Ph code per sale, with the
+                 total in it; the till sees the payment land and finishes the
+                 sale itself -- no button. See QrPaymentController. --}}
+            {{-- .btn sets display as an author rule, which beats the hidden
+                 attribute -- same trap as #confirmModalConfirm[hidden]. --}}
+            <style>#pm-qr-retry[hidden], #pm-qr-test[hidden], #pm-qr[hidden] { display: none !important; }</style>
+            <div id="pm-qr" hidden>
+                <img id="pm-qr-img" alt="QR code to pay" style="width:208px; height:208px; display:none; margin:0 auto;">
+                <p id="pm-qr-status" style="margin:8px 0 0; font-size:.8rem; color:#475569;"></p>
+                <a id="pm-qr-test" href="#" target="_blank" rel="noopener" hidden
+                   style="display:inline-block; margin-top:6px; font-size:.78rem; color:#b45309;">Test mode: simulate this payment</a>
+                <button type="button" id="pm-qr-retry" class="btn btn-secondary btn-sm" hidden style="margin-top:8px;">New QR code</button>
+            </div>
             <div id="qr-code-canvas" style="display:inline-flex; justify-content:center;"></div>
-            <p style="margin:8px 0 0; font-size:.78rem; color:#64748b;">
+            <p class="qr-own-caption" style="margin:8px 0 0; font-size:.78rem; color:#64748b;">
                 @if($gcashQrPayload)
                     Scan with GCash or any bank app &middot; <strong style="color:#111827;">&#8369;<span id="qr-amount">0.00</span></strong> is filled in
                 @else
                     Scan to pay &#8369;<span id="qr-amount">0.00</span>
                 @endif
             </p>
-            <p style="margin:2px 0 0; font-size:.85rem; font-weight:600; letter-spacing:.06em; color:#111827;">REMEDI</p>
+            <p class="qr-own-caption" style="margin:2px 0 0; font-size:.85rem; font-weight:600; letter-spacing:.06em; color:#111827;">REMEDI</p>
         </div>
 
         {{-- Label text swaps for GCash/Other QR -- see updateQrPayment()
@@ -771,6 +786,97 @@
         return body + qrPhCrc(body);
     }
 
+    /* ===== PayMongo QR (2026-10-02) =====
+       With PayMongo configured, a QR method asks the server for a QR Ph code
+       made for THIS cart (amount inside, single use), shows it, and polls
+       until PayMongo says it was paid -- then finishes exactly like a
+       Checkout tap: receipt, cart cleared, stock refreshed. No button. */
+    const pmBox = document.getElementById('qr-payment-box');
+    const pmEnabled = !!(pmBox && pmBox.dataset.paymongo);
+    const PM_POLL_MS = 3000;
+    let pmTimer = null;
+    let pmFor = '';          // which method+total the current code was made for
+
+    function pmStop() {
+        clearTimeout(pmTimer);
+        pmTimer = null;
+        pmFor = '';
+    }
+
+    function pmSay(text, color) {
+        const el = document.getElementById('pm-qr-status');
+        if (!el) return;
+        el.textContent = text;
+        el.style.color = color || '#475569';
+    }
+
+    function pmPoll(url) {
+        pmTimer = setTimeout(() => {
+            fetch(url, { headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' }, cache: 'no-store' })
+                .then(r => r.json().catch(() => null))
+                .then(data => {
+                    if (!pmFor) return;                       // cancelled meanwhile
+                    if (data && data.status === 'completed') { pmStop(); finishSale(data); return; }
+                    if (data && data.status === 'expired') { pmExpired(); return; }
+                    if (data && data.status === 'attention') { pmStop(); pmSay(data.message || 'Paid, but the sale could not be recorded.', '#dc2626'); return; }
+                    pmPoll(url);
+                })
+                .catch(() => { if (pmFor) pmPoll(url); }); // a blip; keep watching
+        }, PM_POLL_MS);
+    }
+
+    function pmExpired() {
+        pmStop();
+        document.getElementById('pm-qr-img').style.display = 'none';
+        pmSay('This QR code expired before it was paid.', '#b45309');
+        document.getElementById('pm-qr-retry').hidden = false;
+    }
+
+    function pmRequest() {
+        const key = paymentMethodHidden.value + '|' + cartTotal.toFixed(2);
+        if (pmFor === key) return;                    // already showing this one
+        pmStop();
+        pmFor = key;
+
+        const img = document.getElementById('pm-qr-img');
+        const test = document.getElementById('pm-qr-test');
+        img.style.display = 'none';
+        test.hidden = true;
+        document.getElementById('pm-qr-retry').hidden = true;
+        pmSay('Making the QR code\u2026');
+
+        fetch(pmBox.dataset.paymongoUrl, {
+            method: 'POST',
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            body: new FormData(checkoutForm),
+        })
+            .then(r => r.json().catch(() => null).then(data => ({ ok: r.ok, data })))
+            .then(({ ok, data }) => {
+                if (pmFor !== key) return;                // method changed meanwhile
+                if (!ok || !data || !data.success) {
+                    pmFor = '';
+                    pmSay((data && (data.error || data.message)) || 'Could not make the QR code.', '#dc2626');
+                    document.getElementById('pm-qr-retry').hidden = false;
+                    return;
+                }
+                img.src = data.image;
+                img.style.display = 'block';
+                pmSay('Scan with GCash or any bank app \u00B7 \u20B1' + data.amount + ' \u00B7 the sale completes by itself once paid.');
+                if (data.test_url) { test.href = data.test_url; test.hidden = false; }
+                pmPoll(data.status_url);
+            })
+            .catch(() => {
+                if (pmFor !== key) return;
+                pmFor = '';
+                pmSay('Could not reach the server to make the QR code.', '#dc2626');
+                document.getElementById('pm-qr-retry').hidden = false;
+            });
+    }
+
+    if (document.getElementById('pm-qr-retry')) {
+        document.getElementById('pm-qr-retry').addEventListener('click', () => { pmFor = ''; pmRequest(); });
+    }
+
     function updateQrPayment() {
         const box = document.getElementById('qr-payment-box');
         const canvas = document.getElementById('qr-code-canvas');
@@ -783,6 +889,16 @@
         box.style.display = isQr ? 'block' : 'none';
         const changeRow = document.getElementById('change-row');
         if (changeRow) changeRow.style.display = isQr ? 'none' : 'flex';
+
+        // PayMongo: the provider's code replaces the drawn one, and the sale
+        // finishes on payment, so there is no confirm button to press.
+        const viaPm = isQr && pmEnabled;
+        const pmArea = document.getElementById('pm-qr');
+        if (pmArea) pmArea.hidden = !viaPm;
+        canvas.style.display = viaPm ? 'none' : 'inline-flex';
+        box.querySelectorAll('.qr-own-caption').forEach(el => { el.style.display = viaPm ? 'none' : ''; });
+        modalConfirmBtn.style.display = viaPm ? 'none' : '';
+        if (!viaPm) pmStop();
         modalConfirmBtn.textContent = checkoutLabel();
 
         // GCash / Other QR are EXACT-payment methods -- the customer's
@@ -805,6 +921,8 @@
         if (!isQr) return;
 
         amountEl.textContent = cartTotal.toFixed(2);
+
+        if (viaPm) { pmRequest(); return; }
 
         // The shop's GCash QR when one is saved (Safeguard page), with this
         // sale's total in it; else the shop's name -- which no payment app
@@ -870,6 +988,7 @@
 
     function closeCheckoutModal() {
         modalOverlay.style.display = 'none';
+        pmStop(); // an unpaid code simply expires at PayMongo
     }
 
     checkoutBtn.addEventListener('click', openCheckoutModal);
@@ -989,6 +1108,24 @@
     // idempotency key below means a retry can never turn into a second sale.
     const CHECKOUT_TIMEOUT_MS = 20000;
 
+    /* A sale went through -- by the Checkout tap or a PayMongo QR payment
+       landing (pmPoll above). One set of steps for both. */
+    function finishSale(data) {
+        closeCheckoutModal();
+        openReceiptModal(data.receipt_html);
+
+        cart = {};
+        renderCart();
+        fetchProducts(currentProductsUrl, false); // stock just changed
+
+        // The sale may have pushed a product into low stock or out of
+        // it entirely. Checkout already cleared the alert cache, so ask
+        // the bell (and every other open tab) to catch up NOW -- the
+        // till was the one stock-moving action that did not, and waited
+        // out the poll instead, which read as "only after a refresh".
+        if (typeof window.remediRefreshAlerts === 'function') window.remediRefreshAlerts();
+    }
+
     function submitCheckout() {
         modalConfirmBtn.disabled = true;
         modalConfirmBtn.textContent = 'Processing...';
@@ -1019,19 +1156,7 @@
                     );
                 }
 
-                closeCheckoutModal();
-                openReceiptModal(data.receipt_html);
-
-                cart = {};
-                renderCart();
-                fetchProducts(currentProductsUrl, false); // stock just changed
-
-                // The sale may have pushed a product into low stock or out of
-                // it entirely. Checkout already cleared the alert cache, so ask
-                // the bell (and every other open tab) to catch up NOW -- the
-                // till was the one stock-moving action that did not, and waited
-                // out the poll instead, which read as "only after a refresh".
-                if (typeof window.remediRefreshAlerts === 'function') window.remediRefreshAlerts();
+                finishSale(data);
             })
             .catch(err => {
                 // Order matters: updatePaymentState() clears the status line,
