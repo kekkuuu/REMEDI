@@ -1908,6 +1908,8 @@ for that comparison. The SECOND and THIRD jumps are both model changes described
 "Forecasting pipeline" — dropping the cross-model cascade, then recovering part of the loss by
 searching SARIMA orders instead of forcing one.
 
+**Both accuracy cards are SHOWN again (2026-10-02, at the user's request)** — the Forecasting page's "Model accuracy" card (MAE / RMSE / MAPE / sMAPE across products, the holdout length, and the Normal / Acceptable / Not acceptable / Not rated split from `accuracySummary()['grades']`) and the detail page's "Forecast Accuracy" card (this product's grade badge from `ForecastGrade`, MAE / RMSE / MAPE / sMAPE). They had been hidden since 2026-09-12; nothing about the computation changed. Measured 2026-10-02 on the seasonal-competes run: 2,616 scored, MAE 8.46 / RMSE 9.87 / MAPE 56.8%, Normal 441 / Acceptable 1,234 / Not acceptable 941. The pages are MySQL-only, so this is verified in the browser, not the sqlite suite.
+
 **Forecast accuracy is measured, not asserted.** `forecast:generate` refits each product's OWN
 SARIMA model (whichever order won that product's holdout) on its series minus the last
 `HOLDOUT_MONTHS` (3) and scores the result against the months it was not allowed to see, writing one

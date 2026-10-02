@@ -126,12 +126,79 @@
 </div>
 
 <div class="card">
-    {{-- The "Model accuracy" card (MAE/RMSE/MAPE/sMAPE, measured on a
-         holdout -- see DemandForecastService::accuracySummary()) is hidden
-         here at the user's request; nothing about the computation changed,
-         it's a single cheap aggregate query, and $accuracy is still passed
-         to this view by DemandForecastController -- only unused now, not
-         removed there, in case this comes back. --}}
+    {{-- Model accuracy, measured on a holdout rather than asserted (shown
+         again 2026-10-02, at the user's request). Each product's own model is
+         refitted without the last few months and scored against them, then
+         averaged ACROSS PRODUCTS -- not pooled across every residual, which
+         would let a handful of very high-volume products set the headline.
+         The grade split runs every scored product through ForecastGrade, the
+         same grader the detail page's badge uses. --}}
+    @if ($accuracy)
+    @php
+        $gradeRows = [
+            \App\Support\ForecastGrade::NORMAL => ['Normal', '#16a34a'],
+            \App\Support\ForecastGrade::ACCEPTABLE => ['Acceptable', '#d97706'],
+            \App\Support\ForecastGrade::NOT_ACCEPTABLE => ['Not acceptable', '#dc2626'],
+            \App\Support\ForecastGrade::UNRATED => ['Not rated', '#94a3b8'],
+        ];
+    @endphp
+    <div style="border:0.5px solid #e5e7eb; border-radius:12px; background:#fff; padding:16px; margin-bottom:18px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+            <span style="font-size:14px; font-weight:500; color:#111;">
+                <i class="ti ti-target-arrow" style="font-size:14px; vertical-align:-1px; margin-right:6px; color:#185FA5;"></i>
+                Model accuracy
+            </span>
+            <span style="font-size:12px; color:#6b7280;">
+                {{ number_format($accuracy['scored']) }} products &middot;
+                {{ $accuracy['holdout_months'] }}-month holdout
+            </span>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom:14px;">
+            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
+                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">MAE</p>
+                <p style="font-size:20px; font-weight:600; margin:0;">{{ number_format($accuracy['mae'], 2) }}</p>
+                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">units out per month, typical product</p>
+            </div>
+            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
+                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">RMSE</p>
+                <p style="font-size:20px; font-weight:600; margin:0;">{{ number_format($accuracy['rmse'], 2) }}</p>
+                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">large misses weighted heavier</p>
+            </div>
+            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
+                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">MAPE</p>
+                <p style="font-size:20px; font-weight:600; margin:0;">
+                    {{ $accuracy['mape'] !== null ? number_format($accuracy['mape'], 1).'%' : '—' }}
+                </p>
+                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">
+                    undefined for {{ number_format($accuracy['mape_undefined']) }} {{ Str::plural('product', $accuracy['mape_undefined']) }} that sold nothing
+                </p>
+            </div>
+            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
+                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">sMAPE</p>
+                <p style="font-size:20px; font-weight:600; margin:0;">
+                    {{ $accuracy['smape'] !== null ? number_format($accuracy['smape'], 1).'%' : '—' }}
+                </p>
+                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">stays defined at zero sales</p>
+            </div>
+        </div>
+
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            @foreach ($gradeRows as $key => [$label, $colour])
+                <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:#f8fafc; border:0.5px solid #e5e7eb; font-size:12px; color:#374151;">
+                    <span style="width:8px; height:8px; border-radius:50%; background:{{ $colour }};"></span>
+                    {{ $label }} <strong>{{ number_format($accuracy['grades'][$key] ?? 0) }}</strong>
+                </span>
+            @endforeach
+        </div>
+
+        <p style="font-size:11px; color:#94a3b8; margin:10px 0 0;">
+            Normal / Acceptable / Not acceptable read MAPE at 20% / 50%, or sMAPE at 40% / 90% where MAPE is undefined.
+            MAPE runs high on intermittent demand by construction &mdash; being one unit out on a month that
+            sold two is a 50% error &mdash; which is why MAE and sMAPE are shown beside it.
+        </p>
+    </div>
+    @endif
 
     {{-- Two "top 5" charts, side by side conceptually but stacked here since
          each needs its own width: demand (units to buy, DemandForecastService)
