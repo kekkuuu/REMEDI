@@ -25,6 +25,17 @@ class Kernel extends ConsoleKernel
             ->dailyAt('02:00')
             ->withoutOverlapping()
             ->runInBackground();
+
+        // The sales (units + revenue) forecast, nightly as of 2026-10-03 at the
+        // user's request -- it used to be manual, so the live sales forecast
+        // only moved when someone ran it by hand on the container. 04:30 leaves
+        // the sequential demand run above room to finish first: the two must
+        // not fit side by side in this container's ~1GB. --workers=1 for the
+        // same reason as above.
+        $schedule->command('sales-forecast:generate --workers=1')
+            ->dailyAt('04:30')
+            ->withoutOverlapping()
+            ->runInBackground();
     }
 
     /**

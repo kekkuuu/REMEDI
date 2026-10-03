@@ -439,7 +439,8 @@ a surface that needs the same answer, call it rather than re-deriving it.
 ### Laravel 10-style skeleton on Laravel 12
 `bootstrap/app.php` binds `App\Http\Kernel` / `App\Console\Kernel`; middleware aliases live in
 `app/Http/Kernel.php` and the scheduler in `app/Console/Kernel.php::schedule()` (`forecast:generate`
-nightly at 02:00 — `sales-forecast:generate` is manual). Register new middleware and scheduled
+nightly at 02:00, and `sales-forecast:generate` nightly at 04:30 as of 2026-10-03 — it was manual, and the Railway
+CLI on the dev machine is blocked by Windows Application Control, so nothing could run it by hand). Register new middleware and scheduled
 commands there — do not migrate piecemeal to the Laravel 11+ fluent style.
 
 ### Deploying: one image carrying both runtimes
