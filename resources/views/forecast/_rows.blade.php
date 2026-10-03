@@ -24,7 +24,12 @@
                      skeleton. The delegated handler below applies the same guards
                      every other link in the app gets. --}}
                 <tr class="clickable-row" data-href="{{ route('forecast.show', $forecast->product_sku) }}">
-                    <td><a href="{{ route('forecast.show', $forecast->product_sku) }}">{{ $forecast->product_name ?? '—' }}</a></td>
+                    <td>
+                        <a href="{{ route('forecast.show', $forecast->product_sku) }}">{{ $forecast->product_name ?? '—' }}</a>
+                        @if ($forecast->archived ?? false)
+                            <span style="display:inline-block; margin-left:6px; padding:1px 8px; border-radius:999px; background:#f1f5f9; color:#475569; font-size:11px; font-weight:600;">Archived</span>
+                        @endif
+                    </td>
                     <td>{{ $forecast->product_sku }}</td>
                     <td>{{ $forecast->category_name ?? '—' }}</td>
                     {{-- Say which month the figure is for. The value used to be
@@ -38,6 +43,11 @@
                         <div style="font-size:11px; color:{{ $forecast->is_stale ? '#b45309' : '#94a3b8' }};">
                             {{ $forecast->is_stale ? 'as of ' : '' }}{{ $forecast->forecast_date->format('M Y') }}
                         </div>
+                        @if ($forecast->no_history ?? false)
+                            {{-- Never sold: nothing for a model to learn from, so the
+                                 forecast is 0 by definition, not a model's output. --}}
+                            <div style="font-size:11px; color:#64748b;">No sales history</div>
+                        @endif
                     </td>
                     <td>
                         <canvas

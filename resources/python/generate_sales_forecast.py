@@ -548,12 +548,33 @@ def main():
                 flush=True,
             )
 
+    # Products that have never sold (2026-10-03, at the user's request: "a
+    # forecast to all 2,638 products") -- kept in step with
+    # generate_forecasts.py: nothing for SARIMA to fit, so 0 units and PHP 0
+    # over the same window, carried as method "no_history". `prices` holds
+    # every product in the catalogue, archived ones included.
+    if args.source == "mysql":
+        forecast_skus = {sku for sku, _ in products}
+        never_sold = [sku for sku in prices if sku and sku not in forecast_skus]
+        for sku in never_sold:
+            for d in pd.date_range(series_end + pd.offsets.MonthBegin(1), periods=args.horizon, freq="MS"):
+                output_rows.append({
+                    "product_sku": sku,
+                    "forecast_date": d.strftime("%Y-%m-%d"),
+                    "forecast_units": 0.0, "lower_ci_units": 0.0, "upper_ci_units": 0.0,
+                    "forecast_revenue": 0.0, "lower_ci_revenue": 0.0, "upper_ci_revenue": 0.0,
+                    "method": "no_history",
+                    "confidence": "none",
+                    "generated_at": generated_at,
+                })
+        print(f"No sales history: {len(never_sold)} product(s) given a zero forecast.", flush=True)
+
     out_df = pd.DataFrame(output_rows)
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     out_df.to_csv(args.output, index=False)
     total_elapsed = time.monotonic() - start_time
     print(
-        f"Wrote {len(out_df)} sales forecast rows for {monthly['product_sku'].nunique()} "
+        f"Wrote {len(out_df)} sales forecast rows for {out_df['product_sku'].nunique() if len(out_df) else 0} "
         f"products to {args.output} in {total_elapsed:.0f}s"
     )
 

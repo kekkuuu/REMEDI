@@ -165,7 +165,11 @@
 <div class="page-head">
     <a href="{{ route('forecast.index') }}" class="btn-back"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back</a>
     <div class="page-head-text">
-        <h3>{{ $product->name ?? $product_sku }}</h3>
+        <h3>{{ $product->name ?? $product_sku }}
+            @if ($product?->archived_at)
+                <span style="display:inline-block; margin-left:6px; padding:1px 8px; border-radius:999px; background:#f1f5f9; color:#475569; font-size:11px; font-weight:600; vertical-align:middle;">Archived</span>
+            @endif
+        </h3>
         <p>
             SKU {{ $product_sku }}
             @if ($product && $product->category) &middot; {{ $product->category->name }} @endif

@@ -16,8 +16,10 @@ class EvaluateForecastSplit extends Command
      * evaluate_train_test_split.py, which reuses generate_forecasts.py's own
      * loader and model so it evaluates exactly what forecast:generate runs.
      *
-     * An evaluation only -- it prints a summary and writes a per-product CSV,
-     * and changes nothing in the database. The live forecasts still train on
+     * An evaluation only -- it prints a summary, writes a per-product CSV and
+     * the overall figures to resources/data/forecast_split_80_20.json (shown
+     * on the Forecasting page; commit it to publish a new run), and changes
+     * nothing in the database. The live forecasts still train on
      * every month, and the Forecasting page's accuracy still comes from the
      * 3-month holdout in forecast:generate.
      */
@@ -45,6 +47,9 @@ class EvaluateForecastSplit extends Command
             $this->option('python'), resource_path('python/evaluate_train_test_split.py'),
             '--env-path', base_path('.env'),
             '--output', $outputPath,
+            // The overall figures, committed with the code so the Forecasting
+            // page shows them on every host (App\Support\ForecastSplit).
+            '--summary', \App\Support\ForecastSplit::path($trainPct),
             '--train-ratio', (string) (float) $ratio,
             '--workers', (string) (int) $this->option('workers'),
             ...(config('forecast.include_pos') ? ['--include-pos'] : []),

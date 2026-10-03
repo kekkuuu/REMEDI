@@ -38,6 +38,7 @@ for _blas_var in ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS",
 
 import argparse
 import csv
+import json
 import math
 import warnings
 from concurrent.futures import ProcessPoolExecutor
@@ -144,6 +145,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--env-path", default=None)
     parser.add_argument("--output", required=True, help="Per-product results CSV")
+    parser.add_argument("--summary", default=None, help="Also write the overall figures as JSON (read by the Forecasting page)")
     parser.add_argument("--train-ratio", type=float, default=0.8, help="Share of each product's months used for training")
     parser.add_argument("--include-pos", action="store_true", help="also train on the till's own sales")
     parser.add_argument("--workers", type=int, default=1, help="0 = all cores but one, 1 = sequential")
@@ -187,10 +189,12 @@ def main():
     print("Products that started selling later are split the same way over their own, shorter history.")
 
     print(f"\n{'':28}{'MAE':>8}{'RMSE':>8}{'MAPE':>9}{'sMAPE':>9}{'WAPE':>9}")
+    overall = {}
     for key, label in (("model", "Model (SARIMA, as in the app)"),
                        ("mean_last_3", "Baseline: mean of last 3"),
                        ("repeat_last", "Baseline: repeat last month")):
         s = summarise(results, key)
+        overall[key] = s
         print(f"{label:28}{s['mae']:8.2f}{s['rmse']:8.2f}{s['mape']:8.1f}%{s['smape']:8.1f}%{s['wape']:8.1f}%")
 
     mape_n = sum(1 for r in results if r["model"]["mape"] is not None)
@@ -200,6 +204,54 @@ def main():
         print(f"Model has a lower MAE than '{label}' on {wins} of {len(results)} products.")
     grades = pd.Series([grade(r["model"]) for r in results]).value_counts()
     print("Grades: " + ", ".join(f"{g} {int(grades.get(g, 0))}" for g in ("Normal", "Acceptable", "Not acceptable")))
+
+    # The same split on the WHOLE STORE's monthly units (every product summed):
+    # per-product errors partly cancel, so this is a different question --
+    # shown as store-wide, never as the per-product figure.
+    total = monthly.groupby("month")["qty"].sum().sort_index()
+    total = total.reindex(pd.date_range(total.index.min(), series_end, freq="MS"), fill_value=0)
+    cut = int(round(len(total) * args.train_ratio))
+    storewide = None
+    if cut >= gf.MIN_MONTHS_FOR_ANY_FORECAST and cut < len(total):
+        sw_train, sw_test = total.iloc[:cut], total.iloc[cut:]
+        sw_rows = gf.forecast_product(sw_train, len(sw_test))
+        if sw_rows:
+            pred = np.array([float(r["forecast_value"]) for r in sw_rows], dtype=float)
+            obs = sw_test.to_numpy(dtype=float)[:len(pred)]
+            nz = obs != 0
+            storewide = {
+                "train_period": f"{sw_train.index[0]:%Y-%m} to {sw_train.index[-1]:%Y-%m}",
+                "test_period": f"{sw_test.index[0]:%Y-%m} to {sw_test.index[len(obs) - 1]:%Y-%m}",
+                "mape": round(float(np.mean(np.abs((pred - obs)[nz] / obs[nz])) * 100.0), 2) if nz.any() else None,
+                "wape": round(float(np.sum(np.abs(pred - obs)) / np.sum(obs) * 100.0), 2) if obs.sum() else None,
+            }
+            print(f"Store-wide (all products summed): MAPE {storewide['mape']}%, WAPE {storewide['wape']}%")
+
+    if args.summary:
+        def clean(v):
+            v = float(v)
+            return None if math.isnan(v) else round(v, 2)
+
+        summary = {
+            "generated_at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
+            "train_pct": train_pct,
+            "test_pct": 100 - train_pct,
+            "products": len(tasks),
+            "scored": len(results),
+            "mape_defined": mape_n,
+            "typical": {"count": int(count), "train_period": train_period, "train_months": int(train_n),
+                        "test_period": test_period, "test_months": int(test_n)},
+            "metrics": {k: {m: clean(v) for m, v in s.items()} for k, s in overall.items()},
+            "wins": {k: int(sum(r["model"]["mae"] < r[k]["mae"] - 1e-9 for r in results))
+                     for k in ("mean_last_3", "repeat_last")},
+            "grades": {g: int(grades.get(g, 0)) for g in ("Normal", "Acceptable", "Not acceptable")},
+            "storewide": storewide,
+        }
+        os.makedirs(os.path.dirname(os.path.abspath(args.summary)), exist_ok=True)
+        with open(args.summary, "w", encoding="utf-8") as f:
+            json.dump(summary, f, indent=2)
+            f.write("\n")
+        print(f"Summary written to {args.summary}")
 
     names = product_names(args.env_path)
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)

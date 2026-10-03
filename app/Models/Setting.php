@@ -34,6 +34,13 @@ class Setting extends Model
      */
     public const GCASH_QR_KEY = 'pos_gcash_qr_payload';
 
+    /**
+     * The demand model scored on the whole store's monthly units (JSON),
+     * written by forecast:generate and shown on the Forecasting page. Not an
+     * admin setting -- it lives here so every host reads the latest run.
+     */
+    public const STOREWIDE_ACCURACY_KEY = 'forecast_storewide_accuracy';
+
     public static function gcashQrPayload(): ?string
     {
         $payload = static::get(self::GCASH_QR_KEY);

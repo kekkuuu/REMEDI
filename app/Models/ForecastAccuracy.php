@@ -23,6 +23,9 @@ class ForecastAccuracy extends Model
         'holdout_months',
         'points_scored',
         'points_scored_mape',
+        'abs_error',
+        'actual_units',
+        'avg_monthly_units',
         'method',
         'generated_at',
     ];

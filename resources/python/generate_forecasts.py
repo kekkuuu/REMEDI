@@ -49,6 +49,7 @@ for _blas_var in (
 
 import argparse
 import collections
+import json
 import re
 import sys
 import time
@@ -287,6 +288,40 @@ def load_from_mysql(env_path: str | None, include_pos: bool = False) -> pd.DataF
     conn.close()
     df["date"] = pd.to_datetime(df["date"])
     return df
+
+
+def catalogue_skus(env_path: str | None) -> list:
+    """Every product's SKU, archived ones included -- the whole catalogue."""
+    import pymysql
+
+    env = db_credentials(env_path)
+    conn = pymysql.connect(
+        host=env.get("DB_HOST", "127.0.0.1"),
+        port=int(env.get("DB_PORT", 3306)),
+        user=env.get("DB_USERNAME"),
+        password=env.get("DB_PASSWORD"),
+        database=env.get("DB_DATABASE"),
+    )
+    with conn.cursor() as cur:
+        cur.execute("SELECT sku FROM products WHERE sku IS NOT NULL AND sku <> ''")
+        skus = [str(r[0]) for r in cur.fetchall()]
+    conn.close()
+    return skus
+
+
+# The method a never-sold product's forecast carries (2026-10-03, at the
+# user's request: "a forecast to all 2,638 products"). With no sale in its
+# history there is nothing for SARIMA to fit, so its forecast is 0 units a
+# month, written down as exactly that rather than as a model's output.
+NO_HISTORY_METHOD = "no_history"
+
+
+def no_history_rows(horizon_start, horizon: int):
+    """The zero forecast for a product that has never sold."""
+    return [
+        {"forecast_date": d, "forecast_value": 0.0, "lower_ci": 0.0, "upper_ci": 0.0, "method": NO_HISTORY_METHOD}
+        for d in pd.date_range(horizon_start, periods=horizon, freq="MS")
+    ]
 
 
 def monthly_series(df: pd.DataFrame) -> pd.DataFrame:
@@ -587,20 +622,25 @@ def backtest_product(monthly: pd.Series, holdout: int = HOLDOUT_MONTHS):
     back. Scoring the model actually in use is the whole point -- a metric
     taken from some other model would describe a forecast nobody is looking at.
 
-    Returns None when the remaining history is too short to fit anything, which
-    is honest: no score is better than a score computed from three data points.
+    Returns None only when no holdout of even one month leaves a series the
+    model can fit -- under MIN_MONTHS_FOR_ANY_FORECAST + 1 months of history.
     """
     monthly = monthly.asfreq('MS', fill_value=0)
 
-    # The training half must still clear the cascade's own floor, or the
-    # backtest measures a model the product would never actually get.
-    if len(monthly) < MIN_MONTHS_FOR_ANY_FORECAST + holdout:
-        return None
-
-    train = monthly.iloc[:-holdout]
-    actual = monthly.iloc[-holdout:]
-
-    rows = forecast_product(train, holdout)
+    # The training half must still clear the model's own floor, or the
+    # backtest measures a model the product would never actually get. A
+    # product too new for the full holdout, or whose shortened series the model
+    # cannot fit, holds back FEWER months -- never fewer than one -- rather than
+    # going unscored (2026-10-03, at the user's request: "only 2,612 of 2,617
+    # scored"). The months actually held back are recorded per product in
+    # holdout_months, so a shorter test never passes for a full one.
+    rows = None
+    for holdout in range(min(holdout, len(monthly) - MIN_MONTHS_FOR_ANY_FORECAST), 0, -1):
+        train = monthly.iloc[:-holdout]
+        actual = monthly.iloc[-holdout:]
+        rows = forecast_product(train, holdout)
+        if rows:
+            break
 
     if not rows:
         return None
@@ -639,6 +679,49 @@ def backtest_product(monthly: pd.Series, holdout: int = HOLDOUT_MONTHS):
         'points_scored': int(len(predicted)),
         'points_scored_mape': int(nonzero.sum()),
         'method': rows[0].get('method'),
+        # For WAPE (total units missed / total units sold, pooled across
+        # products) and for grouping products by how fast they sell -- the
+        # average over the 12 months BEFORE the holdout, so the grouping does
+        # not peek at the months being scored. Added 2026-10-02.
+        'abs_error': round(float(np.sum(np.abs(errors))), 4),
+        'actual_units': round(float(np.sum(observed)), 4),
+        'avg_monthly_units': round(float(train.iloc[-12:].mean()), 4),
+    }
+
+
+def storewide_backtest(monthly: pd.DataFrame, holdout: int = HOLDOUT_MONTHS):
+    """
+    The same model, scored on the WHOLE STORE's monthly units -- every
+    product added together (2026-10-02, at the user's request). Per-product
+    errors partly cancel when summed, so this answers a different, real
+    question ("how much will the pharmacy sell next month?") and is labelled
+    as store-wide wherever it is shown, never passed off as the per-product
+    figure.
+    """
+    total = monthly.groupby("month")["qty"].sum().sort_index()
+    total = total.reindex(pd.date_range(total.index.min(), total.index.max(), freq="MS"), fill_value=0)
+
+    if len(total) < MIN_MONTHS_FOR_ANY_FORECAST + holdout:
+        return None
+
+    train, actual = total.iloc[:-holdout], total.iloc[-holdout:]
+    rows = forecast_product(train, holdout)
+    if not rows:
+        return None
+
+    predicted = np.array([float(r["forecast_value"]) for r in rows[:holdout]], dtype=float)
+    observed = actual.to_numpy(dtype=float)[:len(predicted)]
+    errors = predicted - observed
+    nonzero = observed != 0
+
+    return {
+        "holdout_months": int(holdout),
+        "months": [d.strftime("%Y-%m") for d in actual.index[:len(predicted)]],
+        "actual": [int(round(v)) for v in observed],
+        "forecast": [int(round(v)) for v in predicted],
+        "mae": round(float(np.mean(np.abs(errors))), 2),
+        "mape": round(float(np.mean(np.abs(errors[nonzero] / observed[nonzero])) * 100.0), 2) if nonzero.any() else None,
+        "wape": round(float(np.sum(np.abs(errors)) / np.sum(observed) * 100.0), 2) if observed.sum() else None,
     }
 
 
@@ -709,6 +792,8 @@ def main():
         default=None,
         help="Optional path for the holdout accuracy CSV (MAE / RMSE / MAPE / sMAPE per product).",
     )
+    parser.add_argument("--storewide", default=None,
+                        help="Optional path for the store-wide holdout accuracy JSON (all products summed).")
     parser.add_argument("--env-path", default=None)
     parser.add_argument("--include-pos", action="store_true",
                         help="also train on the till's own (non-voided) sales")
@@ -832,12 +917,35 @@ def main():
                 flush=True,
             )
 
+    # Products that have never sold: no model can learn from an empty history,
+    # so each gets the zero forecast over the SAME window as everything else.
+    # Not scored -- there is nothing to test it against -- so it never enters
+    # the accuracy figures.
+    if args.source == "mysql":
+        forecast_skus = {sku for sku, _ in products}
+        never_sold = [sku for sku in catalogue_skus(args.env_path) if sku not in forecast_skus]
+        for sku in never_sold:
+            for row in no_history_rows(series_end + pd.offsets.MonthBegin(1), args.horizon):
+                method_counts[row["method"]] += 1
+                output_rows.append({
+                    "product_sku": sku,
+                    "forecast_date": row["forecast_date"].strftime("%Y-%m-%d"),
+                    "forecast_value": row["forecast_value"],
+                    "lower_ci": row["lower_ci"],
+                    "upper_ci": row["upper_ci"],
+                    "method": row["method"],
+                    "confidence": "none",
+                    "generated_at": generated_at,
+                })
+        print(f"No sales history: {len(never_sold)} product(s) given a zero forecast.", flush=True)
+
     if args.metrics:
         # Written even when empty, so the importer can tell "no products were
         # scorable" from "the run never produced a metrics file".
         metrics_df = pd.DataFrame(metric_rows, columns=[
             "product_sku", "mae", "rmse", "mape", "smape",
             "holdout_months", "points_scored", "points_scored_mape", "method",
+            "abs_error", "actual_units", "avg_monthly_units",
         ])
         os.makedirs(os.path.dirname(args.metrics), exist_ok=True)
         metrics_df.to_csv(args.metrics, index=False)
@@ -850,11 +958,19 @@ def main():
             flush=True,
         )
 
+    if args.storewide:
+        storewide = storewide_backtest(monthly)
+        if storewide:
+            os.makedirs(os.path.dirname(os.path.abspath(args.storewide)), exist_ok=True)
+            with open(args.storewide, "w", encoding="utf-8") as f:
+                json.dump(storewide, f)
+            print(f"Store-wide {HOLDOUT_MONTHS}-month holdout: MAPE {storewide['mape']}% -> {args.storewide}", flush=True)
+
     out_df = pd.DataFrame(output_rows)
     os.makedirs(os.path.dirname(args.output), exist_ok=True)
     out_df.to_csv(args.output, index=False)
     total_elapsed = time.monotonic() - start_time
-    print(f"Wrote {len(out_df)} forecast rows for {monthly['product_sku'].nunique()} products to {args.output} in {total_elapsed:.0f}s")
+    print(f"Wrote {len(out_df)} forecast rows for {out_df['product_sku'].nunique() if len(out_df) else 0} products to {args.output} in {total_elapsed:.0f}s")
     print("Method breakdown: " + " ".join(f"{k}={v}" for k, v in sorted(method_counts.items())))
 
     if failures:

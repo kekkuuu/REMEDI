@@ -246,6 +246,8 @@ php artisan sales-forecast:generate --source=mysql --python=python
 ```bash
 php artisan forecast:evaluate-split --python=python
 ```
+**The Forecasting page shows the split's overall figures (2026-10-02, at the user's request)** — an "80/20 train/test evaluation" card under Model accuracy: MAE / RMSE / MAPE / sMAPE / WAPE, the model against both baselines, the grade counts and the per-product win counts. The script's new `--summary` writes them to **`resources/data/forecast_split_80_20.json`, committed with the code** (`App\Support\ForecastSplit`), so every host shows the same run without writing to the live database; re-run the command and commit that file to publish a new one. No file, no card.
+
 **The 80/20 train/test split (added 2026-09-28, asked for by the user for the defence).** `resources/python/evaluate_train_test_split.py` splits each product's monthly series IN TIME ORDER — first 80% train, last 20% test, never shuffled — trains `generate_forecasts.forecast_product()` (the live model, same loader) on the training months and scores every test month against two naive baselines. EVALUATION ONLY: it writes `storage/app/forecasts/train_test_split_80_20.csv` and changes nothing in the database; the live forecasts still train on every month and the Forecasting page's accuracy is still the 3-month holdout. `--ratio=` changes the split. Re-measured 2026-09-29 on the seasonal-first model with enforced seasonal fits (RED record, most products train 2022-01..2025-08 / test 2025-09..2026-07, an 11-month horizon): MAE 16.36 / RMSE 19.78 / MAPE 75.4% / sMAPE 59.6% / WAPE 42.2%, vs mean-of-last-3 15.17 / 18.32 / 74.1% / 52.5% / 39.2% and repeat-last 18.48 / 21.93 / 80.6% — it beats repeat-last but NOT mean-of-last-3 over this long horizon; grades Normal 18 / Acceptable 116 / Not acceptable 196 (non-seasonal only read 13.78 / 16.91 / 66.7%).
 
 **Both commands default to `--workers=1` (sequential) as of 2026-09-13** -- previously `0` (auto, all
@@ -1205,7 +1207,8 @@ windows, then the 50% level guard; seasonal fits stay enforced. Regenerated: 2,6
 moving**; 3-month holdout **MAE 8.46 / RMSE 9.87 / MAPE 56.8% (2,600) / sMAPE 45.1%, grades Normal 441 /
 Acceptable 1,234 / Not acceptable 941** — level with mean-of-last-3 (8.36 / 56.3%), ahead of repeat-last
 (10.16 / 66.9%); 80/20 split 10.05 / 12.20 / 65.0% / 48.2% / 36.8% — behind mean-of-last-3 (8.17 / 61.1%)
-on MAE, ahead of it on MAPE, and just behind repeat-last on MAE (9.80) but well ahead on MAPE (70.6%).
+on BOTH MAE and MAPE (an earlier note here said ahead on MAPE; 65.0 > 61.1, it is not), and just behind
+repeat-last on MAE (9.80) but ahead of it on MAPE (70.6%) — re-run 2026-10-02 with identical figures.
 The seasonal-first figures below are the run this replaced.
 Forecasts regenerated (seasonal-first + guard): 2,617 products, 15,702 rows each pipeline, **2,335 visibly
 moving**. 3-month holdout (2,616 scored): **MAE 9.11 / RMSE 10.58 / MAPE 63.6% (2,600) / sMAPE 47.2%, grades
@@ -1746,6 +1749,42 @@ contradictory results across identical runs while the HTTP path was stable and c
 result is not evidence either way.
 
 ### Forecasting pipeline
+**Box-Jenkins order selection was tried and REVERTED (2026-10-02/03, the user's call).** An ACF/PACF
+identification + lowest-AIC (BIC tie-break) selection (`box_jenkins.py`, since deleted) replaced the rolling-window
+contest for a day: 3-month holdout 8.79 / MAPE 57.3% (vs 8.46 / 56.8%), 80/20 9.00 / 62.9% (vs 10.05 / 65.0%), 4-year
+walk-forward per product 85.5% (vs 76.0% for mean-of-last-3). A log(1 + units) transform measured best of the
+variants tried (holdout 52.8%, 80/20 59.5%) but was never adopted. **The live model is the rolling-window
+seasonal-competes rule described below**, re-measured 2026-10-03: holdout MAE 8.46 / MAPE 56.8% / WAPE 30.4%,
+80/20 10.05 / 65.0% / 36.8%. **Every product with ≥ 4 months of history is now SCORED** (2026-10-03, the user saw
+only 2,612): `backtest_product()` holds back up to 3 months and fewer when the history or a fit on the shortened
+series will not allow 3, never fewer than 1, recording the months used in `holdout_months`; the card names how
+many ran short. **Every product in the catalogue gets a forecast, archived included (2,638 = 2,620 active + 18
+archived)**: the 21 that have never sold get 0 units / ₱0 over the shared window, `method = no_history`
+(`NO_HISTORY_METHOD`), are never scored, and the list says "No sales history". The Forecasting list and detail
+page read `Product::withTrashed()` and tag archived rows "Archived"; the till, Inventory and alerts still hide them.
+`forecast_accuracy` gained `abs_error` / `actual_units` / `avg_monthly_units` (migration
+`2026_10_02_000002`) for the Model accuracy card's **WAPE** tile and its **MAPE by sales volume** table
+(`DemandForecastService::VOLUME_BANDS`, grouped on the 12 months BEFORE the holdout): under 5 a month 63.8%,
+5–20 56.9%, 20–100 55.4%, **100+ 27.0%**. Both stay hidden until a run has written the columns.
+**Store-wide accuracy (2026-10-02, at the user's request, after asking for MAPE "up to 10%").** Per-product MAPE
+cannot honestly reach 10% here (the busiest band is 27%; mean-of-last-3 is 56%), so the page adds a separately
+LABELLED "Store-wide forecast accuracy" card: the same model forecasting the whole store's monthly units (every
+product summed, where per-product misses partly cancel). `generate_forecasts.py --storewide` (`storewide_backtest()`)
+writes it on every `forecast:generate`, stored as JSON in `settings` (`Setting::STOREWIDE_ACCURACY_KEY`, so live
+refreshes nightly); the 80/20 figure rides in `forecast_split_80_20.json` (`storewide`). Measured 2026-10-03 on the reverted model:
+**4.6% on the May–Jul 2026 holdout**, **7.4% on the 80/20 split**. Never
+present it as the per-product figure.
+**The 4-year walk-forward test (2026-10-03, at the user's request: "test accuracy over 4 years").**
+`php artisan forecast:evaluate-rolling --python=python --workers=0` (`resources/python/evaluate_rolling.py`): every
+month from the 4th onward is forecast ONE month ahead from the months before it only (the live
+`forecast_product()`), for the whole store and for every product, against "mean of the last 3 months". Writes
+`resources/data/forecast_rolling.json` (committed, read by `ForecastSplit::rolling()`, the "Rolling test over the
+whole record" card with an actual-vs-forecast chart and a per-year table). ~21 min on 16 cores; never on Railway.
+**The committed numbers are pending a re-run on the reverted model** — the figures that follow were measured on the Box-Jenkins model and the JSON was held back from the commit, so the card is hidden until it is regenerated. Box-Jenkins run, Sep 2022 – Jul 2026, 47 months: **store-wide MAPE 13.1% vs 14.9% for the baseline** (2022
+16.2 / 2023 14.1 / 2024 12.1 / 2025 16.3 / 2026 6.0%; 2025's figure is mostly Feb 2025, forecast 78,892 after
+January's jump from 32k to 51k, actual 47,555) — but **per product 85.5% vs 76.0%, WAPE 44.5% vs 39.9%: behind the
+baseline**, worst in the early, tiny-volume years (2022 136.8%). Shown as measured; do not tune it away.
+
 Two independent pipelines, each PHP → Python subprocess → CSV → upsert into MySQL:
 
 | Concern | Command | Script | Table | Service |

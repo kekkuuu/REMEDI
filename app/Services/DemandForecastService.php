@@ -55,7 +55,11 @@ class DemandForecastService
         // months = 15,738 "results" and 315 pages, most of them repeats of
         // the same products. Driving off `products` and using a subquery for
         // "has a forecast" makes the count honest.
-        $productPage = Product::query()
+        // withTrashed(): ARCHIVED products are listed too (2026-10-03, at the
+        // user's request: "a forecast to all 2,638 products, include the
+        // archived"), each tagged so a discontinued line is never mistaken for
+        // one still on sale.
+        $productPage = Product::withTrashed()
             ->leftJoin('categories', 'categories.id', '=', 'products.category_id')
             ->whereIn('products.sku', function ($q) use ($cutoff) {
                 $q->select('product_sku')
@@ -71,7 +75,8 @@ class DemandForecastService
             ->select(
                 'products.sku as product_sku',
                 'products.name as product_name',
-                'categories.name as category_name'
+                'categories.name as category_name',
+                'products.archived_at as archived_at'
             )
             ->orderBy('products.name')
             ->paginate(50)
@@ -82,9 +87,15 @@ class DemandForecastService
         $skusOnPage = collect($productPage->items())->pluck('product_sku');
         $namesBySku = collect($productPage->items())->pluck('product_name', 'product_sku');
         $categoriesBySku = collect($productPage->items())->pluck('category_name', 'product_sku');
+        $archivedBySku = collect($productPage->items())->pluck('archived_at', 'product_sku');
 
         // One query for the whole page's accuracy rather than one per row.
         $accuracyBySku = ForecastAccuracy::whereIn('product_sku', $skusOnPage)->get()->keyBy('product_sku');
+
+        // Products that have never sold carry the scripts' zero forecast
+        // (method "no_history"); the list says so rather than showing a bare 0.
+        $soldSkus = DB::table('sales_history')->whereIn('product_sku', $skusOnPage)
+            ->distinct()->pluck('product_sku')->flip();
 
         $grouped = DemandForecast::query()
             ->where('forecast_date', '>=', $cutoff)
@@ -96,7 +107,7 @@ class DemandForecastService
         // Rebuild rows in the same order as the paginated (by product name)
         // SKU list, not the arbitrary order whereIn/groupBy would give.
         $rows = $skusOnPage
-            ->map(function ($sku) use ($grouped, $namesBySku, $categoriesBySku, $accuracyBySku) {
+            ->map(function ($sku) use ($grouped, $namesBySku, $categoriesBySku, $accuracyBySku, $soldSkus, $archivedBySku) {
                 $rowsForSku = $grouped->get($sku);
                 if (! $rowsForSku) {
                     return null;
@@ -135,6 +146,8 @@ class DemandForecastService
                     'trend_labels' => $rowsForSku->pluck('forecast_date')->map(fn ($d) => $d->format('M')),
                     'trend_values' => $rowsForSku->pluck('forecast_value'),
                     'grade' => ForecastGrade::for($accuracyBySku->get($sku)),
+                    'no_history' => ! $soldSkus->has($sku),
+                    'archived' => ! empty($archivedBySku[$sku] ?? null),
                 ];
             })
             ->filter()
@@ -192,7 +205,7 @@ class DemandForecastService
             ->orderByRaw('SUM(forecast_value) DESC')->orderBy('product_sku')
             ->limit($limit)->pluck('product_sku');
 
-        $names = Product::whereIn('sku', $topSkus)->pluck('name', 'sku');
+        $names = Product::withTrashed()->whereIn('sku', $topSkus)->pluck('name', 'sku');
 
         $byProduct = (clone $horizon)->whereIn('product_sku', $topSkus)
             ->get(['product_sku', 'forecast_date', 'forecast_value'])
@@ -254,6 +267,9 @@ class DemandForecastService
             'smape' => $overall->smape === null ? null : (float) $overall->smape,
             'mape_undefined' => (int) $overall->mape_undefined,
             'holdout_months' => (int) $overall->holdout_months,
+            // Products too new for the full holdout were tested on fewer months
+            // (backtest_product); counted so the card can say so.
+            'short_holdout' => ForecastAccuracy::where('holdout_months', '<', (int) $overall->holdout_months)->count(),
             'generated_at' => $overall->generated_at,
             'by_method' => $byMethod,
 
@@ -262,7 +278,76 @@ class DemandForecastService
             // page uses, so a product cannot be Normal on one screen and
             // Acceptable on the other.
             'grades' => $this->gradeCounts(),
+
+            // WAPE: every unit missed over every unit sold, pooled. One unit
+            // out on a product that sold two is 50% on MAPE but barely moves
+            // this, so it describes how much of the shop's real volume the
+            // forecast misses. Null until a run has written abs_error.
+            'wape' => $this->wape(),
+            'by_volume' => $this->accuracyByVolume(),
         ];
+    }
+
+    /**
+     * The store-wide holdout (every product's units summed per month), as
+     * forecast:generate last measured it -- or null before the first run.
+     */
+    public function storewideAccuracy(): ?array
+    {
+        $data = json_decode((string) \App\Models\Setting::get(\App\Models\Setting::STOREWIDE_ACCURACY_KEY), true);
+
+        return is_array($data) && isset($data['mape'], $data['months']) ? $data : null;
+    }
+
+    /** Average monthly units before the holdout => the group a product falls in. */
+    public const VOLUME_BANDS = [
+        ['label' => 'Under 5 a month', 'min' => 0, 'max' => 5],
+        ['label' => '5 – 20 a month', 'min' => 5, 'max' => 20],
+        ['label' => '20 – 100 a month', 'min' => 20, 'max' => 100],
+        ['label' => '100+ a month', 'min' => 100, 'max' => null],
+    ];
+
+    private function wape(): ?float
+    {
+        $row = ForecastAccuracy::whereNotNull('abs_error')
+            ->selectRaw('SUM(abs_error) AS missed, SUM(actual_units) AS sold')
+            ->first();
+
+        return $row && (float) $row->sold > 0 ? (float) $row->missed / (float) $row->sold * 100 : null;
+    }
+
+    /**
+     * MAPE, WAPE and product count per sales-volume band -- MAPE falls hard as
+     * volume rises, and the fast movers are where a forecast changes what is
+     * ordered. Grouped on the 12 months BEFORE the holdout, never the scored
+     * months themselves. Empty until a run has written avg_monthly_units.
+     */
+    private function accuracyByVolume(): array
+    {
+        $out = [];
+
+        foreach (self::VOLUME_BANDS as $band) {
+            $row = ForecastAccuracy::whereNotNull('avg_monthly_units')
+                ->where('avg_monthly_units', '>=', $band['min'])
+                ->when($band['max'] !== null, fn ($q) => $q->where('avg_monthly_units', '<', $band['max']))
+                ->selectRaw('COUNT(*) AS products, AVG(mape) AS mape, AVG(mae) AS mae,'
+                    .' SUM(abs_error) AS missed, SUM(actual_units) AS sold')
+                ->first();
+
+            if (! $row || (int) $row->products === 0) {
+                continue;
+            }
+
+            $out[] = [
+                'label' => $band['label'],
+                'products' => (int) $row->products,
+                'mae' => (float) $row->mae,
+                'mape' => $row->mape === null ? null : (float) $row->mape,
+                'wape' => (float) $row->sold > 0 ? (float) $row->missed / (float) $row->sold * 100 : null,
+            ];
+        }
+
+        return $out;
     }
 
     /**
@@ -277,7 +362,8 @@ class DemandForecastService
      */
     public function forProduct(string $productSku): array
     {
-        $product = Product::where('sku', $productSku)->first();
+        // withTrashed(): an archived product's forecast page opens too (2026-10-03).
+        $product = Product::withTrashed()->where('sku', $productSku)->first();
 
         // Clamped to reportableThrough() like every other read of this table:
         // the seeded history runs to the end of the current month regardless of

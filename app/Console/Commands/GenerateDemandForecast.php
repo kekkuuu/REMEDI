@@ -46,6 +46,7 @@ class GenerateDemandForecast extends Command
         $scriptPath = resource_path('python/generate_forecasts.py');
         $outputPath = storage_path('app/forecasts/all_products_forecast.csv');
         $metricsPath = storage_path('app/forecasts/all_products_accuracy.csv');
+        $storewidePath = storage_path('app/forecasts/storewide_accuracy.json');
 
         $args = [
             $python, $scriptPath,
@@ -58,6 +59,7 @@ class GenerateDemandForecast extends Command
             // the nightly run and both forecast charts.
             ...(config('forecast.include_pos') ? ['--include-pos'] : []),
             '--metrics', $metricsPath,
+            '--storewide', $storewidePath,
         ];
 
         if ($source === 'csv') {
@@ -111,6 +113,17 @@ class GenerateDemandForecast extends Command
         if (is_file($metricsPath)) {
             $scored = $this->importMetrics($metricsPath);
             $this->info("Imported holdout accuracy for {$scored} products.");
+        }
+
+        // The store-wide holdout (every product summed), kept in settings so
+        // every host shows the latest run -- see DemandForecastService::
+        // storewideAccuracy(). A run that could not score it leaves the last one.
+        if (is_file($storewidePath)) {
+            $storewide = json_decode((string) file_get_contents($storewidePath), true);
+            if (is_array($storewide) && isset($storewide['mape'])) {
+                \App\Models\Setting::put(\App\Models\Setting::STOREWIDE_ACCURACY_KEY, json_encode($storewide + ['generated_at' => now()->toDateTimeString()]));
+                $this->info('Store-wide holdout MAPE: '.$storewide['mape'].'%.');
+            }
         }
 
         return self::SUCCESS;
@@ -241,6 +254,11 @@ class GenerateDemandForecast extends Command
                     'points_scored' => (int) $row['points_scored'],
                     'points_scored_mape' => (int) $row['points_scored_mape'],
                     'method' => $row['method'] ?: null,
+                    // WAPE and the volume groups; absent from a CSV an older
+                    // script wrote, which stays null rather than reading 0.
+                    'abs_error' => ($row['abs_error'] ?? '') === '' ? null : (float) $row['abs_error'],
+                    'actual_units' => ($row['actual_units'] ?? '') === '' ? null : (float) $row['actual_units'],
+                    'avg_monthly_units' => ($row['avg_monthly_units'] ?? '') === '' ? null : (float) $row['avg_monthly_units'],
                     'generated_at' => $now,
                     'created_at' => $now,
                     'updated_at' => $now,

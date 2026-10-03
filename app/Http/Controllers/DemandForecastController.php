@@ -47,6 +47,12 @@ class DemandForecastController extends Controller
         // work. Same reasoning as the KPI cards on the sales list.
         $topDemand = $this->forecasts->topDemandSeries(5);
         $accuracy = $this->forecasts->accuracySummary();
+        // The 80/20 chronological evaluation's overall figures (a committed
+        // file, see App\Support\ForecastSplit), shown beside the holdout.
+        $split = \App\Support\ForecastSplit::summary();
+        $storewide = $this->forecasts->storewideAccuracy();
+        // The walk-forward test across the whole record (forecast:evaluate-rolling).
+        $rolling = \App\Support\ForecastSplit::rolling();
 
         // Demand Forecasting and Sales Forecasting merged into one page
         // (2026-09-22): $trend is the store-wide units/revenue chart that used
@@ -59,7 +65,7 @@ class DemandForecastController extends Controller
 
         return view('forecast.index', compact(
             'search', 'categoryId', 'categories', 'forecasts',
-            'topDemand', 'topSales', 'accuracy', 'trend'
+            'topDemand', 'topSales', 'accuracy', 'trend', 'split', 'storewide', 'rolling'
         ));
     }
 
