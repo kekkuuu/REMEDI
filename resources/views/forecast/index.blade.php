@@ -286,7 +286,11 @@
                 Model accuracy
             </span>
             <span style="font-size:12px; color:#6b7280;">
-                {{ number_format($accuracy['scored']) }} products &middot;
+                @if (($accuracy['scorable'] ?? 0) > $accuracy['scored'])
+                    {{ number_format($accuracy['scored']) }} of {{ number_format($accuracy['scorable']) }} products scored &middot;
+                @else
+                    {{ number_format($accuracy['scored']) }} products &middot;
+                @endif
                 {{ $accuracy['holdout_months'] }}-month holdout
                 @if (($accuracy['short_holdout'] ?? 0) > 0)
                     ({{ number_format($accuracy['short_holdout']) }} newer {{ Str::plural('product', $accuracy['short_holdout']) }} on a shorter one)

@@ -270,6 +270,15 @@ class DemandForecastService
             // Products too new for the full holdout were tested on fewer months
             // (backtest_product); counted so the card can say so.
             'short_holdout' => ForecastAccuracy::where('holdout_months', '<', (int) $overall->holdout_months)->count(),
+            // Products that COULD be scored -- every active product with sales
+            // history -- so the card reads "N of M scored" and never seems to
+            // disagree with the 80/20 card's count (2026-10-03). Never-sold
+            // products have nothing to test and are not in M.
+            'scorable' => (int) DB::table('products')
+                ->whereNull('archived_at')
+                ->whereExists(fn ($q) => $q->select(DB::raw(1))->from('sales_history')
+                    ->whereColumn('sales_history.product_sku', 'products.sku'))
+                ->count(),
             'generated_at' => $overall->generated_at,
             'by_method' => $byMethod,
 
