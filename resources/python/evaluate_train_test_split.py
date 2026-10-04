@@ -214,7 +214,7 @@ def main():
     storewide = None
     if cut >= gf.MIN_MONTHS_FOR_ANY_FORECAST and cut < len(total):
         sw_train, sw_test = total.iloc[:cut], total.iloc[cut:]
-        sw_rows = gf.forecast_product(sw_train, len(sw_test))
+        sw_rows = gf.forecast_store_total(sw_train, len(sw_test))  # raw units: see forecast_store_total
         if sw_rows:
             pred = np.array([float(r["forecast_value"]) for r in sw_rows], dtype=float)
             obs = sw_test.to_numpy(dtype=float)[:len(pred)]

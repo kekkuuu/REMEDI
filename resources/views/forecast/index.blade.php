@@ -148,7 +148,8 @@
             <span style="font-size:12px; color:#6b7280;">all products added together, units per month</span>
         </div>
         <p style="font-size:12px; color:#64748b; margin:0 0 12px;">
-            The same model, forecasting the whole pharmacy's monthly units. Individual products' misses partly
+            The same model, forecasting the whole pharmacy's monthly units (fitted on plain units; the per-product
+            log scale would stretch the store's past growth forward). Individual products' misses partly
             cancel out when added up, so this is lower than the per-product figures below.
         </p>
 

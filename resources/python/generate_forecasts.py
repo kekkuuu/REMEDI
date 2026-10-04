@@ -107,6 +107,61 @@ SARIMA_CANDIDATES = SEASONAL_CANDIDATES + NONSEASONAL_CANDIDATES
 # last-3-month average is refit with NONSEASONAL_CANDIDATES only.
 SEASONAL_LEVEL_GUARD = 0.5
 SARIMA_ORDER, SARIMA_SEASONAL_ORDER = SARIMA_CANDIDATES[0]
+
+# Fit on log(1 + units), forecasts back-transformed with expm1 (2026-10-04, the
+# user's request to lower MAPE). Monthly units here are small, skewed counts;
+# on the log scale a sale of 2 vs 4 weighs like 200 vs 400, so a few big
+# months stop dominating the fit, and the back-transform gives the MEDIAN month
+# rather than the mean -- the figure MAPE rewards. REMEDI_TRANSFORM=none fits
+# raw units, as before. Measured in CLAUDE.md "Forecasting pipeline".
+TRANSFORM = os.environ.get("REMEDI_TRANSFORM", "log1p")
+
+
+def _to_units(values):
+    """Back-transform a forecast (or band) from the fitting scale to units."""
+    v = np.asarray(values, dtype=float)
+    if TRANSFORM != "log1p":
+        return v
+    if np.any(v > 25):  # expm1(25) is ~7e10 units: a runaway fit, not a forecast
+        raise ValueError("log-scale forecast overflow")
+    return np.expm1(v)
+
+# SARIMA FOR SEASONAL PRODUCTS, ARIMA FOR THE REST (2026-10-04, the user's call).
+# Each product is first tested for a yearly pattern on ITS OWN history -- only
+# the months the model is given, so a backtest never sees its holdout. A
+# product is SEASONAL when it has at least SEASONAL_MIN_MONTHS of history and
+# EITHER test finds a 12-month pattern at SEASONALITY_ALPHA:
+#   * Kruskal-Wallis: month-on-month change in log(1 + units), grouped by
+#     calendar month (the "stable seasonality" test X-13 uses), or
+#   * the lag-12 autocorrelation of that change outside its 95% band.
+# Seasonal products are fitted from SEASONAL_CANDIDATES (SARIMA); the others
+# from NONSEASONAL_CANDIDATES (ARIMA, i.e. SARIMA with P=D=Q=0). The level
+# guard still applies to a seasonal fit, so a SARIMA that would drag last
+# year's level into this one is refit as ARIMA -- counted as "arima".
+SEASONAL_MIN_MONTHS = 24
+SEASONALITY_ALPHA = 0.05
+
+
+def is_seasonal(monthly: pd.Series) -> bool:
+    """Does this product's own history show a 12-month pattern? (see above)"""
+    from scipy.stats import kruskal
+
+    s = monthly.asfreq("MS", fill_value=0)
+    if len(s) < SEASONAL_MIN_MONTHS:
+        return False
+    g = np.log1p(s.astype(float)).diff().dropna()
+    if g.std() == 0:
+        return False
+    groups = [g[g.index.month == m].to_numpy() for m in range(1, 13)]
+    groups = [x for x in groups if len(x)]
+    try:
+        kw = kruskal(*groups).pvalue if len(groups) == 12 else 1.0
+    except ValueError:  # every value identical
+        kw = 1.0
+    x = g.to_numpy() - g.mean()
+    acf12 = float(np.sum(x[12:] * x[:-12]) / np.sum(x * x)) if len(x) > 12 else 0.0
+    return bool(kw < SEASONALITY_ALPHA or abs(acf12) > 1.96 / np.sqrt(len(x)))
+
 SARIMA_SELECTION_HOLDOUT = 3
 MIN_MONTHS_FOR_ANY_FORECAST = 3
 
@@ -397,7 +452,7 @@ def _sarimax_rows(monthly, future_dates, horizon, order, seasonal_order, method)
     # Non-seasonal orders keep the free fit they were measured with.
     seasonal = len(seasonal_order) == 4 and seasonal_order[3] > 0
     model = SARIMAX(
-        monthly,
+        np.log1p(monthly) if TRANSFORM == "log1p" else monthly,
         order=order,
         seasonal_order=seasonal_order,
         enforce_stationarity=seasonal,
@@ -415,6 +470,7 @@ def _sarimax_rows(monthly, future_dates, horizon, order, seasonal_order, method)
     if not np.all(np.isfinite(ci.values)) or not float(fit.params.get("sigma2", 1.0)) > 0:
         raise ValueError("degenerate SARIMA fit")
 
+    mean, bands = _to_units(pred.predicted_mean), _to_units(ci.values)
     return [
         {
             "forecast_date": date,
@@ -423,7 +479,7 @@ def _sarimax_rows(monthly, future_dates, horizon, order, seasonal_order, method)
             "upper_ci": round(float(hi), 2) if not np.isnan(hi) else float("nan"),
             "method": method,
         }
-        for date, m, (lo, hi) in zip(future_dates, pred.predicted_mean, ci.values)
+        for date, m, (lo, hi) in zip(future_dates, mean, bands)
     ]
 
 
@@ -553,15 +609,25 @@ def forecast_product(monthly: pd.Series, horizon: int):
     SARIMA_CANDIDATES produces a usable fit. There is no fallback outside
     the SARIMA family: a rejected fit means no forecast.
     """
-    rows = _forecast_with(monthly, horizon, SARIMA_CANDIDATES)
+    if not is_seasonal(monthly):
+        return _forecast_with(monthly, horizon, NONSEASONAL_CANDIDATES)
+
+    rows = _forecast_with(monthly, horizon, SEASONAL_CANDIDATES)
+    if not rows:  # no seasonal order fits at all
+        return _forecast_with(monthly, horizon, NONSEASONAL_CANDIDATES)
 
     recent = float(monthly.asfreq("MS", fill_value=0).iloc[-3:].mean())
-    if rows and recent > 0:
+    if recent > 0:
         level = float(np.mean([r["forecast_value"] for r in rows]))
         if abs(level - recent) / recent > SEASONAL_LEVEL_GUARD:
             return _forecast_with(monthly, horizon, NONSEASONAL_CANDIDATES) or rows
 
     return rows
+
+
+def _family(seasonal_order) -> str:
+    """The method label a forecast row carries: "sarima" with a seasonal part, "arima" without."""
+    return "sarima" if seasonal_order and seasonal_order[3] else "arima"
 
 
 def _forecast_with(monthly: pd.Series, horizon: int, candidates):
@@ -582,7 +648,7 @@ def _forecast_with(monthly: pd.Series, horizon: int, candidates):
 
         if winner:
             try:
-                rows = _sarimax_rows(monthly, dates, horizon, winner[0], winner[1], "sarima")
+                rows = _sarimax_rows(monthly, dates, horizon, winner[0], winner[1], _family(winner[1]))
             except Exception:  # noqa: BLE001 - refit failed; fall through below
                 rows = None
 
@@ -600,7 +666,7 @@ def _forecast_with(monthly: pd.Series, horizon: int, candidates):
     # first plausible fit wins. Still never leaves the SARIMA family.
     for order, seasonal_order in candidates:
         try:
-            rows = _sarimax_rows(monthly, dates, horizon, order, seasonal_order, "sarima")
+            rows = _sarimax_rows(monthly, dates, horizon, order, seasonal_order, _family(seasonal_order))
         except Exception:  # noqa: BLE001 - any fitting failure means "try the next order"
             continue
 
@@ -689,6 +755,23 @@ def backtest_product(monthly: pd.Series, holdout: int = HOLDOUT_MONTHS):
     }
 
 
+def forecast_store_total(series: pd.Series, horizon: int):
+    """
+    forecast_product() on the WHOLE STORE's units, fitted on RAW units.
+
+    The per-product log transform is wrong for one series that grew ~55x and
+    then levelled off: on the log scale that growth is a straight line, and the
+    model extends it -- the 80/20 store-wide MAPE went 7.4% -> 47.6% with it.
+    Products are small counts where the log helps; the store total is not.
+    """
+    global TRANSFORM
+    saved, TRANSFORM = TRANSFORM, "none"
+    try:
+        return forecast_product(series, horizon)
+    finally:
+        TRANSFORM = saved
+
+
 def storewide_backtest(monthly: pd.DataFrame, holdout: int = HOLDOUT_MONTHS):
     """
     The same model, scored on the WHOLE STORE's monthly units -- every
@@ -705,7 +788,7 @@ def storewide_backtest(monthly: pd.DataFrame, holdout: int = HOLDOUT_MONTHS):
         return None
 
     train, actual = total.iloc[:-holdout], total.iloc[-holdout:]
-    rows = forecast_product(train, holdout)
+    rows = forecast_store_total(train, holdout)
     if not rows:
         return None
 
@@ -892,7 +975,7 @@ def main():
         for row in rows:
             # .get(), not [] -- a new method name in forecast_product() must not
             # abort a 2,600-product run at the write step.
-            confidence = "high" if row["method"] == "sarima" else "low"
+            confidence = "high" if row["method"] in ("sarima", "arima") else "low"
             method_counts[row["method"]] += 1
             output_rows.append({
                 "product_sku": sku,
