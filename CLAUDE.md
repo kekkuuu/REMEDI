@@ -1750,24 +1750,23 @@ contradictory results across identical runs while the HTTP path was stable and c
 result is not evidence either way.
 
 ### Forecasting pipeline
-**SARIMA for seasonal products, ARIMA for the rest (2026-10-04, the user's call)** — replaces "seasonal competes" in BOTH
-scripts (`is_seasonal()` in each; keep them in step). Each product is tested on ITS OWN history (only the months the model is
-given, so a backtest never sees its holdout): seasonal when it has >= 24 months AND either a Kruskal-Wallis test of monthly
-log-change by calendar month or the lag-12 autocorrelation of that change is significant at 5%. Seasonal products choose from
-`SEASONAL_CANDIDATES`, the rest from `NONSEASONAL_CANDIDATES`; the level guard still refits a runaway seasonal fit as ARIMA.
-Rows now carry `method` = `sarima` / `arima` (`forecast_accuracy`, `sales_forecasts`). On 2,617 products: **248 test seasonal,
-225 end up SARIMA** (the guard moves the rest); note ~10% would test seasonal by chance with two 5% tests. Measured 2026-10-04,
-raw units (the log1p switch was undone the same day): holdout **MAE 8.29 / RMSE 9.69 / MAPE 55.2% / WAPE 29.8%**, Normal 458 /
-Acceptable 1,278 / Not acceptable 881 (was 8.45 / 56.8% / 30.4%); 80/20 **8.59 / 10.53 / 59.5% / WAPE 31.3%** (was 10.05 / 65.0%),
-now ahead of mean-of-last-3 on MAPE (61.1%) though not on MAE (8.17); store-wide unchanged (4.56% / 7.41%). SARIMA products
-average MAE 12.58 / MAPE 54.8%, ARIMA ones 7.99 / 55.2%.
-**Then log(1 + units) on top (same day, the user asked to lower MAPE)** — `TRANSFORM` in both scripts (`REMEDI_TRANSFORM`,
-default `log1p`, `none` = raw), forecasts back-transformed with `expm1`. Holdout **MAE 8.21 / RMSE 9.63 / MAPE 50.7% / WAPE 29.5%**
-(Normal 446 / Acceptable 1,340 / Not acceptable 831; under 5 a month 57.2%, 5–20 50.2%, 20–100 47.5%, 100+ 24.9%); 80/20 **8.12 /
-10.10 / 53.1% / WAPE 29.5%**, ahead of mean-of-last-3 (8.17 / 61.1% / 29.7%) on all three. Only 106 products end up SARIMA with
-it (the level guard catches more seasonal fits). **The STORE TOTAL is fitted on raw units** (`forecast_store_total()`, used by
-`storewide_backtest()` and the split's store-wide figure): with the log, the 80/20 store-wide MAPE went 7.4% → 47.6%, because the
-store's ~55x growth is a straight line on the log scale and gets extended. Store-wide stays 4.56% / 7.41%.
+**SARIMA ONLY, on log(1 + units) (2026-10-04, the user's call)** — every product, in BOTH scripts, is fitted with a
+SEASONAL SARIMA chosen per product from `SARIMA_CANDIDATES` = (1,1,1)(1,0,0,12), (0,1,1)(1,0,0,12), (1,1,1)(0,0,1,12),
+(0,1,1)(0,0,1,12) by the rolling-window MAE contest (`_pick_sarima_order`). No ARIMA, no seasonality test, no level
+guard, no fallback: a product no candidate fits gets NO forecast (4 short-history products, 4–9 months of sales:
+BABY FLO NASAL ASPIRATOR, HAILEYS TAWAS 50G X12, MINGS PEI PA KOA 120G, PROPAN TLC DROPS 30ML). **D = 0 on purpose**:
+with seasonal differencing (D = 1) the model copies the store's growth year into a flat one — forced on every product
+it read 100.9% holdout MAPE; D = 0 + D = 1 together 58.1%; D = 0 on raw units 56.0%. `TRANSFORM` (`REMEDI_TRANSFORM`,
+default `log1p`) fits log(1 + units) and back-transforms with `expm1`; the STORE TOTAL is fitted on raw units
+(`forecast_store_total()`), because on the log scale the store's ~55x growth is a straight line that gets extended.
+Measured 2026-10-04 on 2,617 products: **holdout MAE 8.30 / RMSE 9.72 / MAPE 52.3% / WAPE 29.9%** (Normal 429 /
+Acceptable 1,313 / Not acceptable 875; under 5 a month 57.6%, 5–20 52.7%, 20–100 49.8%, 100+ 25.2%), store-wide 4.38%;
+**80/20 MAE 10.14 / RMSE 12.24 / MAPE 60.4% / WAPE 37.1%** — behind mean-of-last-3 on MAE (8.18) and WAPE (29.7%),
+level on MAPE (61.1%) — store-wide 5.3%. **The user kept this knowing the rule it replaced measured better**: SARIMA
+only where a per-product seasonality test passed (Kruskal–Wallis or lag-12 ACF), ARIMA otherwise, on log(1 + units) —
+holdout 8.21 / 50.7% / 29.5%, 80/20 8.12 / 53.1% / 29.6% (ahead of both baselines), store-wide 4.56% / 7.41%; ARIMA on
+every product measured 8.15 / 49.9% and 8.09 / 52.4%. To go back, restore `is_seasonal()` and the two candidate lists
+from commit 5ba5140 in both scripts and regenerate both pipelines.
 
 **Box-Jenkins order selection was tried and REVERTED (2026-10-02/03, the user's call).** An ACF/PACF
 identification + lowest-AIC (BIC tie-break) selection (`box_jenkins.py`, since deleted) replaced the rolling-window

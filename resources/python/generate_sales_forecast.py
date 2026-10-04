@@ -68,16 +68,25 @@ warnings.filterwarnings("ignore")
 # because a short or irregular series can fail a seasonal fit outright.
 # SEASONAL + NON-SEASONAL COMPETING, WITH A LEVEL GUARD, as of 2026-09-29 -- kept
 # in step with generate_forecasts.py, which has the measurements and history.
-SEASONAL_CANDIDATES = [
-    ((0, 1, 1), (0, 1, 1, 12)),
-    ((1, 1, 1), (0, 1, 1, 12)),
+# SARIMA ONLY (2026-10-04, the user's call) -- kept in step with
+# generate_forecasts.py: every product is fitted with a
+# SEASONAL SARIMA(p,1,q)(P,0,Q,12) -- no ARIMA, no fallback to a non-seasonal
+# order. D = 0 on purpose: with seasonal DIFFERENCING (D = 1) the model reads
+# this year as "last year plus a change" and copies the store's growth year into
+# a flat one (3-month holdout MAPE 100.9% forced on every product). With D = 0
+# the seasonal term is ONE coefficient the fit estimates, near zero where a
+# product has no yearly pattern. Measured on all 2,617 products, May-Jul 2026
+# holdout, log(1 + units): MAE 8.30 / RMSE 9.72 / MAPE 52.3% / WAPE 29.9%
+# (D = 0 + D = 1 together 58.1%; D = 0 on raw units 56.0%; the rule this
+# replaced -- SARIMA only where a seasonality test passed, ARIMA otherwise --
+# 50.7%). The order is still chosen per product by _pick_sarima_order().
+SARIMA_CANDIDATES = [
+    ((1, 1, 1), (1, 0, 0, 12)),
+    ((0, 1, 1), (1, 0, 0, 12)),
+    ((1, 1, 1), (0, 0, 1, 12)),
+    ((0, 1, 1), (0, 0, 1, 12)),
 ]
-NONSEASONAL_CANDIDATES = [
-    ((1, 1, 1), (0, 0, 0, 0)),
-    ((0, 1, 1), (0, 0, 0, 0)),
-]
-SARIMA_CANDIDATES = SEASONAL_CANDIDATES + NONSEASONAL_CANDIDATES
-SEASONAL_LEVEL_GUARD = 0.5
+SEASONAL_CANDIDATES = SARIMA_CANDIDATES
 
 # Same transform as generate_forecasts.py -- keep the two in step. Fit on log(1 + units), forecasts back-transformed with expm1 (2026-10-04, the
 # user's request to lower MAPE). Monthly units here are small, skewed counts;
@@ -97,42 +106,6 @@ def _to_units(values):
         raise ValueError("log-scale forecast overflow")
     return np.expm1(v)
 
-# SARIMA FOR SEASONAL PRODUCTS, ARIMA FOR THE REST (2026-10-04, the user's call) --
-# the same test as generate_forecasts.py::is_seasonal; keep the two in step.
-# Each product is first tested for a yearly pattern on ITS OWN history -- only
-# the months the model is given, so a backtest never sees its holdout. A
-# product is SEASONAL when it has at least SEASONAL_MIN_MONTHS of history and
-# EITHER test finds a 12-month pattern at SEASONALITY_ALPHA:
-#   * Kruskal-Wallis: month-on-month change in log(1 + units), grouped by
-#     calendar month (the "stable seasonality" test X-13 uses), or
-#   * the lag-12 autocorrelation of that change outside its 95% band.
-# Seasonal products are fitted from SEASONAL_CANDIDATES (SARIMA); the others
-# from NONSEASONAL_CANDIDATES (ARIMA, i.e. SARIMA with P=D=Q=0). The level
-# guard still applies to a seasonal fit, so a SARIMA that would drag last
-# year's level into this one is refit as ARIMA -- counted as "arima".
-SEASONAL_MIN_MONTHS = 24
-SEASONALITY_ALPHA = 0.05
-
-
-def is_seasonal(monthly: pd.Series) -> bool:
-    """Does this product's own history show a 12-month pattern? (see above)"""
-    from scipy.stats import kruskal
-
-    s = monthly.asfreq("MS", fill_value=0)
-    if len(s) < SEASONAL_MIN_MONTHS:
-        return False
-    g = np.log1p(s.astype(float)).diff().dropna()
-    if g.std() == 0:
-        return False
-    groups = [g[g.index.month == m].to_numpy() for m in range(1, 13)]
-    groups = [x for x in groups if len(x)]
-    try:
-        kw = kruskal(*groups).pvalue if len(groups) == 12 else 1.0
-    except ValueError:  # every value identical
-        kw = 1.0
-    x = g.to_numpy() - g.mean()
-    acf12 = float(np.sum(x[12:] * x[:-12]) / np.sum(x * x)) if len(x) > 12 else 0.0
-    return bool(kw < SEASONALITY_ALPHA or abs(acf12) > 1.96 / np.sqrt(len(x)))
 SARIMA_SELECTION_HOLDOUT = 3
 # Rolling windows the order is chosen over -- keep in step with generate_forecasts.py.
 SELECTION_FOLDS = 3
@@ -277,29 +250,11 @@ def monthly_series(df: pd.DataFrame) -> pd.DataFrame:
 
 def forecast_series(series: pd.Series, horizon: int):
     """
-    Forecast one product with a SARIMA model -- always SARIMA, but the ORDER
-    is picked per product from SARIMA_CANDIDATES by holdout accuracy, the
-    same approach as generate_forecasts.py::forecast_product (kept in sync
-    deliberately so unit and demand forecasts behave consistently): seasonal
-    and non-seasonal orders COMPETE per product, then the level guard refits
-    from NONSEASONAL_CANDIDATES alone when the forecast averages more than
-    SEASONAL_LEVEL_GUARD from the last three months. No model outside the
-    SARIMA family is fit.
+    Forecast one product with a seasonal SARIMA model, the ORDER picked per
+    product from SARIMA_CANDIDATES -- the same rule as
+    generate_forecasts.py::forecast_product (SARIMA only, 2026-10-04).
     """
-    if not is_seasonal(series):
-        return _forecast_series_with(series, horizon, NONSEASONAL_CANDIDATES)
-
-    rows = _forecast_series_with(series, horizon, SEASONAL_CANDIDATES)
-    if not rows:  # no seasonal order fits at all
-        return _forecast_series_with(series, horizon, NONSEASONAL_CANDIDATES)
-
-    recent = float(series.asfreq("MS", fill_value=0).iloc[-3:].mean())
-    if recent > 0:
-        level = float(np.mean([r["forecast_value"] for r in rows]))
-        if abs(level - recent) / recent > SEASONAL_LEVEL_GUARD:
-            return _forecast_series_with(series, horizon, NONSEASONAL_CANDIDATES) or rows
-
-    return rows
+    return _forecast_series_with(series, horizon, SARIMA_CANDIDATES)
 
 
 def _forecast_series_with(series: pd.Series, horizon: int, candidates):
