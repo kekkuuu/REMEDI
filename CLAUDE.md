@@ -1767,6 +1767,13 @@ only where a per-product seasonality test passed (Kruskal–Wallis or lag-12 ACF
 holdout 8.21 / 50.7% / 29.5%, 80/20 8.12 / 53.1% / 29.6% (ahead of both baselines), store-wide 4.56% / 7.41%; ARIMA on
 every product measured 8.15 / 49.9% and 8.09 / 52.4%. To go back, restore `is_seasonal()` and the two candidate lists
 from commit 5ba5140 in both scripts and regenerate both pipelines.
+**The sales forecast's units ARE the demand forecast (2026-10-05, at the user's request: "make them match, and
+also the revenue").** `generate_sales_forecast.py` no longer carries its own SARIMA code: `forecast_series()` calls
+`generate_forecasts.forecast_product()`, so `sales_forecasts.forecast_units` (and its band) equal
+`demand_forecasts.forecast_value` row for row, in whole units, and revenue is those units × the current
+`selling_price`, rounded to centavos — the same formula `docs/forecast-study/forecast_report.py` prints. Fitted
+separately, the two disagreed on 353 of 15,804 product-months and the page's store-wide chart read Nov 2026 69,707
+units against the demand forecast's 69,500. Change the model in `generate_forecasts.py` only; regenerate both.
 
 **Box-Jenkins order selection was tried and REVERTED (2026-10-02/03, the user's call).** An ACF/PACF
 identification + lowest-AIC (BIC tie-break) selection (`box_jenkins.py`, since deleted) replaced the rolling-window

@@ -26,7 +26,8 @@ sales_forecasts table.
 
 Products are fitted in parallel across CPU cores (see --workers), using
 worker processes rather than threads because the cost is CPU-bound inside
-statsmodels' optimizer. Kept deliberately in step with generate_forecasts.py.
+statsmodels' optimizer. The units ARE generate_forecasts.py's demand forecast
+(forecast_product); this script adds revenue at the current selling price.
 """
 
 import os
@@ -49,67 +50,23 @@ import warnings
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 
-import numpy as np
 import pandas as pd
 
 warnings.filterwarnings("ignore")
 
-# Kept in step with generate_forecasts.py: every product is forecast with a
-# SARIMA(p,d,q)(P,D,Q,s) model -- never a different model family
-# (Holt-Winters, plain ARIMA-as-a-separate-method and a moving average were
-# removed, at the user's explicit request, and are not coming back). The
-# ORDER is picked per product from SARIMA_CANDIDATES by holdout accuracy
-# (see _pick_sarima_order in forecast_series below) rather than forcing the
-# same order onto every series -- SARIMA(0,1,1)(0,1,1,12), the "airline
-# model" REMEDI.md measured as the best SINGLE specification, needs a full
-# seasonal cycle to estimate its seasonal MA term at all, which roughly half
-# this catalogue does not have. The last two candidates are the same
-# equation with P=D=Q=0 and s dropped, i.e. plain ARIMA(p,d,q), offered
-# because a short or irregular series can fail a seasonal fit outright.
-# SEASONAL + NON-SEASONAL COMPETING, WITH A LEVEL GUARD, as of 2026-09-29 -- kept
-# in step with generate_forecasts.py, which has the measurements and history.
-# SARIMA ONLY (2026-10-04, the user's call) -- kept in step with
-# generate_forecasts.py: every product is fitted with a
-# SEASONAL SARIMA(p,1,q)(P,0,Q,12) -- no ARIMA, no fallback to a non-seasonal
-# order. D = 0 on purpose: with seasonal DIFFERENCING (D = 1) the model reads
-# this year as "last year plus a change" and copies the store's growth year into
-# a flat one (3-month holdout MAPE 100.9% forced on every product). With D = 0
-# the seasonal term is ONE coefficient the fit estimates, near zero where a
-# product has no yearly pattern. Measured on all 2,617 products, May-Jul 2026
-# holdout, log(1 + units): MAE 8.30 / RMSE 9.72 / MAPE 52.3% / WAPE 29.9%
-# (D = 0 + D = 1 together 58.1%; D = 0 on raw units 56.0%; the rule this
-# replaced -- SARIMA only where a seasonality test passed, ARIMA otherwise --
-# 50.7%). The order is still chosen per product by _pick_sarima_order().
-SARIMA_CANDIDATES = [
-    ((1, 1, 1), (1, 0, 0, 12)),
-    ((0, 1, 1), (1, 0, 0, 12)),
-    ((1, 1, 1), (0, 0, 1, 12)),
-    ((0, 1, 1), (0, 0, 1, 12)),
-]
-SEASONAL_CANDIDATES = SARIMA_CANDIDATES
+import generate_forecasts as gf
 
-# Same transform as generate_forecasts.py -- keep the two in step. Fit on log(1 + units), forecasts back-transformed with expm1 (2026-10-04, the
-# user's request to lower MAPE). Monthly units here are small, skewed counts;
-# on the log scale a sale of 2 vs 4 weighs like 200 vs 400, so a few big
-# months stop dominating the fit, and the back-transform gives the MEDIAN month
-# rather than the mean -- the figure MAPE rewards. REMEDI_TRANSFORM=none fits
-# raw units, as before. Measured in CLAUDE.md "Forecasting pipeline".
-TRANSFORM = os.environ.get("REMEDI_TRANSFORM", "log1p")
-
-
-def _to_units(values):
-    """Back-transform a forecast (or band) from the fitting scale to units."""
-    v = np.asarray(values, dtype=float)
-    if TRANSFORM != "log1p":
-        return v
-    if np.any(v > 25):  # expm1(25) is ~7e10 units: a runaway fit, not a forecast
-        raise ValueError("log-scale forecast overflow")
-    return np.expm1(v)
-
-SARIMA_SELECTION_HOLDOUT = 3
-# Rolling windows the order is chosen over -- keep in step with generate_forecasts.py.
-SELECTION_FOLDS = 3
-MIN_MONTHS_FOR_ANY_FORECAST = 3
+# ONE MODEL, NOT TWO (2026-10-05, at the user's request: "make them match, and
+# also the revenue"). This script used to carry its own copy of the SARIMA
+# fit, kept "in step" with generate_forecasts.py by hand. Fitted separately,
+# the two disagreed: 353 of 15,804 product-months came out a unit or more
+# apart, and units here were stored to two decimals while demand is whole
+# units, so the Forecasting page's store-wide chart (this table) never matched
+# the demand forecast or the terminal report (Nov 2026: 69,707 vs 69,500).
+# Units now come from generate_forecasts.forecast_product() itself -- the same
+# order selection, transform, clamping and whole-unit rounding -- and revenue
+# is those units x the product's current selling price, rounded to centavos.
+# Change the model in generate_forecasts.py; this script follows it.
 
 TASK_CHUNK_SIZE = 8
 
@@ -250,163 +207,10 @@ def monthly_series(df: pd.DataFrame) -> pd.DataFrame:
 
 def forecast_series(series: pd.Series, horizon: int):
     """
-    Forecast one product with a seasonal SARIMA model, the ORDER picked per
-    product from SARIMA_CANDIDATES -- the same rule as
-    generate_forecasts.py::forecast_product (SARIMA only, 2026-10-04).
+    Forecast one product's units: generate_forecasts.forecast_product(), the
+    demand forecast itself, so the two tables hold the same numbers.
     """
-    return _forecast_series_with(series, horizon, SARIMA_CANDIDATES)
-
-
-def _forecast_series_with(series: pd.Series, horizon: int, candidates):
-    """forecast_series()'s fit, choosing among `candidates` only."""
-    series = series.asfreq("MS", fill_value=0)
-    n = len(series)
-    last_date = series.index[-1]
-    future_dates = pd.date_range(last_date + pd.offsets.MonthBegin(1), periods=horizon, freq="MS")
-
-    if n < MIN_MONTHS_FOR_ANY_FORECAST:
-        return []
-
-    hist_max = float(series.max())
-    hist_mean = float(series.mean())
-    ceiling = max(hist_max * 2.5, hist_mean * 4, 1.0)
-
-    def clamp(rows):
-        for r in rows:
-            r["forecast_value"] = min(max(0.0, r["forecast_value"]), ceiling)
-            # Bound BOTH ends of each CI to [0, ceiling]. A near-singular covariance
-            # matrix from a non-converged SARIMA fit can produce a huge or wildly
-            # negative bound that is still a finite float (not NaN/inf), so it
-            # would otherwise slip past a NaN-only check and later overflow the
-            # DB's decimal column once multiplied by price.
-            upper = r["upper_ci"]
-            r["upper_ci"] = ceiling if np.isnan(upper) else min(max(0.0, upper), ceiling)
-            lower = r["lower_ci"]
-            r["lower_ci"] = 0.0 if np.isnan(lower) else min(max(0.0, lower), r["forecast_value"])
-        return rows
-
-    def plausible(rows):
-        """
-        Reject a fit instead of repairing it -- see generate_forecasts.py.
-        A model that wants to predict negative sales has failed to fit, and
-        clamping that to 0 launders the failure into a confident zero.
-        """
-        vals = np.asarray([r["forecast_value"] for r in rows], dtype=float)
-        bounds = np.asarray(
-            [r["lower_ci"] for r in rows] + [r["upper_ci"] for r in rows], dtype=float
-        )
-
-        if vals.size == 0 or not np.all(np.isfinite(vals)):
-            return False
-        if (vals < 0).any():
-            return False
-        # CIs may legitimately be NaN; only finite ones have to be sane.
-        finite = bounds[np.isfinite(bounds)]
-        if finite.size and (finite < -ceiling).any():
-            return False
-
-        return bool((vals <= ceiling).all())
-
-    def sarimax_rows(order, seasonal_order, fit_series=None, fit_dates=None, fit_horizon=None):
-        from statsmodels.tsa.statespace.sarimax import SARIMAX
-
-        fit_series = series if fit_series is None else fit_series
-        fit_dates = future_dates if fit_dates is None else fit_dates
-        fit_horizon = horizon if fit_horizon is None else fit_horizon
-
-        # Seasonal orders fit with stationarity/invertibility ENFORCED, and a
-        # degenerate fit is a failed fit -- see generate_forecasts.py
-        # _sarimax_rows (2026-09-29) for the diverged fit this prevents.
-        seasonal = len(seasonal_order) == 4 and seasonal_order[3] > 0
-        model = SARIMAX(
-            np.log1p(fit_series) if TRANSFORM == "log1p" else fit_series, order=order, seasonal_order=seasonal_order,
-            enforce_stationarity=seasonal, enforce_invertibility=seasonal,
-        )
-        with warnings.catch_warnings():
-            # A locally-scoped filter is needed here: statsmodels re-registers
-            # its own ConvergenceWarning filter on import, which otherwise wins
-            # over the blanket warnings.filterwarnings("ignore") at module load.
-            warnings.simplefilter("ignore")
-            fit = model.fit(disp=False, maxiter=200, method="powell")
-
-        pred = fit.get_forecast(steps=fit_horizon)
-        ci = pred.conf_int(alpha=0.2)
-
-        if not np.all(np.isfinite(ci.values)) or not float(fit.params.get("sigma2", 1.0)) > 0:
-            raise ValueError("degenerate SARIMA fit")
-
-        mean, bands = _to_units(pred.predicted_mean), _to_units(ci.values)
-        return [
-            {
-                "forecast_date": date,
-                "forecast_value": round(float(m), 2),
-                "lower_ci": round(float(lo), 2) if not np.isnan(lo) else 0.0,
-                "upper_ci": round(float(hi), 2) if not np.isnan(hi) else float("nan"),
-                "method": "sarima" if seasonal_order[3] else "arima",
-            }
-            for date, m, (lo, hi) in zip(fit_dates, mean, bands)
-        ]
-
-    def pick_order():
-        """
-        Best SARIMA order for THIS product: lowest AVERAGE error over up to
-        SELECTION_FOLDS rolling 3-month windows, MAE-first -- the same rule as
-        generate_forecasts.py::_pick_sarima_order (see there for why one
-        window was not enough). Plausible in every window, or disqualified.
-        """
-        h = SARIMA_SELECTION_HOLDOUT
-        folds = []
-        for k in range(1, SELECTION_FOLDS + 1):
-            cut = n - h * k
-            if cut < MIN_MONTHS_FOR_ANY_FORECAST:
-                break
-            folds.append((series.iloc[:cut], series.iloc[cut:cut + h].to_numpy(dtype=float)))
-        if not folds:
-            return None
-
-        best = None
-        for order, seasonal_order in candidates:
-            maes, smapes = [], []
-            for train, observed in folds:
-                dates = pd.date_range(train.index[-1] + pd.offsets.MonthBegin(1), periods=h, freq="MS")
-                try:
-                    rows = sarimax_rows(order, seasonal_order, train, dates, h)
-                except Exception:
-                    rows = None
-
-                if not rows or not plausible(rows):
-                    maes = None
-                    break
-
-                pred = np.array([min(max(0.0, r["forecast_value"]), ceiling) for r in rows[:len(observed)]], dtype=float)
-                err = pred - observed[:len(pred)]
-                maes.append(float(np.mean(np.abs(err))))
-                denom = np.abs(pred) + np.abs(observed[:len(pred)])
-                smapes.append(float(np.mean(np.where(denom == 0, 0.0, np.abs(err) / np.where(denom == 0, 1.0, denom))) * 200.0))
-
-            if not maes:
-                continue
-
-            score = (float(np.mean(maes)), float(np.mean(smapes)))
-            if best is None or score < best[1]:
-                best = ((order, seasonal_order), score)
-
-        return best[0] if best else None
-
-    winner = pick_order()
-    orders_to_try = [winner] if winner else []
-    orders_to_try += [o for o in candidates if o != winner]
-
-    for order, seasonal_order in orders_to_try:
-        try:
-            rows = sarimax_rows(order, seasonal_order)
-        except Exception:  # noqa: BLE001 - any fitting failure means "try the next order"
-            continue
-
-        if rows and plausible(rows):
-            return clamp(rows)
-
-    return []
+    return gf.forecast_product(series, horizon)
 
 
 def _forecast_task(task):
