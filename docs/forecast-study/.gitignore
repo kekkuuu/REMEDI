@@ -1,0 +1,5 @@
+# Only the scripts are tracked. Everything they write (reports, CSVs, spreadsheets
+# of real product and sales data) stays local: the repository is public.
+*
+!*.py
+!.gitignore
