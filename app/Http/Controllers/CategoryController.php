@@ -33,7 +33,7 @@ class CategoryController extends Controller
 
         $category = Category::create($request->only('name'));
         AuditTrail::log('Created', "Added category: {$category->name}");
-        Cache::forget('sidebar_categories');
+        Cache::memo()->forget('sidebar_categories');
 
         return $this->actionOk($request, "Category \"{$category->name}\" added successfully.", back());
     }
@@ -68,7 +68,7 @@ class CategoryController extends Controller
 
         $category->update($request->only('name'));
         AuditTrail::log('Updated', "Renamed category to: {$category->name}");
-        Cache::forget('sidebar_categories');
+        Cache::memo()->forget('sidebar_categories');
 
         return $this->actionOk($request, "Category renamed to \"{$category->name}\".", back());
     }
@@ -105,7 +105,7 @@ class CategoryController extends Controller
             // Logged AFTER the archive succeeds, never before -- see
             // ProductController::destroy().
             AuditTrail::log('Archived', "Archived category: {$name}");
-            Cache::forget('sidebar_categories');
+            Cache::memo()->forget('sidebar_categories');
 
             return $this->actionOk($request, "Category \"{$name}\" archived.", back());
         });
@@ -119,7 +119,7 @@ class CategoryController extends Controller
         $category->restore();
 
         AuditTrail::log('Restored', "Restored category: {$category->name}");
-        Cache::forget('sidebar_categories');
+        Cache::memo()->forget('sidebar_categories');
 
         return $this->actionOk($request, "Category \"{$category->name}\" restored.", back());
     }

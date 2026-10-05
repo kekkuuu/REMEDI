@@ -76,13 +76,13 @@ class StockReport extends Model
      */
     public static function pendingCount(): int
     {
-        return (int) Cache::remember('stock_reports_pending', 60,
+        return (int) Cache::memo()->remember('stock_reports_pending', 60,
             fn () => static::where('status', self::STATUS_PENDING)->count());
     }
 
     public static function forgetPendingCount(): void
     {
-        Cache::forget('stock_reports_pending');
+        Cache::memo()->forget('stock_reports_pending');
     }
 
     public function isPending(): bool

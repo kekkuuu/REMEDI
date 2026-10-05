@@ -51,7 +51,7 @@ class SalesHistory extends Model
      */
     public static function cacheVersion(): int
     {
-        return (int) Cache::rememberForever('sales_cache_version', fn () => 1);
+        return (int) Cache::memo()->rememberForever('sales_cache_version', fn () => 1);
     }
 
     /**
@@ -64,20 +64,20 @@ class SalesHistory extends Model
      */
     public static function posCacheVersion(): int
     {
-        return (int) Cache::rememberForever('pos_cache_version', fn () => 1);
+        return (int) Cache::memo()->rememberForever('pos_cache_version', fn () => 1);
     }
 
     public static function bumpCacheVersion(): void
     {
         // A sale only invalidates POS-dependent aggregates.
-        Cache::forever('pos_cache_version', static::posCacheVersion() + 1);
+        Cache::memo()->forever('pos_cache_version', static::posCacheVersion() + 1);
     }
 
     /** Retires everything, including the expensive history-only aggregates. */
     public static function bumpHistoryVersion(): void
     {
-        Cache::forever('sales_cache_version', static::cacheVersion() + 1);
-        Cache::forever('pos_cache_version', static::posCacheVersion() + 1);
+        Cache::memo()->forever('sales_cache_version', static::cacheVersion() + 1);
+        Cache::memo()->forever('pos_cache_version', static::posCacheVersion() + 1);
     }
 
     private static function rangeKey(string $what, array $parts, bool $dependsOnPos = false): string
@@ -94,7 +94,7 @@ class SalesHistory extends Model
     public static function forgetCaches(): void
     {
         foreach (self::CACHE_KEYS as $key) {
-            Cache::forget($key);
+            Cache::memo()->forget($key);
         }
 
         // A reseed replaces sales_history itself, so retire every range
@@ -156,7 +156,7 @@ class SalesHistory extends Model
      */
     public static function monthlyRevenue(): Collection
     {
-        return Cache::remember(
+        return Cache::memo()->remember(
             // The POS stamp belongs in the key now: a checkout changes this
             // series, and the fixed key would have served yesterday's chart
             // until the TTL ran out.
@@ -242,7 +242,7 @@ class SalesHistory extends Model
         // quarterly ring beside it serving the previous figures until the TTL
         // expired -- two panels on one dashboard disagreeing about the same
         // quarter. Ask what a cached value READS, not what it is named after.
-        return Cache::remember(
+        return Cache::memo()->remember(
             self::QUARTER_CACHE_KEY.':p'.static::posCacheVersion(),
             self::cacheUntil(),
             function () {
@@ -334,7 +334,7 @@ class SalesHistory extends Model
         // dependsOnPos: the window now spans the till as well, so a checkout
         // has to retire this. The key was a bare constant while this read
         // history alone.
-        return Cache::remember(
+        return Cache::memo()->remember(
             self::DEMAND_CACHE_KEY.':p'.static::posCacheVersion(),
             self::cacheUntil(),
             function () use ($days, $topN, $lowN) {
@@ -399,7 +399,7 @@ class SalesHistory extends Model
         // dependsOnPos: this now folds in the till, so a checkout has to retire
         // it. See rangeKey() -- the POS stamp is bumped by every sale, the
         // history stamp only by a reseed or an import.
-        return Cache::remember(
+        return Cache::memo()->remember(
             static::rangeKey('units', [$start, $end], true),
             now()->addHours(self::CACHE_TTL_HOURS),
             function () use ($start, $end) {
@@ -468,6 +468,21 @@ class SalesHistory extends Model
      * to the present.
      */
     public static function lastCompleteMonth(): ?string
+    {
+        // Once per request (2026-10-05): the forecast detail page asked three
+        // times, and on Vercel each ask is a round trip to the database.
+        // Request-scoped rather than static, so nothing outlives the request.
+        $memo = request()->attributes;
+        $key = 'sales_history.last_complete_month';
+
+        if (! $memo->has($key)) {
+            $memo->set($key, static::computeLastCompleteMonth());
+        }
+
+        return $memo->get($key);
+    }
+
+    private static function computeLastCompleteMonth(): ?string
     {
         $through = static::reportableThrough();
 
@@ -734,7 +749,7 @@ class SalesHistory extends Model
     {
         // Measured 2.8-3.6s uncached over the full 2024-2026 range, and it is
         // the default view of the Analytics report.
-        return Cache::remember(
+        return Cache::memo()->remember(
             static::rangeKey('top', [$start, $end, $limit], true),
             now()->addHours(self::CACHE_TTL_HOURS),
             fn () => static::computeTopProductsBetween($start, $end, $limit)
@@ -822,7 +837,7 @@ class SalesHistory extends Model
      */
     public static function salesByCategoryBetween(string $start, string $end): Collection
     {
-        return Cache::remember(
+        return Cache::memo()->remember(
             static::rangeKey('by_category', [$start, $end], true),
             now()->addHours(self::CACHE_TTL_HOURS),
             fn () => static::computeSalesByCategoryBetween($start, $end)
@@ -935,7 +950,7 @@ class SalesHistory extends Model
         // POS sale doesn't change it — so a checkout no longer forces that
         // whole aggregate to be rebuilt. The POS delta is a handful of rows
         // from `sales`, cheap enough to merge fresh every time.
-        $base = Cache::remember(
+        $base = Cache::memo()->remember(
             static::rangeKey('trend', [$start, $end]),
             now()->addHours(self::CACHE_TTL_HOURS),
             fn () => static::computeTrendBetween($start, $end, false)
@@ -1116,7 +1131,7 @@ class SalesHistory extends Model
      */
     public static function groupedTrendBetween(string $start, string $end, string $group): array
     {
-        $history = Cache::remember(
+        $history = Cache::memo()->remember(
             static::rangeKey('daily', [$start, $end]),
             now()->addHours(self::CACHE_TTL_HOURS),
             fn () => static::dailyTotals($start, $end)->all()

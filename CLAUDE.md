@@ -505,6 +505,23 @@ expiries are midnights. (5) Both "Top 5" forecast charts rank in SQL and fetch o
 Covered by two `BatchStateTest` cases. What is left is mostly hydrating ~5,200 models (~70 ms) and the
 0.3–0.4 s trip to Europe per request.
 
+**Third pass, 2026-10-05: fewer ROUND TRIPS, since on Vercel each query crosses from Frankfurt to the Railway
+database and the session and cache are tables there too.** Measured live first: a signed-in request cost ≥ 0.5 s
+even for the tiny `/alerts`, `/forecast` 1.1–1.2 s warm (2.9 s cold). Counted locally under Vercel's drivers
+(`SESSION_DRIVER`/`CACHE_DRIVER=database`), queries per view went: `/forecast` **37 → 15**, `/forecast/{sku}` 20 → 15,
+dashboard body 25 → 21, every other page −3 (`/pos` 11 → 8, `/products` 13 → 10). (1) `App\Support\ForecastCache`
+caches the Forecasting page's accuracy card, store-wide figure and both Top 5 charts as one bundle — ~25 queries,
+including a 280 ms "scorable products" EXISTS count — keyed on a version stamp that BOTH forecast imports, a
+sales-history import, catalogue sync, a SKU rename, a price change and archiving/restoring a product `bump()`, plus
+the first actionable month and a 6 h TTL. (2) The layout's four cached values (sidebar categories, the bell payload,
+`topbar_activity`, `stock_reports_pending`) are read through `Cache::memo()` and prefetched in ONE `many()` at the
+top of the `layouts.app` composer; `SalesHistory`'s stamps and aggregates also go through `Cache::memo()` (the
+dashboard read `pos_cache_version` four times). **Read AND clear those keys through `Cache::memo()`** — a plain
+`Cache::forget()` after a memo read in the same request leaves the memo serving the old value. (3)
+`SalesHistory::lastCompleteMonth()` is memoized per request (request attributes). (4) `App\Http\Middleware\
+ServerTiming` (first global middleware) sends `Server-Timing: app;dur=…, db;dur=…;desc="N queries"` on every
+response — read it in DevTools → Network → Timing to see the server's share of a live page apart from the trip.
+
 Migration `2026_09_02_000001_create_sessions_and_cache_tables` exists for this deploy and no-ops
 locally. **A container filesystem is rebuilt on every deploy and is not shared between instances**,
 so `CACHE_DRIVER=file` there means every deploy signs everyone out and two instances disagree about
@@ -1774,6 +1791,12 @@ also the revenue").** `generate_sales_forecast.py` no longer carries its own SAR
 `selling_price`, rounded to centavos — the same formula `docs/forecast-study/forecast_report.py` prints. Fitted
 separately, the two disagreed on 353 of 15,804 product-months and the page's store-wide chart read Nov 2026 69,707
 units against the demand forecast's 69,500. Change the model in `generate_forecasts.py` only; regenerate both.
+**And the PAGES no longer read `sales_forecasts` at all (2026-10-05, same day):** the store-wide trend, the "Top 5 by
+revenue" chart and the detail page's Sales Forecast card price `demand_forecasts` at the current selling price
+(`SalesForecastService::pricedForecast()`), so a model change shows the moment the demand import lands instead of
+after the 04:30 sales run, and the live page matches the terminal without waiting for it. `sales_forecasts` is still
+written nightly (exports, backups) but nothing on screen reads it. The demand import clears the trend cache;
+`CACHE_KEY` is `_v3`. Covered by `Feature\Forecast\PricedForecastTest` (the DATE_FORMAT halves are MySQL-only).
 
 **Box-Jenkins order selection was tried and REVERTED (2026-10-02/03, the user's call).** An ACF/PACF
 identification + lowest-AIC (BIC tie-break) selection (`box_jenkins.py`, since deleted) replaced the rolling-window

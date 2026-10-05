@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Models\DemandForecast;
 use App\Models\SalesForecast;
 use App\Models\SalesHistory;
 use App\Support\ForecastHorizon;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -28,7 +30,9 @@ class SalesForecastService
      */
     // v2 (2026-10-01): forecast units became whole numbers per month, so a
     // payload cached in the old shape must not be served after a deploy.
-    public const CACHE_KEY = 'sales_forecast_overall_trend_v2';
+    // v3 (2026-10-05): the forecast half now comes from demand_forecasts x
+    // price (see pricedForecast()), so a v2 payload holds the old numbers.
+    public const CACHE_KEY = 'sales_forecast_overall_trend_v3';
 
     public const CACHE_TTL_HOURS = 6;
 
@@ -101,23 +105,18 @@ class SalesForecastService
             ? Carbon::createFromFormat('Y-m', $lastActualMonth)->endOfMonth()
             : null;
 
-        // ONE pass over sales_forecasts for all six forecast series, including
-        // the confidence bounds the charts shade.
-        //
-        // This is not the merge the note above warns against: that one was
-        // about the two ACTUAL queries, where folding units into the revenue
-        // query makes the units total pay for a join it does not need. These
-        // six aggregates come from the same table with no join and the same
-        // GROUP BY, so they were two queries doing identical work twice.
-        $forecastAgg = SalesForecast::query()
-            ->when($forecastCutoff, fn ($q) => $q->where('forecast_date', '>', $forecastCutoff))
-            ->selectRaw("DATE_FORMAT(forecast_date, '%Y-%m') as month,
-                         SUM(forecast_units)   as units,
-                         SUM(lower_ci_units)   as units_lo,
-                         SUM(upper_ci_units)   as units_hi,
-                         SUM(forecast_revenue) as revenue,
-                         SUM(lower_ci_revenue) as revenue_lo,
-                         SUM(upper_ci_revenue) as revenue_hi")
+        // ONE pass for all six forecast series, including the confidence
+        // bounds the charts shade -- over the DEMAND forecast priced at each
+        // product's current selling price (pricedForecast(), 2026-10-05).
+        $forecastAgg = $this->pricedForecast()
+            ->when($forecastCutoff, fn ($q) => $q->where('df.forecast_date', '>', $forecastCutoff))
+            ->selectRaw("DATE_FORMAT(df.forecast_date, '%Y-%m') as month,"
+                .' SUM(df.forecast_value) as units,'
+                .' SUM(df.lower_ci) as units_lo,'
+                .' SUM(df.upper_ci) as units_hi,'
+                .' SUM('.self::revenueOf('df.forecast_value').') as revenue,'
+                .' SUM('.self::revenueOf('df.lower_ci').') as revenue_lo,'
+                .' SUM('.self::revenueOf('df.upper_ci').') as revenue_hi')
             ->groupBy('month')
             ->orderBy('month')
             ->get();
@@ -199,24 +198,28 @@ class SalesForecastService
         $from = ForecastHorizon::firstActionableMonth();
 
         // Ranked in SQL, winners' rows only -- same change and reason as
-        // DemandForecastService::topDemandSeries() (2026-09-30).
-        $horizon = DB::table('sales_forecasts')->where('forecast_date', '>=', $from);
+        // DemandForecastService::topDemandSeries() (2026-09-30). Revenue is the
+        // demand forecast x the current price, as everywhere on this page.
+        $horizon = $this->pricedForecast()->where('df.forecast_date', '>=', $from);
 
-        $months = (clone $horizon)->distinct()->orderBy('forecast_date')->pluck('forecast_date')
+        $months = (clone $horizon)->select('df.forecast_date')->distinct()->orderBy('df.forecast_date')
+            ->pluck('forecast_date')
             ->map(fn ($d) => substr((string) $d, 0, 7))->unique()->values();
 
         if ($months->isEmpty()) {
             return ['months' => [], 'series' => []];
         }
 
-        $topSkus = (clone $horizon)->groupBy('product_sku')
-            ->orderByRaw('SUM(forecast_revenue) DESC')->orderBy('product_sku')
+        $topSkus = (clone $horizon)->select('df.product_sku')->groupBy('df.product_sku')
+            ->orderByRaw('SUM('.self::revenueOf('df.forecast_value').') DESC')->orderBy('df.product_sku')
             ->limit($limit)->pluck('product_sku');
 
         $names = DB::table('products')->whereIn('sku', $topSkus)->pluck('name', 'sku');
 
-        $byProduct = (clone $horizon)->whereIn('product_sku', $topSkus)
-            ->get(['product_sku', 'forecast_date', 'forecast_revenue'])
+        $byProduct = (clone $horizon)->whereIn('df.product_sku', $topSkus)
+            ->select('df.product_sku', 'df.forecast_date')
+            ->selectRaw(self::revenueOf('df.forecast_value').' as forecast_revenue')
+            ->get()
             ->groupBy('product_sku')
             ->map(fn ($g) => $g->mapWithKeys(fn ($r) => [
                 substr((string) $r->forecast_date, 0, 7) => (float) $r->forecast_revenue,
@@ -286,7 +289,22 @@ class SalesForecastService
             $actualRevenue = collect($filledRevenue)->take(-DemandForecastService::CHART_HISTORY_MONTHS);
         }
 
-        $forecast = SalesForecast::forProduct($productSku)->get();
+        // The DEMAND forecast's own rows, priced (2026-10-05) -- the same units
+        // as the Demand chart above this card, revenue = units x the current
+        // selling price, rounded to centavos per month. In-memory SalesForecast
+        // models, so the view reads the fields it always has.
+        $forecast = DemandForecast::forProduct($productSku)->get()->map(
+            fn (DemandForecast $row) => (new SalesForecast)->forceFill([
+                'product_sku' => $productSku,
+                'forecast_date' => $row->forecast_date,
+                'forecast_units' => (float) $row->forecast_value,
+                'lower_ci_units' => $row->lower_ci === null ? null : (float) $row->lower_ci,
+                'upper_ci_units' => $row->upper_ci === null ? null : (float) $row->upper_ci,
+                'forecast_revenue' => round((float) $row->forecast_value * $sellingPrice, 2),
+                'lower_ci_revenue' => $row->lower_ci === null ? null : round((float) $row->lower_ci * $sellingPrice, 2),
+                'upper_ci_revenue' => $row->upper_ci === null ? null : round((float) $row->upper_ci * $sellingPrice, 2),
+            ])
+        );
 
         return [
             'actualUnits' => $actualUnits,
@@ -294,6 +312,30 @@ class SalesForecastService
             'forecast' => $forecast,
             'lastActualMonth' => $actualUnits->keys()->last(),
         ];
+    }
+
+    /**
+     * The demand forecast with each row's product price beside it -- the ONE
+     * source of every forecast unit and peso on the Forecasting pages
+     * (2026-10-05, at the user's request: the page must show what the terminal
+     * report prints). The report computes revenue as demand units x selling
+     * price; sales_forecasts held the same figure but only as fresh as the
+     * last 04:30 run, so a model change reached the page a night late, and
+     * before 5cb714f it was a separate fit with slightly different units.
+     * Current price, like every other revenue figure in the app ("A price edit
+     * rewrites historical revenue"). Raw join, so an archived product's
+     * forecast is priced too, as the pipeline always priced it.
+     */
+    private function pricedForecast(): Builder
+    {
+        return DB::table('demand_forecasts as df')
+            ->join('products as p', 'p.sku', '=', 'df.product_sku');
+    }
+
+    /** SQL for one priced amount, rounded to centavos like the report's per-row revenue. */
+    private static function revenueOf(string $units): string
+    {
+        return "ROUND({$units} * COALESCE(p.selling_price, 0), 2)";
     }
 
     /**

@@ -8,6 +8,7 @@ use App\Models\ProductBatch;
 use App\Models\SalesHistory;
 use App\Services\AlertService;
 use App\Services\SalesForecastService;
+use App\Support\ForecastCache;
 use Illuminate\Pagination\Paginator;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\View;
@@ -71,7 +72,7 @@ class AppServiceProvider extends ServiceProvider
         // path — the controller, `import:receiving-reports`, the seeders and
         // tinker — the same reasoning as the AlertService hooks above.
         foreach (['saved', 'deleted', 'restored'] as $event) {
-            Product::{$event}(fn () => Cache::forget('sidebar_categories'));
+            Product::{$event}(fn () => Cache::memo()->forget('sidebar_categories'));
         }
 
         // Every revenue figure in the app is `sales_history.quantity_sold *
@@ -100,6 +101,12 @@ class AppServiceProvider extends ServiceProvider
 
         Product::forceDeleted(fn () => self::forgetRevenueCaches());
 
+        // The Forecasting page's cached accuracy card counts "scorable"
+        // products -- ACTIVE ones with sales history -- so an archive or a
+        // restore changes it even though no revenue moves.
+        Product::deleted(fn () => ForecastCache::bump());
+        Product::restored(fn () => ForecastCache::bump());
+
         // The sidebar (layouts.app, rendered on every authenticated page)
         // shows a category sub-link under "Inventory". Categories rarely
         // change, so cache the list instead of running this query on
@@ -110,7 +117,20 @@ class AppServiceProvider extends ServiceProvider
         // deleted, and the Product hook above clears it when a product is
         // created, deleted or moved — the counts are products_count.
         View::composer('layouts.app', function ($view) {
-            $view->with('sidebarCategories', Cache::remember(
+            // Every cached value the shell reads, fetched in ONE query
+            // (2026-10-05). On Vercel the cache is a database table in another
+            // data centre, so four separate reads were four round trips on
+            // every page; the memo store answers the reads below from this.
+            // A key that is missing comes back null and is built as before.
+            $isAdmin = (bool) auth()->user()?->isAdmin();
+            Cache::memo()->many(array_values(array_filter([
+                'sidebar_categories',
+                AlertService::CACHE_KEY.':'.AlertService::PER_KIND,
+                $isAdmin ? 'topbar_activity' : null,
+                $isAdmin ? 'stock_reports_pending' : null,
+            ])));
+
+            $view->with('sidebarCategories', Cache::memo()->remember(
                 'sidebar_categories',
                 now()->addHours(6),
                 fn () => Category::withCount('products')->orderBy('name')->get()
@@ -149,5 +169,6 @@ class AppServiceProvider extends ServiceProvider
     {
         SalesHistory::forgetCaches();
         Cache::forget(SalesForecastService::cacheKey());
+        ForecastCache::bump();
     }
 }

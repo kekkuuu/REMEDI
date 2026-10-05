@@ -177,7 +177,7 @@ class ClassifyProducts extends Command
 
         // The sidebar's category list is cached for 6 hours (AppServiceProvider),
         // so without this the new categories do not appear until it expires.
-        Cache::forget('sidebar_categories');
+        Cache::memo()->forget('sidebar_categories');
 
         AuditTrail::log('Reclassified Products', "Moved {$moved} products into name-derived categories.");
 

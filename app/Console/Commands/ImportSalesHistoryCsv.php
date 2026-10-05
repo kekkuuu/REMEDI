@@ -6,6 +6,7 @@ use App\Models\Product;
 use App\Models\SalesHistory;
 use App\Services\AlertService;
 use App\Services\SalesForecastService;
+use App\Support\ForecastCache;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -247,6 +248,7 @@ class ImportSalesHistoryCsv extends Command
         //    their 24 h TTL (found 2026-09-30, before syncing the live DB).
         SalesHistory::forgetCaches();
         Cache::forget(SalesForecastService::cacheKey());
+        ForecastCache::bump();
         AlertService::forget();
         $this->info('Cache versions bumped.');
 

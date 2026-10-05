@@ -88,7 +88,7 @@ class AlertService
      */
     public function payload(int $perKind = self::PER_KIND): array
     {
-        return Cache::remember(self::CACHE_KEY.':'.$perKind, now()->addSeconds(self::TTL_SECONDS), function () use ($perKind) {
+        return Cache::memo()->remember(self::CACHE_KEY.':'.$perKind, now()->addSeconds(self::TTL_SECONDS), function () use ($perKind) {
             $today = today();
             $soon = $today->copy()->addDays(ProductBatch::EXPIRY_SOON_DAYS);
 
@@ -476,7 +476,7 @@ class AlertService
 
     public function activity(int $limit = 6): array
     {
-        return Cache::remember('topbar_activity', now()->addSeconds(self::TTL_SECONDS), function () use ($limit) {
+        return Cache::memo()->remember('topbar_activity', now()->addSeconds(self::TTL_SECONDS), function () use ($limit) {
             $rows = AuditTrail::query()
                 // READS ARE NOT NEWS. `Viewed` is written every time someone
                 // opens a report -- including the same report twice while
@@ -726,9 +726,9 @@ class AlertService
     public static function forget(): void
     {
         foreach ([self::PER_KIND, self::PAGE_PER_KIND] as $perKind) {
-            Cache::forget(self::CACHE_KEY.':'.$perKind);
+            Cache::memo()->forget(self::CACHE_KEY.':'.$perKind);
         }
 
-        Cache::forget('topbar_activity');
+        Cache::memo()->forget('topbar_activity');
     }
 }

@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Services\SalesForecastService;
+use App\Support\ForecastCache;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -102,6 +103,7 @@ class GenerateSalesForecast extends Command
         // SalesForecastService); without this the page would keep serving
         // the pre-import numbers until the TTL lapsed.
         Cache::forget(SalesForecastService::cacheKey());
+        ForecastCache::bump();
 
         return self::SUCCESS;
     }

@@ -2,7 +2,11 @@
 
 namespace App\Console\Commands;
 
+use App\Models\Setting;
+use App\Services\SalesForecastService;
+use App\Support\ForecastCache;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Symfony\Component\Process\Process;
 
@@ -121,10 +125,16 @@ class GenerateDemandForecast extends Command
         if (is_file($storewidePath)) {
             $storewide = json_decode((string) file_get_contents($storewidePath), true);
             if (is_array($storewide) && isset($storewide['mape'])) {
-                \App\Models\Setting::put(\App\Models\Setting::STOREWIDE_ACCURACY_KEY, json_encode($storewide + ['generated_at' => now()->toDateTimeString()]));
+                Setting::put(Setting::STOREWIDE_ACCURACY_KEY, json_encode($storewide + ['generated_at' => now()->toDateTimeString()]));
                 $this->info('Store-wide holdout MAPE: '.$storewide['mape'].'%.');
             }
         }
+
+        // The Forecasting page caches its accuracy card and Top 5 charts, and
+        // its store-wide trend is priced from this table (SalesForecastService::
+        // pricedForecast), so this import retires both.
+        ForecastCache::bump();
+        Cache::forget(SalesForecastService::cacheKey());
 
         return self::SUCCESS;
     }

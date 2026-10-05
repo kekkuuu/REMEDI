@@ -10,6 +10,7 @@ use App\Models\SalesHistory;
 use App\Models\StockMovement;
 use App\Services\AlertService;
 use App\Services\SalesForecastService;
+use App\Support\ForecastCache;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -279,6 +280,7 @@ class ProductController extends Controller
         if ($skuChanged) {
             SalesHistory::forgetCaches();
             Cache::forget(SalesForecastService::cacheKey());
+            ForecastCache::bump();
         }
 
         return $this->actionOk($request, "Product \"{$product->name}\" updated successfully.", redirect()->route('products.index'));

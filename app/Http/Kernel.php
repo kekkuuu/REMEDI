@@ -9,6 +9,7 @@ use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\EnsureUserSetsNewPassword;
 use App\Http\Middleware\PreventRequestsDuringMaintenance;
 use App\Http\Middleware\RedirectIfAuthenticated;
+use App\Http\Middleware\ServerTiming;
 use App\Http\Middleware\TrimStrings;
 use App\Http\Middleware\TrustProxies;
 use App\Http\Middleware\ValidateSignature;
@@ -39,6 +40,9 @@ class Kernel extends HttpKernel
      * @var array<int, class-string|string>
      */
     protected $middleware = [
+        // First, so its timing covers everything below it, the session's
+        // read and write included.
+        ServerTiming::class,
         // \App\Http\Middleware\TrustHosts::class,
         TrustProxies::class,
         HandleCors::class,

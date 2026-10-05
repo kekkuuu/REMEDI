@@ -8,6 +8,7 @@ use App\Models\ProductBatch;
 use App\Models\SalesHistory;
 use App\Services\AlertService;
 use App\Services\SalesForecastService;
+use App\Support\ForecastCache;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -126,8 +127,9 @@ class SyncCatalogue extends Command
         // a price rewrites every revenue figure, and archiving moves alerts.
         SalesHistory::forgetCaches();
         Cache::forget(SalesForecastService::cacheKey());
+        ForecastCache::bump();
         AlertService::forget();
-        Cache::forget('sidebar_categories');
+        Cache::memo()->forget('sidebar_categories');
 
         AuditTrail::log('Updated', sprintf(
             'Catalogue synced from %s: %d products archived, %d restored, %d batches archived, %d prices and %d costs set',

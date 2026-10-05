@@ -90,6 +90,6 @@ class AuditTrail extends Model
         // for AlertService::TTL_SECONDS. Every write here is, by definition, a
         // new notification, so retire that cache rather than showing a feed
         // that is missing the thing the user just did.
-        Cache::forget('topbar_activity');
+        Cache::memo()->forget('topbar_activity');
     }
 }
