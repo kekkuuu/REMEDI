@@ -42,6 +42,23 @@ class Kernel extends ConsoleKernel
             ->monthlyOn(1, '04:30')
             ->withoutOverlapping()
             ->runInBackground();
+
+        // ONE extra run, 7 October 2026 (at the user's request): the forecast
+        // fallback (caabef4) went live after that night's last nightly run, and
+        // the schedule is monthly now, so without this the live site would keep
+        // the old model's forecasts until 1 November. Same times and limits as
+        // above; the year check stops it repeating in 2027. Safe to delete after.
+        $once = fn () => now()->year === 2026;
+        $schedule->command('forecast:generate --workers=1')
+            ->cron('0 2 7 10 *')
+            ->when($once)
+            ->withoutOverlapping()
+            ->runInBackground();
+        $schedule->command('sales-forecast:generate --workers=1')
+            ->cron('30 4 7 10 *')
+            ->when($once)
+            ->withoutOverlapping()
+            ->runInBackground();
     }
 
     /**
