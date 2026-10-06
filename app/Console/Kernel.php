@@ -4,6 +4,7 @@ namespace App\Console;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
+use Illuminate\Support\Facades\Cache;
 
 class Kernel extends ConsoleKernel
 {
@@ -40,6 +41,20 @@ class Kernel extends ConsoleKernel
         // Monthly too, on the 1st after the demand run (2026-10-06).
         $schedule->command('sales-forecast:generate --workers=1')
             ->monthlyOn(1, '04:30')
+            ->withoutOverlapping()
+            ->runInBackground();
+
+        // And ONE run AS SOON AS THIS IS DEPLOYED (6 October 2026 evening, at the
+        // user's request: "fix it now"). The first scheduler tick after the
+        // deploy claims the flag (Cache::add is atomic and the cache is the
+        // shared database on Railway, so it fires once across instances and
+        // restarts) and refits the demand forecast -- the table every
+        // Forecasting page reads. Only before midnight, so it cannot overlap the
+        // 02:00 run below, which stays as the safety net. Safe to delete after.
+        $schedule->command('forecast:generate --workers=1')
+            ->everyMinute()
+            ->when(fn () => now()->lt('2026-10-07 00:00:00')
+                && Cache::add('forecast_rerun_2026_10_06', now()->toDateTimeString(), now()->addDays(30)))
             ->withoutOverlapping()
             ->runInBackground();
 
