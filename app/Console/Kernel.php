@@ -53,10 +53,15 @@ class Kernel extends ConsoleKernel
         // 02:00 run below, which stays as the safety net. Safe to delete after.
         $schedule->command('forecast:generate --workers=1')
             ->everyMinute()
-            // _b: a second forced run the same evening, for the order tie-break
-            // (the first flag was already claimed by the fallback's run).
+            // _c: a third forced run the same evening, for the order tie-break.
+            // The _b run had not reached the live page by 23:00, and this deploy
+            // restarts the container, killing it mid-run -- which leaves its
+            // withoutOverlapping() lock behind for 24 h. That lock is named after
+            // the cron expression + command, identical here, so this event takes
+            // its OWN mutex name or it would be skipped as "still running".
             ->when(fn () => now()->lt('2026-10-07 01:00:00')
-                && Cache::add('forecast_rerun_2026_10_06_b', now()->toDateTimeString(), now()->addDays(30)))
+                && Cache::add('forecast_rerun_2026_10_06_c', now()->toDateTimeString(), now()->addDays(30)))
+            ->createMutexNameUsing('forecast-rerun-2026-10-06-c')
             ->withoutOverlapping()
             ->runInBackground();
 
