@@ -6,7 +6,6 @@ use App\Models\Category;
 use App\Services\DemandForecastService;
 use App\Services\SalesForecastService;
 use App\Support\ForecastCache;
-use App\Support\ForecastSplit;
 use Illuminate\Http\Request;
 
 class DemandForecastController extends Controller
@@ -54,19 +53,17 @@ class DemandForecastController extends Controller
         // answer different questions -- what to reorder vs. what earns --
         // rather than the same ranking shown twice.
         //
-        // One cached bundle (2026-10-05): these four read only what a forecast
-        // run writes, and cost ~25 queries per view -- see App\Support\ForecastCache.
-        [$topDemand, $accuracy, $storewide, $topSales] = ForecastCache::remember('index', fn () => [
+        // One cached bundle (2026-10-05): both read only what a forecast run
+        // writes -- see App\Support\ForecastCache. The accuracy cards (holdout,
+        // store-wide, 80/20, rolling) were removed from the page 2026-10-06 at
+        // the user's request; forecast:generate still measures and stores them.
+        // 'index_v2': the 'index' bundle cached by the previous code holds four
+        // values in a different order, and destructuring it would put the
+        // accuracy summary where the revenue chart's series belongs.
+        [$topDemand, $topSales] = ForecastCache::remember('index_v2', fn () => [
             $this->forecasts->topDemandSeries(5),
-            $this->forecasts->accuracySummary(),
-            $this->forecasts->storewideAccuracy(),
             $this->salesForecasts->topSalesForecastSeries(5),
         ]);
-        // The 80/20 chronological evaluation's overall figures (a committed
-        // file, see App\Support\ForecastSplit), shown beside the holdout.
-        $split = ForecastSplit::summary();
-        // The walk-forward test across the whole record (forecast:evaluate-rolling).
-        $rolling = ForecastSplit::rolling();
 
         // $trend is the store-wide units/revenue chart that used to live alone
         // on /sales-forecast; cached by SalesForecastService itself.
@@ -74,7 +71,7 @@ class DemandForecastController extends Controller
 
         return view('forecast.index', compact(
             'search', 'categoryId', 'categories', 'forecasts',
-            'topDemand', 'topSales', 'accuracy', 'trend', 'split', 'storewide', 'rolling'
+            'topDemand', 'topSales', 'trend'
         ));
     }
 
