@@ -21,8 +21,13 @@ class Kernel extends ConsoleKernel
         // pandas/statsmodels processes blew that budget and OOM-killed the
         // container mid-run. Sequential fitting is slower but the only thing
         // this container's memory can sustain unattended overnight.
+        //
+        // MONTHLY, on the 1st (2026-10-06, at the user's request; was nightly).
+        // The models train on COMPLETE months only (monthly_series() drops the
+        // month in progress), so the data they see changes once a month -- on
+        // the 1st, when last month closes. A nightly run refitted the same data.
         $schedule->command('forecast:generate --workers=1')
-            ->dailyAt('02:00')
+            ->monthlyOn(1, '02:00')
             ->withoutOverlapping()
             ->runInBackground();
 
@@ -32,8 +37,9 @@ class Kernel extends ConsoleKernel
         // the sequential demand run above room to finish first: the two must
         // not fit side by side in this container's ~1GB. --workers=1 for the
         // same reason as above.
+        // Monthly too, on the 1st after the demand run (2026-10-06).
         $schedule->command('sales-forecast:generate --workers=1')
-            ->dailyAt('04:30')
+            ->monthlyOn(1, '04:30')
             ->withoutOverlapping()
             ->runInBackground();
     }

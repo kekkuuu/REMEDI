@@ -439,7 +439,9 @@ a surface that needs the same answer, call it rather than re-deriving it.
 ### Laravel 10-style skeleton on Laravel 12
 `bootstrap/app.php` binds `App\Http\Kernel` / `App\Console\Kernel`; middleware aliases live in
 `app/Http/Kernel.php` and the scheduler in `app/Console/Kernel.php::schedule()` (`forecast:generate`
-nightly at 02:00, and `sales-forecast:generate` nightly at 04:30 as of 2026-10-03 — it was manual, and the Railway
+on the 1st of each month at 02:00 and `sales-forecast:generate` at 04:30 — MONTHLY since 2026-10-06 at the user's
+request, nightly before that; the models only see complete months, so the 1st is when their data changes —
+the sales run added 2026-10-03 — it was manual, and the Railway
 CLI on the dev machine is blocked by Windows Application Control, so nothing could run it by hand). Register new middleware and scheduled
 commands there — do not migrate piecemeal to the Laravel 11+ fluent style.
 
@@ -1770,8 +1772,7 @@ result is not evidence either way.
 **SARIMA ONLY, on log(1 + units) (2026-10-04, the user's call)** — every product, in BOTH scripts, is fitted with a
 SEASONAL SARIMA chosen per product from `SARIMA_CANDIDATES` = (1,1,1)(1,0,0,12), (0,1,1)(1,0,0,12), (1,1,1)(0,0,1,12),
 (0,1,1)(0,0,1,12) by the rolling-window MAE contest (`_pick_sarima_order`). No ARIMA, no seasonality test, no level
-guard, no fallback: a product no candidate fits gets NO forecast (4 short-history products, 4–9 months of sales:
-BABY FLO NASAL ASPIRATOR, HAILEYS TAWAS 50G X12, MINGS PEI PA KOA 120G, PROPAN TLC DROPS 30ML). **D = 0 on purpose**:
+guard. **A fallback since 2026-10-06 (at the user's request: no product may be dropped)** — see the next paragraph. **D = 0 on purpose**:
 with seasonal differencing (D = 1) the model copies the store's growth year into a flat one — forced on every product
 it read 100.9% holdout MAPE; D = 0 + D = 1 together 58.1%; D = 0 on raw units 56.0%. `TRANSFORM` (`REMEDI_TRANSFORM`,
 default `log1p`) fits log(1 + units) and back-transforms with `expm1`; the STORE TOTAL is fitted on raw units
@@ -1784,6 +1785,26 @@ only where a per-product seasonality test passed (Kruskal–Wallis or lag-12 ACF
 holdout 8.21 / 50.7% / 29.5%, 80/20 8.12 / 53.1% / 29.6% (ahead of both baselines), store-wide 4.56% / 7.41%; ARIMA on
 every product measured 8.15 / 49.9% and 8.09 / 52.4%. To go back, restore `is_seasonal()` and the two candidate lists
 from commit 5ba5140 in both scripts and regenerate both pipelines.
+**Fallback and SARIMA failure handling (2026-10-06, at the user's request).** `forecast_product_explained()` in
+`generate_forecasts.py` (`forecast_product()` returns its rows, so every caller — the sales script, the 80/20 and
+rolling evaluations, the report scripts — gets the same behaviour). Under `MIN_MONTHS_FOR_SARIMA` (24) months SARIMA is
+not attempted; with enough history it is, and if every order fails, the reasons are kept per order (fit error,
+degenerate fit, negative, above the ceiling), the series is described (`describe_series()`: short_history,
+many_zero_months, erratic, outliers, level_shift, no_variation), forecasts thrown above the ceiling by outliers are
+retried once with those months capped (same ceiling), and only then does the product fall back. `fallback_rows()`:
+Croston SBA (`fallback_croston_sba`) for intermittent series (≥ 50% zero months, ≥ 2 sales), else the mean of the last
+3 months (`fallback_recent_mean`), flat, band = 10th–90th percentile of the last 12 months. Even a crash in
+`_forecast_task` falls back. **Root cause of the old "4 products with no forecast" was the sanity check, not the
+data**: on log(1 + units) a forecast cannot go below −1, and those 4 were rejected for −0.01 to −0.31 units (selling
+0.3–0.6 a month), all of which round to 0 — `_plausible()` now allows down to `LOG_NEGATIVE_TOLERANCE` (0.5) on the log
+scale only; below it, and every other rule, still rejects. Measured 2026-10-06 on the CSV record (2,617 products): all
+2,617 forecast (was 2,613), SARIMA passed 2,591, fallback 26 (16 Croston, 10 recent mean), no long-history failure;
+17 products' forecasts changed (13 short ones now on the fallback, 4 SARIMA order choices), Nov 2026 69,500 → 69,496;
+holdout MAE 8.3033 → 8.3038, MAPE 52.30% → 52.33% (2,600 with a MAPE), WAPE 29.86% unchanged. `forecast:generate`
+writes `storage/app/forecasts/forecast_log.csv` (`--log`): per product the history, flags, SARIMA attempted /
+passed / failed / skipped, the order, the failure reason, any repair, the fallback and the final forecast, and prints
+a summary plus every SARIMA failure. Covered by `resources/python/tests/test_forecast_fallback.py`
+(`python -m unittest discover -s resources/python/tests`), the repo's first Python tests.
 **The sales forecast's units ARE the demand forecast (2026-10-05, at the user's request: "make them match, and
 also the revenue").** `generate_sales_forecast.py` no longer carries its own SARIMA code: `forecast_series()` calls
 `generate_forecasts.forecast_product()`, so `sales_forecasts.forecast_units` (and its band) equal

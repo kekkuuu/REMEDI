@@ -51,6 +51,9 @@ class GenerateDemandForecast extends Command
         $outputPath = storage_path('app/forecasts/all_products_forecast.csv');
         $metricsPath = storage_path('app/forecasts/all_products_accuracy.csv');
         $storewidePath = storage_path('app/forecasts/storewide_accuracy.json');
+        // One row per product: history, SARIMA attempted / passed / failed and
+        // why, the fallback used, the final forecast (2026-10-06).
+        $logPath = storage_path('app/forecasts/forecast_log.csv');
 
         $args = [
             $python, $scriptPath,
@@ -64,6 +67,7 @@ class GenerateDemandForecast extends Command
             ...(config('forecast.include_pos') ? ['--include-pos'] : []),
             '--metrics', $metricsPath,
             '--storewide', $storewidePath,
+            '--log', $logPath,
         ];
 
         if ($source === 'csv') {
