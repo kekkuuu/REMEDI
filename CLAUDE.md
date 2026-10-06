@@ -1803,7 +1803,11 @@ scale only; below it, and every other rule, still rejects. Measured 2026-10-06 o
 holdout MAE 8.3033 → 8.3038, MAPE 52.30% → 52.33% (2,600 with a MAPE), WAPE 29.86% unchanged. `forecast:generate`
 writes `storage/app/forecasts/forecast_log.csv` (`--log`): per product the history, flags, SARIMA attempted /
 passed / failed / skipped, the order, the failure reason, any repair, the fallback and the final forecast, and prints
-a summary plus every SARIMA failure. Covered by `resources/python/tests/test_forecast_fallback.py`
+a summary plus every SARIMA failure. **Order ties are broken on the UNROUNDED MAE (2026-10-06, at the user's request:
+make live match the terminal)** — `_pick_sarima_order` scores (whole-unit MAE, unrounded MAE, sMAPE); breaking ties on
+sMAPE of rounded forecasts let a fold forecast of exactly x.5 tip differently on Windows and Linux, so DUVADILAN 10MG
+chose a different order locally than live (1 unit a month, ₱40.50). 252 forecasts changed, holdout MAPE 52.33% →
+52.42%, MAE 8.3038 → 8.3076. Covered by `resources/python/tests/test_forecast_fallback.py`
 (`python -m unittest discover -s resources/python/tests`), the repo's first Python tests.
 **The sales forecast's units ARE the demand forecast (2026-10-05, at the user's request: "make them match, and
 also the revenue").** `generate_sales_forecast.py` no longer carries its own SARIMA code: `forecast_series()` calls

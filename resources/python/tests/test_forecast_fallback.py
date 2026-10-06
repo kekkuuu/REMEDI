@@ -134,6 +134,24 @@ class SarimaFailures(unittest.TestCase):
             self.assertFalse(gf._plausible([-0.3, 1.0], ceiling=10))
 
 
+class OrderTieBreak(unittest.TestCase):
+    def test_a_whole_unit_tie_is_broken_on_the_unrounded_error_not_list_order(self):
+        # Both orders forecast 5 once rounded -- a tie on whole-unit MAE. The
+        # SECOND is closer before rounding (5.10 against 5.45 for an actual of 5)
+        # and must win, whatever sMAPE or the list order would have said.
+        far, near = ((1, 1, 1), (1, 0, 0, 12)), ((0, 1, 1), (1, 0, 0, 12))
+
+        def fit(monthly, dates, horizon, order, seasonal_order, method):
+            value = 5.45 if (order, seasonal_order) == far else 5.10
+            return [{"forecast_date": d, "forecast_value": value, "lower_ci": 4.0, "upper_ci": 7.0, "method": method}
+                    for d in dates]
+
+        with mock.patch.object(gf, "_sarimax_rows", side_effect=fit):
+            winner = gf._pick_sarima_order(series([5] * 36), 3, ceiling=50, candidates=[far, near])
+
+        self.assertEqual(winner, near)
+
+
 class SarimaSuccess(unittest.TestCase):
     def test_a_regular_seasonal_seller_keeps_sarima(self):
         rows, info = gf.forecast_product_explained(seasonal(), HORIZON)

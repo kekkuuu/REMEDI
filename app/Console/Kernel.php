@@ -49,12 +49,14 @@ class Kernel extends ConsoleKernel
         // deploy claims the flag (Cache::add is atomic and the cache is the
         // shared database on Railway, so it fires once across instances and
         // restarts) and refits the demand forecast -- the table every
-        // Forecasting page reads. Only before midnight, so it cannot overlap the
+        // Forecasting page reads. Only before 01:00, so it cannot overlap the
         // 02:00 run below, which stays as the safety net. Safe to delete after.
         $schedule->command('forecast:generate --workers=1')
             ->everyMinute()
-            ->when(fn () => now()->lt('2026-10-07 00:00:00')
-                && Cache::add('forecast_rerun_2026_10_06', now()->toDateTimeString(), now()->addDays(30)))
+            // _b: a second forced run the same evening, for the order tie-break
+            // (the first flag was already claimed by the fallback's run).
+            ->when(fn () => now()->lt('2026-10-07 01:00:00')
+                && Cache::add('forecast_rerun_2026_10_06_b', now()->toDateTimeString(), now()->addDays(30)))
             ->withoutOverlapping()
             ->runInBackground();
 

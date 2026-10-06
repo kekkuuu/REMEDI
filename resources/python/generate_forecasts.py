@@ -558,7 +558,7 @@ def _pick_sarima_order(series, holdout, ceiling, candidates=None):
     Choose the SARIMA order with the lowest AVERAGE error across the rolling
     windows in _selection_folds, among SARIMA_CANDIDATES only.
 
-    MAE-first (sMAPE to break ties) across windows. Within one product every
+    MAE-first across windows (ties: unrounded MAE, then sMAPE). Within one product every
     candidate is scored on the same units, so MAE compares them directly; the
     MAPE-first rule it replaces could not average over a window that sold
     nothing (MAPE undefined there). An order must produce a PLAUSIBLE raw
@@ -572,7 +572,7 @@ def _pick_sarima_order(series, holdout, ceiling, candidates=None):
     best = None
 
     for order, seasonal_order in (candidates or SARIMA_CANDIDATES):
-        maes, smapes = [], []
+        maes, smapes, exact_maes = [], [], []
         for train, observed in folds:
             try:
                 rows = _sarimax_rows(train, _future_dates(train, holdout), holdout, order, seasonal_order, "sarima")
@@ -583,17 +583,31 @@ def _pick_sarima_order(series, holdout, ceiling, candidates=None):
                 maes = None
                 break
 
+            # Kept before _clamp_rows rounds to whole units in place -- see the
+            # tie rule below.
+            exact = np.clip([r["forecast_value"] for r in rows[:len(observed)]], 0.0, ceiling)
             rows = _clamp_rows(rows, ceiling)
             pred = np.array([r["forecast_value"] for r in rows[:len(observed)]], dtype=float)
             err = pred - observed[:len(pred)]
             maes.append(float(np.mean(np.abs(err))))
+            exact_maes.append(float(np.mean(np.abs(exact - observed[:len(exact)]))))
             denom = np.abs(pred) + np.abs(observed[:len(pred)])
             smapes.append(float(np.mean(np.where(denom == 0, 0.0, np.abs(err) / np.where(denom == 0, 1.0, denom))) * 200.0))
 
         if not maes:
             continue
 
-        score = (float(np.mean(maes)), float(np.mean(smapes)))
+        # Whole-unit MAE first, as measured. An exact tie on it -- common, since
+        # whole units give few distinct values -- is broken on the UNROUNDED
+        # forecast's MAE, then sMAPE (2026-10-06, at the user's request: make the
+        # live site match the terminal). Breaking it on sMAPE alone made the
+        # winner hang on whole-unit rounding: a fold forecast of exactly x.5
+        # rounds one way on the Windows PC and the other on the Linux server,
+        # so DUVADILAN 10MG chose a different order on each -- 1 unit a month
+        # apart. The unrounded MAEs differ by far more than the machines do.
+        # Measured with the fallback: 252 forecasts changed, holdout MAPE
+        # 52.33% -> 52.42%, MAE 8.3038 -> 8.3076.
+        score = (float(np.mean(maes)), float(np.mean(exact_maes)), float(np.mean(smapes)))
         if best is None or score < best[1]:
             best = ((order, seasonal_order), score)
 
