@@ -4,7 +4,6 @@ namespace App\Console;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
-use Illuminate\Support\Facades\Cache;
 
 class Kernel extends ConsoleKernel
 {
@@ -41,44 +40,6 @@ class Kernel extends ConsoleKernel
         // Monthly too, on the 1st after the demand run (2026-10-06).
         $schedule->command('sales-forecast:generate --workers=1')
             ->monthlyOn(1, '04:30')
-            ->withoutOverlapping()
-            ->runInBackground();
-
-        // And ONE run AS SOON AS THIS IS DEPLOYED (6 October 2026 evening, at the
-        // user's request: "fix it now"). The first scheduler tick after the
-        // deploy claims the flag (Cache::add is atomic and the cache is the
-        // shared database on Railway, so it fires once across instances and
-        // restarts) and refits the demand forecast -- the table every
-        // Forecasting page reads. Only before 01:00, so it cannot overlap the
-        // 02:00 run below, which stays as the safety net. Safe to delete after.
-        $schedule->command('forecast:generate --workers=1')
-            ->everyMinute()
-            // _c: a third forced run the same evening, for the order tie-break.
-            // The _b run had not reached the live page by 23:00, and this deploy
-            // restarts the container, killing it mid-run -- which leaves its
-            // withoutOverlapping() lock behind for 24 h. That lock is named after
-            // the cron expression + command, identical here, so this event takes
-            // its OWN mutex name or it would be skipped as "still running".
-            ->when(fn () => now()->lt('2026-10-07 01:00:00')
-                && Cache::add('forecast_rerun_2026_10_06_c', now()->toDateTimeString(), now()->addDays(30)))
-            ->createMutexNameUsing('forecast-rerun-2026-10-06-c')
-            ->withoutOverlapping()
-            ->runInBackground();
-
-        // ONE extra run, 7 October 2026 (at the user's request): the forecast
-        // fallback (caabef4) went live after that night's last nightly run, and
-        // the schedule is monthly now, so without this the live site would keep
-        // the old model's forecasts until 1 November. Same times and limits as
-        // above; the year check stops it repeating in 2027. Safe to delete after.
-        $once = fn () => now()->year === 2026;
-        $schedule->command('forecast:generate --workers=1')
-            ->cron('0 2 7 10 *')
-            ->when($once)
-            ->withoutOverlapping()
-            ->runInBackground();
-        $schedule->command('sales-forecast:generate --workers=1')
-            ->cron('30 4 7 10 *')
-            ->when($once)
             ->withoutOverlapping()
             ->runInBackground();
     }
