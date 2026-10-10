@@ -1820,6 +1820,12 @@ a summary and writes `report/product_acf_pacf.csv` (lags 1–12 of both, the cut
 chosen). Measured: 2,591 products analysed; PACF cut-off p = 0 / 1 / 2 on 292 / 1,218 / 1,081; ACF cut-off q = 0 / 1
 / 2 on 292 / 2,118 / 181; a lag-12 spike on only 166 (ACF 148, PACF 22); the chosen order is one ACF/PACF suggest on
 1,749. Forecasts unchanged (0 of 15,702 product-months differ).
+**Two more rules measured and NOT adopted (2026-10-10, the user's call: keep SARIMA).** Same data, same holdout,
+run in WSL Ubuntu (Smart App Control blocks statsmodels' DLLs on the Windows PC; the Linux run reproduced the
+Windows figures exactly): SARIMA + simple methods competing per product (the 3-month average and Croston won the
+selection windows on 1,194 products) MAPE **54.77%** / MAE 8.39 / WAPE 30.17%; **ARIMA on every product**
+((1,1,1), (0,1,1), no seasonal term) MAPE **49.85%** / MAE 8.15 / RMSE 9.54 / WAPE 29.31% / median 36.82%, Normal
+447 / Acceptable 1,357 / Not acceptable 813 — the only rule under 50%, against SARIMA's 52.42% / median 38.47%.
 **The sales forecast's units ARE the demand forecast (2026-10-05, at the user's request: "make them match, and
 also the revenue").** `generate_sales_forecast.py` no longer carries its own SARIMA code: `forecast_series()` calls
 `generate_forecasts.forecast_product()`, so `sales_forecasts.forecast_units` (and its band) equal
