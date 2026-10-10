@@ -114,6 +114,102 @@ SARIMA_CANDIDATES = [
 SEASONAL_CANDIDATES = SARIMA_CANDIDATES
 SARIMA_ORDER, SARIMA_SEASONAL_ORDER = SARIMA_CANDIDATES[0]
 
+# ACF / PACF IDENTIFICATION, RECORDED (2026-10-07, at the user's request: "use
+# ACF and PACF"). The classic Box-Jenkins reading, per product, on the series
+# the model is fitted to (log(1 + units), first-differenced, since every order
+# here has d = 1):
+#   - PACF cutting off after lag p  -> an AR(p) term   (p up to ACF_MAX_P)
+#   - ACF  cutting off after lag q  -> an MA(q) term   (q up to ACF_MAX_Q)
+#   - ACF  spike at lag 12          -> a seasonal MA term, (0,0,1,12)
+#   - PACF spike at lag 12          -> a seasonal AR term, (1,0,0,12)
+# "Significant" is outside +/-1.96/sqrt(n), the usual 95% band. Where the plots
+# show no seasonal spike, BOTH seasonal forms are suggested (every product stays
+# SARIMA, the user's call of 2026-10-04); where they show no short-lag spike,
+# (0,1,0) and (0,1,1) are. RECORDED per product, not used to choose -- see
+# forecast_product_explained() for the measurement behind that.
+ACF_MAX_P = 2
+ACF_MAX_Q = 2
+SEASONAL_LAG = 12
+
+
+def _leading_significant(values, band, max_lag):
+    """How many lags in a row, from lag 1, sit outside the band (the cut-off), capped at max_lag."""
+    count = 0
+    for lag in range(1, max_lag + 1):
+        if lag >= len(values) or not np.isfinite(values[lag]) or abs(values[lag]) <= band:
+            break
+        count += 1
+    return count
+
+
+def acf_pacf_values(monthly: pd.Series):
+    """
+    (acf, pacf, band) of the series the model is fitted to -- log(1 + units),
+    first-differenced -- up to lag SEASONAL_LAG where the length allows; index
+    0 is lag 0. None when the differenced series is too short or never varies.
+    """
+    from statsmodels.tsa.stattools import acf, pacf
+
+    y = monthly.asfreq("MS", fill_value=0).to_numpy(dtype=float)
+    if TRANSFORM == "log1p":
+        y = np.log1p(np.clip(y, 0, None))
+    w = np.diff(y)
+    n = len(w)
+
+    if n < 4 or np.std(w) == 0:
+        return None
+
+    acf_lags = min(SEASONAL_LAG, n - 1)
+    pacf_lags = min(SEASONAL_LAG, n // 2 - 1)  # statsmodels' limit for the PACF
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        r = acf(w, nlags=acf_lags, fft=False)
+        phi = pacf(w, nlags=pacf_lags, method="ywm") if pacf_lags >= 1 else np.array([1.0])
+    return r, phi, 1.96 / np.sqrt(n)
+
+
+def identify_orders(monthly: pd.Series):
+    """
+    The SARIMA orders this product's ACF and PACF suggest, plus a readable note
+    of what the plots showed (logged per product). Returns (candidates, note).
+    """
+    values = acf_pacf_values(monthly)
+    if values is None:
+        return list(SARIMA_CANDIDATES), "ACF/PACF undefined (no variation)"
+    r, phi, band = values
+    acf_lags, pacf_lags = len(r) - 1, len(phi) - 1
+
+    p = _leading_significant(phi, band, ACF_MAX_P)
+    q = _leading_significant(r, band, ACF_MAX_Q)
+
+    seasonal_ma = acf_lags >= SEASONAL_LAG and abs(r[SEASONAL_LAG]) > band
+    seasonal_ar = pacf_lags >= SEASONAL_LAG and abs(phi[SEASONAL_LAG]) > band
+
+    nonseasonal = []
+    if p and q:
+        nonseasonal.append((p, 1, q))
+    if p:
+        nonseasonal.append((p, 1, 0))
+    if q:
+        nonseasonal.append((0, 1, q))
+    if not nonseasonal:
+        nonseasonal = [(0, 1, 1), (0, 1, 0)]
+
+    seasonal = []
+    if seasonal_ar:
+        seasonal.append((1, 0, 0, SEASONAL_LAG))
+    if seasonal_ma:
+        seasonal.append((0, 0, 1, SEASONAL_LAG))
+    if not seasonal:
+        seasonal = [(1, 0, 0, SEASONAL_LAG), (0, 0, 1, SEASONAL_LAG)]
+
+    def mark(flag, measured):
+        return "yes" if flag else ("no" if measured else "n/a")
+
+    note = (f"PACF cut-off p={p}, ACF cut-off q={q}; lag {SEASONAL_LAG}: "
+            f"ACF {mark(seasonal_ma, acf_lags >= SEASONAL_LAG)}, PACF {mark(seasonal_ar, pacf_lags >= SEASONAL_LAG)}")
+    return [(o, s) for o in nonseasonal for s in seasonal], note
+
 # Fit on log(1 + units), forecasts back-transformed with expm1 (2026-10-04, the
 # user's request to lower MAPE). Monthly units here are small, skewed counts;
 # on the log scale a sale of 2 vs 4 weighs like 200 vs 400, so a few big
@@ -631,17 +727,41 @@ def forecast_product_explained(monthly: pd.Series, horizon: int, candidates=None
     per-product log (--log): history, whether SARIMA was attempted, whether it
     passed the sanity check, why it failed, any repair tried, the fallback used.
     """
-    candidates = candidates or SARIMA_CANDIDATES
     monthly = monthly.asfreq("MS", fill_value=0)
     info = {
         **describe_series(monthly),
         "sarima_attempted": False,
         "sarima_status": "skipped",
         "sarima_order": None,
+        "acf_pacf": None,
+        "candidates": None,
         "failure_reason": None,
         "repair": None,
         "fallback_method": None,
     }
+
+    # ACF / PACF are calculated and RECORDED for every product (identify_orders:
+    # the cut-offs, the lag-12 spikes and the orders they suggest), but they do
+    # NOT choose the orders tested -- the user's decision of 2026-10-07, after
+    # both ways of letting them choose measured worse on the May-Jul 2026
+    # holdout, 2,617 products:
+    #   current fixed four             MAE 8.31 / MAPE 52.42% / WAPE 29.87%
+    #   ACF/PACF orders instead        MAE 8.61 / MAPE 54.42% / WAPE 30.95%
+    #   ACF/PACF orders + the four     MAE 8.55 / MAPE 54.18% / WAPE 30.73%
+    # Used instead of the four, they usually narrowed the contest to one or two
+    # orders and dropped the one that predicts best; added to them, their extra orders ((0,1,0), (2,1,2) ...)
+    # won the short selection windows by chance more often than they deserved.
+    if len(monthly) >= MIN_MONTHS_FOR_SARIMA:
+        # Only a record: a reading that fails must not cost the product its
+        # forecast (an exception here would reach _forecast_task's crash path
+        # and hand the product to the fallback).
+        try:
+            suggested, note = identify_orders(monthly)
+            info["acf_pacf"] = f"{note}; suggests {' '.join(_order_label(c) for c in suggested)}"
+        except Exception as exc:  # noqa: BLE001
+            info["acf_pacf"] = f"not computed ({type(exc).__name__})"
+    candidates = candidates or SARIMA_CANDIDATES
+    info["candidates"] = " ".join(_order_label(c) for c in candidates)
 
     if len(monthly) == 0:
         info["failure_reason"] = "no history"
@@ -1021,6 +1141,8 @@ def _log_row(sku, rows, info, error):
         "series_flags": " ".join(info.get("flags", [])),
         "sarima_attempted": info.get("sarima_attempted"),
         "sarima_status": info.get("sarima_status", "error" if error else None),
+        "acf_pacf": info.get("acf_pacf"),
+        "orders_tested": info.get("candidates"),
         "sarima_order": info.get("sarima_order"),
         "failure_reason": info.get("failure_reason") or error,
         "repair": info.get("repair"),

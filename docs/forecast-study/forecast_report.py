@@ -2,7 +2,7 @@
 
     python docs/forecast-study/forecast_report.py
 
-Runs the live model (resources/python/generate_forecasts.py: seasonal SARIMA for every product,
+Runs the live model (resources/python/generate_forecasts.py: seasonal SARIMA, with the fallback,
 on log(1 + units)) on every product in the local database, then prints and saves:
 
   [1/5] Loading sales data
@@ -10,6 +10,10 @@ on log(1 + units)) on every product in the local database, then prints and saves
   [3/5] Forecasting every product (demand, then revenue = units x selling price)
   [4/5] Computing overall forecasting accuracy (last 3 months hidden per product)
   [5/5] FINAL RESULTS  -> CSV files in docs/forecast-study/report/
+        including each product's ACF and PACF (lags 1-12) and what they suggest
+
+ACF / PACF are reported, not used to choose the SARIMA order: letting them
+choose measured worse (see generate_forecasts.forecast_product_explained).
 
 Reads the database only; writes nothing to it.
 """
@@ -43,14 +47,39 @@ def work(task):
     sku, values, start = task
     s = pd.Series(values, index=pd.date_range(start, periods=len(values), freq="MS"))
     try:
-        rows = gf.forecast_product(s, HORIZON)
+        rows, info = gf.forecast_product_explained(s, HORIZON)
     except Exception:  # noqa: BLE001
-        rows = []
+        rows, info = [], {}
     try:
         acc = gf.backtest_product(s)
     except Exception:  # noqa: BLE001
         acc = None
-    return sku, rows, acc
+    return sku, rows, acc, info, acf_row(s, info)
+
+
+def acf_row(s, info):
+    """This product's ACF and PACF (lags 1-12), the cut-offs read from them and what they suggest."""
+    if len(s) < gf.MIN_MONTHS_FOR_SARIMA:
+        return None
+    values = gf.acf_pacf_values(s)
+    if values is None:
+        return None
+    r, phi, band = values
+    suggested, _ = gf.identify_orders(s)
+    chosen = info.get("sarima_order")
+    row = {"band_95": round(band, 4),
+           "pacf_cutoff_p": gf._leading_significant(phi, band, gf.ACF_MAX_P),
+           "acf_cutoff_q": gf._leading_significant(r, band, gf.ACF_MAX_Q),
+           "acf_lag12_spike": len(r) > 12 and abs(r[12]) > band,
+           "pacf_lag12_spike": len(phi) > 12 and abs(phi[12]) > band,
+           "suggested_orders": " ".join(f"{o}{s_}" for o, s_ in suggested),
+           "chosen_order": chosen,
+           "chosen_is_suggested": chosen in {f"{o}{s_}" for o, s_ in suggested}}
+    for lag in range(1, 13):
+        row[f"acf_{lag}"] = round(float(r[lag]), 4) if lag < len(r) else None
+    for lag in range(1, 13):
+        row[f"pacf_{lag}"] = round(float(phi[lag]), 4) if lag < len(phi) else None
+    return row
 
 
 def main():
@@ -58,7 +87,7 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     print(BAR)
     print("REMEDI DEMAND AND SALES FORECAST REPORT")
-    print("Model: seasonal SARIMA for every product, fitted on log(1 + units)")
+    print("Model: seasonal SARIMA on log(1 + units); fallback (Croston / recent mean) under 24 months or if SARIMA fails")
     print(BAR)
 
     print("\n[1/5] Loading sales data...")
@@ -94,9 +123,11 @@ def main():
             if done % 250 == 0 or done == len(tasks):
                 print(f"      {done:,}/{len(tasks):,} products  ({time.time() - t0:.0f}s)", flush=True)
 
-    fc_rows, acc_rows = [], []
-    for sku, rows, acc in results:
+    fc_rows, acc_rows, acf_rows = [], [], []
+    for sku, rows, acc, info, acf_info in results:
         name = products.name.get(sku, "")
+        if acf_info:
+            acf_rows.append({"sku": sku, "product": name, **acf_info})
         price = float(products.selling_price.get(sku, 0) or 0)
         for r in rows:
             fc_rows.append({"sku": sku, "product": name, "month": r["forecast_date"].strftime("%Y-%m"),
@@ -108,6 +139,7 @@ def main():
                 "mae", "rmse", "mape", "smape", "abs_error", "actual_units", "avg_monthly_units", "holdout_months")}})
     fc = pd.DataFrame(fc_rows)
     ac = pd.DataFrame(acc_rows)
+    af = pd.DataFrame(acf_rows)
 
     print("\n[4/5] Computing overall forecasting accuracy...")
     n = len(ac)
@@ -118,8 +150,7 @@ def main():
 
     print("\n[5/5] FINAL RESULTS")
     print(BAR)
-    print(f"Total products: {n:,}   (SARIMA {int((ac.model == 'sarima').sum()):,}, "
-          f"ARIMA {int((ac.model == 'arima').sum()):,})")
+    print(f"Total products: {n:,}   (" + ", ".join(f"{m} {c:,}" for m, c in ac.model.value_counts().items()) + ")")
     print("Test: each product's last 3 months hidden, forecast, compared with actual\n")
     print(f"MAE  = {sum_mae:,.4f} / {n:,}")
     print(f"Overall MAE  = {mae:.2f} units\n")
@@ -138,6 +169,17 @@ def main():
         b = ac[(ac.avg_monthly_units >= lo) & (ac.avg_monthly_units < hi)]
         print(f"  {nm:16} {len(b):6,} products   MAE {b.mae.mean():6.2f}   MAPE {b.mape.mean():6.2f}%")
 
+    print("\nACF / PACF (log(1 + units), first-differenced; significant = outside +/-1.96/sqrt(n)):")
+    print(f"  {len(af):,} products with 24+ months analysed")
+    for col, label in [("pacf_cutoff_p", "PACF cut-off (AR order p)"), ("acf_cutoff_q", "ACF cut-off (MA order q)")]:
+        counts = af[col].value_counts().sort_index()
+        print(f"  {label:27} " + "   ".join(f"{k}: {v:,}" for k, v in counts.items()))
+    print(f"  Lag 12 spike in the ACF      {int(af.acf_lag12_spike.sum()):,} products  (seasonal MA)")
+    print(f"  Lag 12 spike in the PACF     {int(af.pacf_lag12_spike.sum()):,} products  (seasonal AR)")
+    print(f"  Lag 12 spike in either       {int((af.acf_lag12_spike | af.pacf_lag12_spike).sum()):,} products")
+    print(f"  Order chosen was one ACF/PACF suggested: {int(af.chosen_is_suggested.sum()):,} of {len(af):,}")
+    print("  (ACF/PACF are recorded; the order is chosen by accuracy on unseen months)")
+
     total = fc.groupby("month").agg(demand_units=("forecast_units", "sum"),
                                     forecast_revenue=("forecast_revenue", "sum")).reset_index()
     print("\nDemand and sales forecast (all products):")
@@ -150,6 +192,7 @@ def main():
     files = {
         "product_forecast.csv": fc,
         "product_accuracy.csv": ac,
+        "product_acf_pacf.csv": af,
         "overall_demand_sales_forecast.csv": total,
         "overall_metrics.csv": pd.DataFrame([{
             "products": n, "sum_mae": round(sum_mae, 4), "mae": round(mae, 4), "sum_rmse": round(sum_rmse, 4),
@@ -162,6 +205,8 @@ def main():
     print(f"  {os.path.abspath(os.path.join(OUT, 'product_forecast.csv'))}")
     print("Accuracy per product stored in:")
     print(f"  {os.path.abspath(os.path.join(OUT, 'product_accuracy.csv'))}")
+    print("ACF and PACF per product stored in:")
+    print(f"  {os.path.abspath(os.path.join(OUT, 'product_acf_pacf.csv'))}")
     print("Overall accuracy stored in:")
     print(f"  {os.path.abspath(os.path.join(OUT, 'overall_metrics.csv'))}")
     print("Overall demand and revenue forecast stored in:")

@@ -152,6 +152,54 @@ class OrderTieBreak(unittest.TestCase):
         self.assertEqual(winner, near)
 
 
+class AcfPacfIdentification(unittest.TestCase):
+    """The orders each product tests come from its own ACF and PACF (2026-10-07)."""
+
+    def test_a_yearly_pattern_shows_at_lag_12_and_suggests_a_seasonal_term(self):
+        candidates, note = gf.identify_orders(seasonal())
+        self.assertIn("lag 12: ACF yes", note)
+        self.assertTrue(all(s == (0, 0, 1, 12) for _, s in candidates))
+
+    def test_a_pacf_cut_off_after_lag_1_suggests_ar1(self):
+        rng = np.random.default_rng(3)
+        w = np.zeros(60)
+        for t in range(1, 60):  # AR(1) changes, phi = 0.7, on the log scale the model fits
+            w[t] = 0.7 * w[t - 1] + rng.normal(0, 0.1)
+        units = np.round(np.expm1(5 + np.cumsum(w)))
+        candidates, note = gf.identify_orders(series(units, "2021-08-01"))
+
+        self.assertIn("p=1", note)
+        self.assertIn((1, 1, 0), [o for o, _ in candidates])
+
+    def test_no_variation_falls_back_to_the_fixed_list(self):
+        candidates, note = gf.identify_orders(series([5] * 30))
+        self.assertEqual(candidates, gf.SARIMA_CANDIDATES)
+        self.assertIn("no variation", note)
+
+    def test_the_forecast_records_what_the_plots_showed_and_what_it_tested(self):
+        rows, info = gf.forecast_product_explained(seasonal(), HORIZON)
+        self.assertTrue(info["acf_pacf"].startswith("PACF cut-off"))
+        self.assertIn("SARIMA", info["candidates"])
+        self.assertEqual(info["sarima_status"], "passed")
+
+    def test_acf_pacf_are_recorded_but_do_not_change_the_orders_tested(self):
+        # Letting them choose measured worse (holdout MAPE 52.42% -> 54.18% /
+        # 54.42%), so the contest still runs over the fixed four -- the
+        # forecast is the one it was before ACF/PACF were added.
+        tried = []
+
+        def fit(monthly, dates, horizon, order, seasonal_order, method):
+            tried.append((order, seasonal_order))
+            return [{"forecast_date": d, "forecast_value": 60.0, "lower_ci": 40.0, "upper_ci": 80.0, "method": method}
+                    for d in dates]
+
+        with mock.patch.object(gf, "_sarimax_rows", side_effect=fit):
+            rows, info = gf.forecast_product_explained(seasonal(), HORIZON)
+
+        self.assertEqual(set(tried), set(gf.SARIMA_CANDIDATES))
+        self.assertIn("suggests", info["acf_pacf"])
+
+
 class SarimaSuccess(unittest.TestCase):
     def test_a_regular_seasonal_seller_keeps_sarima(self):
         rows, info = gf.forecast_product_explained(seasonal(), HORIZON)

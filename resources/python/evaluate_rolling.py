@@ -15,8 +15,9 @@ Two series are tested this way:
   - the WHOLE STORE (every product's units summed per month), and
   - every PRODUCT on its own, over its own history.
 
-Both use generate_forecasts.forecast_product() -- the live model (ACF/PACF
-identification, lowest AIC, level guard) -- and the same loader, so this
+Both use generate_forecasts.forecast_product() -- the live model (seasonal
+SARIMA on log(1 + units), order chosen by rolling-window MAE, with the
+fallback) -- and the same loader, so this
 scores exactly what forecast:generate runs. A "mean of the last 3 months"
 baseline is scored on the same months for comparison.
 

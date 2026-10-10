@@ -1809,6 +1809,17 @@ sMAPE of rounded forecasts let a fold forecast of exactly x.5 tip differently on
 chose a different order locally than live (1 unit a month, ₱40.50). 252 forecasts changed, holdout MAPE 52.33% →
 52.42%, MAE 8.3038 → 8.3076. Covered by `resources/python/tests/test_forecast_fallback.py`
 (`python -m unittest discover -s resources/python/tests`), the repo's first Python tests.
+**ACF / PACF are calculated and RECORDED, not used to choose (2026-10-07, at the user's request: "use ACF and
+PACF").** `identify_orders()` / `acf_pacf_values()` read each product's ACF and PACF (log(1 + units), first-differenced,
+95% band ±1.96/√n): the PACF cut-off as p, the ACF cut-off as q (each ≤ 2), a lag-12 spike as a seasonal MA (ACF) or
+AR (PACF) term. Two ways of letting them choose the order were measured on the May–Jul 2026 holdout and both lost:
+ACF/PACF orders INSTEAD of the four, MAE 8.61 / MAPE 54.42% / WAPE 30.95%; ACF/PACF orders ADDED to the four, 8.55 /
+54.18% / 30.73% — against 8.31 / 52.42% / 29.87% for the four alone. So the user kept the four and the readings are
+recorded: `forecast_log.csv` columns `acf_pacf` / `orders_tested`, and `docs/forecast-study/forecast_report.py` prints
+a summary and writes `report/product_acf_pacf.csv` (lags 1–12 of both, the cut-offs, the suggested orders, the order
+chosen). Measured: 2,591 products analysed; PACF cut-off p = 0 / 1 / 2 on 292 / 1,218 / 1,081; ACF cut-off q = 0 / 1
+/ 2 on 292 / 2,118 / 181; a lag-12 spike on only 166 (ACF 148, PACF 22); the chosen order is one ACF/PACF suggest on
+1,749. Forecasts unchanged (0 of 15,702 product-months differ).
 **The sales forecast's units ARE the demand forecast (2026-10-05, at the user's request: "make them match, and
 also the revenue").** `generate_sales_forecast.py` no longer carries its own SARIMA code: `forecast_series()` calls
 `generate_forecasts.forecast_product()`, so `sales_forecasts.forecast_units` (and its band) equal
