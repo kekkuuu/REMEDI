@@ -56,9 +56,11 @@ class Kernel extends ConsoleKernel
             // _c: run again on the pinned Python 3.14.4 + exact packages (the _b
             // run, on the image's own Python and newest packages, rounded one
             // sparse product differently from the terminal) -- own flag and lock.
+            // _d: and again for the full-precision tie-break (AXE DEO RO APOLLO
+            // 40ML still chose differently live and in the terminal on _c).
             ->when(fn () => now()->lt('2026-10-14 06:00:00')
-                && Cache::add('forecast_rerun_2026_10_13_c', now()->toDateTimeString(), now()->addDays(30)))
-            ->createMutexNameUsing('forecast-rerun-2026-10-13-c')
+                && Cache::add('forecast_rerun_2026_10_13_d', now()->toDateTimeString(), now()->addDays(30)))
+            ->createMutexNameUsing('forecast-rerun-2026-10-13-d')
             ->withoutOverlapping()
             ->runInBackground();
     }

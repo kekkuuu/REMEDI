@@ -579,6 +579,11 @@ def _sarimax_rows(monthly, future_dates, horizon, order, seasonal_order, method)
         {
             "forecast_date": date,
             "forecast_value": round(float(m), 2),
+            # Full precision, for the order contest and the whole-unit rounding
+            # (2026-10-13): rounded to 2 decimals first, a 1e-15 difference
+            # between two processors could move 0.415 to 0.41 or 0.42 and flip
+            # which order won -- see _pick_sarima_order.
+            "exact": float(m),
             "lower_ci": round(float(lo), 2) if not np.isnan(lo) else 0.0,
             "upper_ci": round(float(hi), 2) if not np.isnan(hi) else float("nan"),
             "method": method,
@@ -606,7 +611,10 @@ def _clamp_rows(rows, ceiling):
     brackets the point estimate after rounding.
     """
     for r in rows:
-        value = round(min(max(0.0, r["forecast_value"]), ceiling))
+        # Rounded from the full-precision value where there is one: rounding the
+        # 2-decimal copy rounds twice, and 0.505 could become 0.5 -> 0 on one
+        # machine and 0.51 -> 1 on another.
+        value = round(min(max(0.0, r.get("exact", r["forecast_value"])), ceiling))
         r["forecast_value"] = float(value)
         r["lower_ci"] = float(round(max(0.0, min(r["lower_ci"], value))))
         r["upper_ci"] = (
@@ -662,7 +670,7 @@ def _pick_sarima_order(series, holdout, ceiling, candidates=None):
 
     best = None
 
-    for order, seasonal_order in (candidates or SARIMA_CANDIDATES):
+    for index, (order, seasonal_order) in enumerate(candidates or SARIMA_CANDIDATES):
         maes, smapes, exact_maes = [], [], []
         for train, observed in folds:
             try:
@@ -676,7 +684,7 @@ def _pick_sarima_order(series, holdout, ceiling, candidates=None):
 
             # Kept before _clamp_rows rounds to whole units in place -- see the
             # tie rule below.
-            exact = np.clip([r["forecast_value"] for r in rows[:len(observed)]], 0.0, ceiling)
+            exact = np.clip([r.get("exact", r["forecast_value"]) for r in rows[:len(observed)]], 0.0, ceiling)
             rows = _clamp_rows(rows, ceiling)
             pred = np.array([r["forecast_value"] for r in rows[:len(observed)]], dtype=float)
             err = pred - observed[:len(pred)]
@@ -698,7 +706,17 @@ def _pick_sarima_order(series, holdout, ceiling, candidates=None):
         # apart. The unrounded MAEs differ by far more than the machines do.
         # Measured with the fallback: 252 forecasts changed, holdout MAPE
         # 52.33% -> 52.42%, MAE 8.3038 -> 8.3076.
-        score = (float(np.mean(maes)), float(np.mean(exact_maes)), float(np.mean(smapes)))
+        #
+        # And the comparison is made at full precision, with differences below
+        # 1e-9 treated as ties and settled by candidate order (2026-10-13): the
+        # unrounded MAE used to be computed from forecasts already rounded to 2
+        # decimals, so AXE DEO RO APOLLO 40ML -- two orders 0.0011 apart -- chose
+        # one order in the terminal and the other on the server, on identical
+        # software. Rounded to 9 decimals, processor-level noise (~1e-15) cannot
+        # reorder candidates any more, and an exact tie is decided the same way
+        # everywhere.
+        score = (round(float(np.mean(maes)), 9), round(float(np.mean(exact_maes)), 9),
+                 round(float(np.mean(smapes)), 9), index)
         if best is None or score < best[1]:
             best = ((order, seasonal_order), score)
 

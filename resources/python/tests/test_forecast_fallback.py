@@ -146,6 +146,36 @@ class OrderTieBreak(unittest.TestCase):
 
         self.assertEqual(winner, near)
 
+    def test_the_tie_is_broken_at_full_precision_not_on_the_2_decimal_copy(self):
+        # Both orders round to 0.41 at 2 decimals; only the full-precision value
+        # tells them apart. Judged on the 2-decimal copy, processor noise decided
+        # (AXE DEO RO APOLLO 40ML chose differently in the terminal and live).
+        first, second = ((1, 1, 1), (1, 0, 0, 12)), ((0, 1, 1), (1, 0, 0, 12))
+
+        def fit(monthly, dates, horizon, order, seasonal_order, method):
+            exact = 0.41499 if (order, seasonal_order) == first else 0.41001
+            return [{"forecast_date": d, "forecast_value": round(exact, 2), "exact": exact,
+                     "lower_ci": 0.0, "upper_ci": 2.0, "method": method} for d in dates]
+
+        with mock.patch.object(gf, "_sarimax_rows", side_effect=fit):
+            winner = gf._pick_sarima_order(series([0] * 36), 3, ceiling=50, candidates=[first, second])
+
+        self.assertEqual(winner, second)
+
+    def test_noise_far_below_a_unit_cannot_reorder_candidates(self):
+        # Differences under 1e-9 are ties, settled by candidate order everywhere.
+        first, second = ((1, 1, 1), (1, 0, 0, 12)), ((0, 1, 1), (1, 0, 0, 12))
+
+        def fit(monthly, dates, horizon, order, seasonal_order, method):
+            exact = 0.41 + (1e-13 if (order, seasonal_order) == first else 0.0)
+            return [{"forecast_date": d, "forecast_value": 0.41, "exact": exact,
+                     "lower_ci": 0.0, "upper_ci": 2.0, "method": method} for d in dates]
+
+        with mock.patch.object(gf, "_sarimax_rows", side_effect=fit):
+            winner = gf._pick_sarima_order(series([0] * 36), 3, ceiling=50, candidates=[first, second])
+
+        self.assertEqual(winner, first)
+
 
 class AcfPacfIdentification(unittest.TestCase):
     """The orders each product tests come from its own ACF and PACF (2026-10-07)."""
