@@ -4,6 +4,7 @@ namespace App\Console;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
+use Illuminate\Support\Facades\Cache;
 
 class Kernel extends ConsoleKernel
 {
@@ -40,6 +41,21 @@ class Kernel extends ConsoleKernel
         // Monthly too, on the 1st after the demand run (2026-10-06).
         $schedule->command('sales-forecast:generate --workers=1')
             ->monthlyOn(1, '04:30')
+            ->withoutOverlapping()
+            ->runInBackground();
+
+        // ONE run as soon as this is deployed (13 October 2026, at the user's
+        // request: "run the live forecast now"), so the live site shows the
+        // SARIMA-only model (caf7d28) before 1 November. The first scheduler
+        // tick after the deploy claims the flag (Cache::add is atomic; the cache
+        // is the shared database on Railway, so it fires once across restarts),
+        // with its OWN mutex name so a lock left by an earlier run cannot skip
+        // it. Only until 14 October 06:00. Safe to delete after.
+        $schedule->command('forecast:generate --workers=1')
+            ->everyMinute()
+            ->when(fn () => now()->lt('2026-10-14 06:00:00')
+                && Cache::add('forecast_rerun_2026_10_13', now()->toDateTimeString(), now()->addDays(30)))
+            ->createMutexNameUsing('forecast-rerun-2026-10-13')
             ->withoutOverlapping()
             ->runInBackground();
     }
