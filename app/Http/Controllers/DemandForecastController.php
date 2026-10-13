@@ -53,16 +53,16 @@ class DemandForecastController extends Controller
         // answer different questions -- what to reorder vs. what earns --
         // rather than the same ranking shown twice.
         //
-        // One cached bundle (2026-10-05): both read only what a forecast run
-        // writes -- see App\Support\ForecastCache. The accuracy cards (holdout,
-        // store-wide, 80/20, rolling) were removed from the page 2026-10-06 at
-        // the user's request; forecast:generate still measures and stores them.
-        // 'index_v2': the 'index' bundle cached by the previous code holds four
-        // values in a different order, and destructuring it would put the
-        // accuracy summary where the revenue chart's series belongs.
-        [$topDemand, $topSales] = ForecastCache::remember('index_v2', fn () => [
+        // One cached bundle (2026-10-05): all three read only what a forecast run
+        // writes -- see App\Support\ForecastCache. The Model accuracy card was
+        // removed 2026-10-06 and put back 2026-10-13, both at the user's request
+        // (the store-wide, 80/20 and rolling cards stay off the page).
+        // 'index_v3': each earlier bundle key holds a different shape, and
+        // destructuring one of those would put the wrong value in each slot.
+        [$topDemand, $topSales, $accuracy] = ForecastCache::remember('index_v3', fn () => [
             $this->forecasts->topDemandSeries(5),
             $this->salesForecasts->topSalesForecastSeries(5),
+            $this->forecasts->accuracySummary(),
         ]);
 
         // $trend is the store-wide units/revenue chart that used to live alone
@@ -71,7 +71,7 @@ class DemandForecastController extends Controller
 
         return view('forecast.index', compact(
             'search', 'categoryId', 'categories', 'forecasts',
-            'topDemand', 'topSales', 'trend'
+            'topDemand', 'topSales', 'trend', 'accuracy'
         ));
     }
 

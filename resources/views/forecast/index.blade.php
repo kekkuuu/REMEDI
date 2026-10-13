@@ -126,6 +126,128 @@
 </div>
 
 <div class="card">
+    {{-- Model accuracy, back on the page 2026-10-13 at the user's request (removed
+         2026-10-06). Measured on a holdout rather than asserted: each product's own
+         SARIMA model is refitted without its last few months and scored against
+         them, averaged ACROSS PRODUCTS. The median sits beside the average because
+         a few slow sellers with very large percentage misses pull the average up.
+         The grade split runs every scored product through ForecastGrade. --}}
+    @if ($accuracy)
+    @php
+        $gradeRows = [
+            \App\Support\ForecastGrade::NORMAL => ['Normal', '#16a34a'],
+            \App\Support\ForecastGrade::ACCEPTABLE => ['Acceptable', '#d97706'],
+            \App\Support\ForecastGrade::NOT_ACCEPTABLE => ['Not acceptable', '#dc2626'],
+            \App\Support\ForecastGrade::UNRATED => ['Not rated', '#94a3b8'],
+        ];
+    @endphp
+    <div style="border:0.5px solid #e5e7eb; border-radius:12px; background:#fff; padding:16px; margin-bottom:18px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:12px;">
+            <span style="font-size:14px; font-weight:500; color:#111;">
+                <i class="ti ti-target-arrow" style="font-size:14px; vertical-align:-1px; margin-right:6px; color:#185FA5;"></i>
+                Model accuracy
+            </span>
+            <span style="font-size:12px; color:#6b7280;">
+                @if (($accuracy['scorable'] ?? 0) > $accuracy['scored'])
+                    {{ number_format($accuracy['scored']) }} of {{ number_format($accuracy['scorable']) }} products scored &middot;
+                @else
+                    {{ number_format($accuracy['scored']) }} products &middot;
+                @endif
+                {{ $accuracy['holdout_months'] }}-month holdout
+                @if (($accuracy['short_holdout'] ?? 0) > 0)
+                    ({{ number_format($accuracy['short_holdout']) }} newer {{ Str::plural('product', $accuracy['short_holdout']) }} on a shorter one)
+                @endif
+            </span>
+        </div>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom:14px;">
+            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
+                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">MAE</p>
+                <p style="font-size:20px; font-weight:600; margin:0;">{{ number_format($accuracy['mae'], 2) }}</p>
+                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">units out per month, typical product</p>
+            </div>
+            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
+                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">RMSE</p>
+                <p style="font-size:20px; font-weight:600; margin:0;">{{ number_format($accuracy['rmse'], 2) }}</p>
+                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">large misses weighted heavier</p>
+            </div>
+            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
+                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">MAPE</p>
+                <p style="font-size:20px; font-weight:600; margin:0;">
+                    {{ $accuracy['mape'] !== null ? number_format($accuracy['mape'], 1).'%' : '—' }}
+                </p>
+                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">
+                    undefined for {{ number_format($accuracy['mape_undefined']) }} {{ Str::plural('product', $accuracy['mape_undefined']) }} that sold nothing
+                </p>
+            </div>
+            @if (($accuracy['mape_median'] ?? null) !== null)
+            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
+                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">Median MAPE</p>
+                <p style="font-size:20px; font-weight:600; margin:0;">{{ number_format($accuracy['mape_median'], 1) }}%</p>
+                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">the typical product, not pulled up by a few large misses</p>
+            </div>
+            @endif
+            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
+                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">sMAPE</p>
+                <p style="font-size:20px; font-weight:600; margin:0;">
+                    {{ $accuracy['smape'] !== null ? number_format($accuracy['smape'], 1).'%' : '—' }}
+                </p>
+                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">stays defined at zero sales</p>
+            </div>
+            @if ($accuracy['wape'] !== null)
+            <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
+                <p style="font-size:12px; color:#64748b; margin:0 0 4px;">WAPE</p>
+                <p style="font-size:20px; font-weight:600; margin:0;">{{ number_format($accuracy['wape'], 1) }}%</p>
+                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">total units missed ÷ total sold</p>
+            </div>
+            @endif
+        </div>
+
+        {{-- MAPE by how fast a product sells (2026-10-02). The headline MAPE is
+             an average over mostly slow movers, where one unit out is a large
+             percentage; this shows the same forecasts per volume band. Bands
+             come from the 12 months BEFORE the holdout. --}}
+        @if (!empty($accuracy['by_volume']))
+        <div class="table-scroll"><table style="width:100%; border-collapse:collapse; font-size:13px; margin-bottom:12px;">
+            <thead>
+                <tr style="background:#f9fafb;">
+                    @foreach (['Products selling', 'Products', 'MAE', 'MAPE', 'WAPE'] as $i => $h)
+                        <th style="padding:8px 12px; text-align:{{ $i ? 'right' : 'left' }}; font-size:11px; font-weight:500; color:#6b7280; text-transform:uppercase; letter-spacing:0.04em;">{{ $h }}</th>
+                    @endforeach
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($accuracy['by_volume'] as $band)
+                <tr style="border-bottom:0.5px solid #e5e7eb;">
+                    <td style="padding:9px 12px; color:#374151;">{{ $band['label'] }}</td>
+                    <td style="padding:9px 12px; text-align:right; color:#6b7280;">{{ number_format($band['products']) }}</td>
+                    <td style="padding:9px 12px; text-align:right;">{{ number_format($band['mae'], 2) }}</td>
+                    <td style="padding:9px 12px; text-align:right;">{{ $band['mape'] !== null ? number_format($band['mape'], 1).'%' : '—' }}</td>
+                    <td style="padding:9px 12px; text-align:right;">{{ $band['wape'] !== null ? number_format($band['wape'], 1).'%' : '—' }}</td>
+                </tr>
+                @endforeach
+            </tbody>
+        </table></div>
+        @endif
+
+        <div style="display:flex; flex-wrap:wrap; gap:8px;">
+            @foreach ($gradeRows as $key => [$label, $colour])
+                <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:#f8fafc; border:0.5px solid #e5e7eb; font-size:12px; color:#374151;">
+                    <span style="width:8px; height:8px; border-radius:50%; background:{{ $colour }};"></span>
+                    {{ $label }} <strong>{{ number_format($accuracy['grades'][$key] ?? 0) }}</strong>
+                </span>
+            @endforeach
+        </div>
+
+        <p style="font-size:11px; color:#94a3b8; margin:10px 0 0;">
+            Normal / Acceptable / Not acceptable read MAPE at 20% / 50%, or sMAPE at 40% / 90% where MAPE is undefined.
+            MAPE runs high on intermittent demand by construction &mdash; being one unit out on a month that
+            sold two is a 50% error &mdash; which is why MAE and sMAPE are shown beside it.
+        </p>
+    </div>
+    @endif
+
+
     {{-- Two "top 5" charts, side by side conceptually but stacked here since
          each needs its own width: demand (units to buy, DemandForecastService)
          and sales forecast (revenue to expect, SalesForecastService). They

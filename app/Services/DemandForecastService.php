@@ -264,6 +264,9 @@ class DemandForecastService
             'mae' => (float) $overall->mae,
             'rmse' => (float) $overall->rmse,
             'mape' => $overall->mape === null ? null : (float) $overall->mape,
+            // The typical product (2026-10-13): the average is pulled up by a few
+            // slow sellers with very large percentage misses.
+            'mape_median' => $this->medianMape(),
             'smape' => $overall->smape === null ? null : (float) $overall->smape,
             'mape_undefined' => (int) $overall->mape_undefined,
             'holdout_months' => (int) $overall->holdout_months,
@@ -295,6 +298,19 @@ class DemandForecastService
             'wape' => $this->wape(),
             'by_volume' => $this->accuracyByVolume(),
         ];
+    }
+
+    /** Median of the per-product MAPEs (products where MAPE is defined), or null. */
+    private function medianMape(): ?float
+    {
+        $values = ForecastAccuracy::whereNotNull('mape')->orderBy('mape')->pluck('mape')
+            ->map(fn ($v) => (float) $v)->values();
+        $n = $values->count();
+        if ($n === 0) {
+            return null;
+        }
+
+        return $n % 2 ? $values[intdiv($n, 2)] : ($values[$n / 2 - 1] + $values[$n / 2]) / 2;
     }
 
     /**
