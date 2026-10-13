@@ -53,9 +53,11 @@ class Kernel extends ConsoleKernel
         // it. Only until 14 October 06:00. Safe to delete after.
         $schedule->command('forecast:generate --workers=1')
             ->everyMinute()
+            // _b: started again by the 19:3x deploy that put the accuracy card
+            // back, which restarted the container mid-run -- own flag and lock.
             ->when(fn () => now()->lt('2026-10-14 06:00:00')
-                && Cache::add('forecast_rerun_2026_10_13', now()->toDateTimeString(), now()->addDays(30)))
-            ->createMutexNameUsing('forecast-rerun-2026-10-13')
+                && Cache::add('forecast_rerun_2026_10_13_b', now()->toDateTimeString(), now()->addDays(30)))
+            ->createMutexNameUsing('forecast-rerun-2026-10-13-b')
             ->withoutOverlapping()
             ->runInBackground();
     }
