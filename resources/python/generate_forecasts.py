@@ -103,12 +103,24 @@ warnings.filterwarnings("ignore")
 # holdout, log(1 + units): MAE 8.30 / RMSE 9.72 / MAPE 52.3% / WAPE 29.9%
 # (D = 0 + D = 1 together 58.1%; D = 0 on raw units 56.0%; the rule this
 # replaced -- SARIMA only where a seasonality test passed, ARIMA otherwise --
-# 50.7%). The order is still chosen per product by _pick_sarima_order().
+# 50.7%).
+#
+# ONE SARIMA SETUP FOR EVERY PRODUCT (2026-10-13, at the user's request: "remove
+# the 4 configurations, only the SARIMA"). Until then each product chose among
+# four setups -- (1,1,1)(1,0,0,12), (0,1,1)(1,0,0,12), (1,1,1)(0,0,1,12) and
+# (0,1,1)(0,0,1,12) -- by _pick_sarima_order(). Each was measured ALONE on all
+# 2,617 products (May-Jul 2026 holdout, same data) and the user chose the best:
+#   four competing        MAE 8.309 / MAPE 52.38% / median 38.47% / WAPE 29.86%
+#   (0,1,1)(1,0,0,12)     MAE 8.313 / MAPE 51.70% / median 38.10% / WAPE 29.87%  <- used
+#   (0,1,1)(0,0,1,12)     MAE 8.391 / MAPE 51.79% / median 38.33% / WAPE 30.15%
+#   (1,1,1)(1,0,0,12)     MAE 8.415 / MAPE 52.75% / median 38.89% / WAPE 30.24%
+#   (1,1,1)(0,0,1,12)     MAE 8.438 / MAPE 52.85% / median 38.89% / WAPE 30.32%
+# SARIMA(0,1,1)(1,0,0,12): first differences, one MA term, one seasonal AR term
+# at lag 12 (estimated per product, near zero where there is no yearly pattern).
+# With one setup there is nothing to choose, so _sarima_attempt() fits it
+# directly; _pick_sarima_order() remains for a caller that passes several.
 SARIMA_CANDIDATES = [
-    ((1, 1, 1), (1, 0, 0, 12)),
     ((0, 1, 1), (1, 0, 0, 12)),
-    ((1, 1, 1), (0, 0, 1, 12)),
-    ((0, 1, 1), (0, 0, 1, 12)),
 ]
 SEASONAL_CANDIDATES = SARIMA_CANDIDATES
 SARIMA_ORDER, SARIMA_SEASONAL_ORDER = SARIMA_CANDIDATES[0]
@@ -816,7 +828,8 @@ def _sarima_attempt(monthly, horizon, candidates, ceiling):
     dates = _future_dates(monthly, horizon)
     reasons = []
 
-    if len(monthly) >= MIN_MONTHS_FOR_ANY_FORECAST + SARIMA_SELECTION_HOLDOUT:
+    # One setup (the live list) has nothing to choose between: fit it directly.
+    if len(candidates) > 1 and len(monthly) >= MIN_MONTHS_FOR_ANY_FORECAST + SARIMA_SELECTION_HOLDOUT:
         winner = _pick_sarima_order(monthly, SARIMA_SELECTION_HOLDOUT, ceiling, candidates)
 
         if winner:

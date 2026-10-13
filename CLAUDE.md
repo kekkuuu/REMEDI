@@ -1785,7 +1785,13 @@ only where a per-product seasonality test passed (Kruskal–Wallis or lag-12 ACF
 holdout 8.21 / 50.7% / 29.5%, 80/20 8.12 / 53.1% / 29.6% (ahead of both baselines), store-wide 4.56% / 7.41%; ARIMA on
 every product measured 8.15 / 49.9% and 8.09 / 52.4%. To go back, restore `is_seasonal()` and the two candidate lists
 from commit 5ba5140 in both scripts and regenerate both pipelines.
-**SARIMA ONLY — the fallback was REMOVED 2026-10-13, at the user's request ("remove all other models that are not
+**ONE SARIMA SETUP, SARIMA(0,1,1)(1,0,0,12), for every product (2026-10-13, at the user's request: "remove the 4
+configurations, only the SARIMA") — supersedes the four-candidate contest described below.** Each of the four was
+measured alone on all 2,617 products (May–Jul 2026 holdout, WSL): (0,1,1)(1,0,0,12) MAE 8.313 / MAPE 51.70% / median
+38.10% / WAPE 29.87% — best of the four on every measure, and against the four competing (8.309 / 52.38% / 38.47% /
+29.86%) better on MAPE, median, sMAPE and grades, level on WAPE. `SARIMA_CANDIDATES` holds that one setup and
+`_sarima_attempt()` fits it directly (no contest, ~6× faster); `_pick_sarima_order()` stays for callers passing several.
+Nov–Jan 210,864 units / ₱4,698,290.09. **SARIMA ONLY — the fallback was REMOVED 2026-10-13, at the user's request ("remove all other models that are not
 part of SARIMA"); this supersedes the fallback half of the next paragraph.** `fallback_rows()`, `_croston_sba()` and the
 `FALLBACK_*` labels are gone; `MIN_MONTHS_FOR_SARIMA` dropped 24 → **13** (the seasonal term works at lag 12, so it needs
 more than a year), so the short-history products are fitted with SARIMA too; a product SARIMA still cannot serve gets

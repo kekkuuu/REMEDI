@@ -58,9 +58,10 @@ class Kernel extends ConsoleKernel
             // sparse product differently from the terminal) -- own flag and lock.
             // _d: and again for the full-precision tie-break (AXE DEO RO APOLLO
             // 40ML still chose differently live and in the terminal on _c).
+            // _e: and once more for the single SARIMA setup (0,1,1)(1,0,0,12).
             ->when(fn () => now()->lt('2026-10-14 06:00:00')
-                && Cache::add('forecast_rerun_2026_10_13_d', now()->toDateTimeString(), now()->addDays(30)))
-            ->createMutexNameUsing('forecast-rerun-2026-10-13-d')
+                && Cache::add('forecast_rerun_2026_10_13_e', now()->toDateTimeString(), now()->addDays(30)))
+            ->createMutexNameUsing('forecast-rerun-2026-10-13-e')
             ->withoutOverlapping()
             ->runInBackground();
     }
