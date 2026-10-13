@@ -1,5 +1,17 @@
-pandas>=2.0
-numpy>=1.24
-statsmodels>=0.14
-PyMySQL>=1.1
-openpyxl>=3.1
+# Pinned EXACTLY (2026-10-13), with the interpreter: Python 3.14.4 (the Dockerfile
+# installs it with uv). The live server and the terminal used to measure the model
+# must compute the same numbers, and ">=" let the server pick whatever was newest
+# at build time -- on a product selling about 0.5 a month that rounded a forecast
+# to 1 on the server and to 0 in the terminal (AXE DEO RO APOLLO 40ML). Change a
+# version here and in the measurement environment together, then re-measure.
+numpy==2.5.1
+scipy==1.18.0
+pandas==3.0.3
+statsmodels==0.14.6
+patsy==1.0.3
+packaging==26.3
+python-dateutil==2.9.0.post0
+six==1.17.0
+PyMySQL==1.2.3
+openpyxl==3.1.5
+et_xmlfile==2.0.0

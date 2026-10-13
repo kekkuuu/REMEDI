@@ -997,6 +997,17 @@ def forecast_store_total(series: pd.Series, horizon: int):
         TRANSFORM = saved
 
 
+def runtime_versions() -> dict:
+    """The interpreter and numerical packages this process computes with (see requirements.txt)."""
+    import platform
+
+    import scipy
+    import statsmodels
+
+    return {"python": platform.python_version(), "numpy": np.__version__, "scipy": scipy.__version__,
+            "pandas": pd.__version__, "statsmodels": statsmodels.__version__}
+
+
 def storewide_backtest(monthly: pd.DataFrame, holdout: int = HOLDOUT_MONTHS):
     """
     The same model, scored on the WHOLE STORE's monthly units -- every
@@ -1171,6 +1182,7 @@ def main():
         f"process{'es' if workers > 1 else ''}...",
         flush=True,
     )
+    print("Software: " + " ".join(f"{k} {v}" for k, v in runtime_versions().items()), flush=True)
 
     # Materialize the per-product series up front so the workers receive
     # plain picklable data rather than a shared groupby object.
@@ -1306,6 +1318,10 @@ def main():
     if args.storewide:
         storewide = storewide_backtest(monthly)
         if storewide:
+            # Which software computed this run, kept with the result (shown on the
+            # Forecasting page's accuracy card) so a run elsewhere can be compared
+            # on equal terms -- see requirements.txt.
+            storewide["env"] = runtime_versions()
             os.makedirs(os.path.dirname(os.path.abspath(args.storewide)), exist_ok=True)
             with open(args.storewide, "w", encoding="utf-8") as f:
                 json.dump(storewide, f)

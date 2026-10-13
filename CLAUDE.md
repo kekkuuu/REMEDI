@@ -2048,7 +2048,14 @@ for that comparison. The SECOND and THIRD jumps are both model changes described
 "Forecasting pipeline" — dropping the cross-model cascade, then recovering part of the loss by
 searching SARIMA orders instead of forcing one.
 
-**The Model accuracy card is BACK on the Forecasting page (2026-10-13, at the user's request)**, with a Median MAPE
+**The forecasting Python is PINNED, interpreter included (2026-10-13, at the user's request: live must match the
+terminal).** With `>=` in `requirements.txt` the server built with its image's own Python and the newest packages, and
+the first SARIMA-only live run differed from the terminal on ONE product — AXE DEO RO APOLLO 40ML, ~0.5 units a month,
+rounded to 1 live and 0 in the terminal (Nov–Jan 207,901 vs 207,899 units). Now `requirements.txt` pins every package
+exactly and the Dockerfile installs **Python 3.14.4 with uv** into `/opt/forecast-venv` (the Debian `python3` packages
+are no longer installed) — the same versions the WSL measurement venv runs. Each run records its versions
+(`runtime_versions()`, printed at start, stored in the store-wide JSON) and the accuracy card prints them in small type.
+Change a version in both places together, then re-measure. **The Model accuracy card is BACK on the Forecasting page (2026-10-13, at the user's request)**, with a Median MAPE
 tile added (`DemandForecastService::medianMape()`; the average is pulled up by a few slow sellers). The bundle key is
 now `index_v3` (top demand, top sales, accuracy). The store-wide, 80/20 and rolling cards and the detail page's
 Forecast Accuracy card stay off. **REMOVED from both pages 2026-10-06, at the user's request — supersedes the paragraph below.** The Forecasting page no longer shows Model accuracy, Store-wide forecast accuracy, the 80/20 card or the rolling card, and the detail page no longer shows Forecast Accuracy; `DemandForecastController::index()` caches only the two Top 5 charts (bundle key `index_v2`, because the old `index` bundle held four values in a different order). `forecast:generate` still measures and stores everything (`forecast_accuracy`, the store-wide setting) and `forecast:evaluate-split` still writes its JSON, so bringing a card back is a view change. **Both accuracy cards were SHOWN again (2026-10-02, at the user's request)** — the Forecasting page's "Model accuracy" card (MAE / RMSE / MAPE / sMAPE across products, the holdout length, and the Normal / Acceptable / Not acceptable / Not rated split from `accuracySummary()['grades']`) and the detail page's "Forecast Accuracy" card (this product's grade badge from `ForecastGrade`, MAE / RMSE / MAPE / sMAPE). They had been hidden since 2026-09-12; nothing about the computation changed. Measured 2026-10-02 on the seasonal-competes run: 2,616 scored, MAE 8.46 / RMSE 9.87 / MAPE 56.8%, Normal 441 / Acceptable 1,234 / Not acceptable 941. The pages are MySQL-only, so this is verified in the browser, not the sqlite suite.

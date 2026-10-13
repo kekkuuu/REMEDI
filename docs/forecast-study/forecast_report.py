@@ -88,6 +88,7 @@ def main():
     print(BAR)
     print("REMEDI DEMAND AND SALES FORECAST REPORT")
     print("Model: seasonal SARIMA on log(1 + units), every product with 13+ months; no other model")
+    print("Software: " + " ".join(f"{k} {v}" for k, v in gf.runtime_versions().items()))
     print(BAR)
 
     print("\n[1/5] Loading sales data...")

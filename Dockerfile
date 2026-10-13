@@ -19,7 +19,6 @@ WORKDIR /app
 # python3 for the forecasting layer; libpng/libjpeg/libwebp for GD, which
 # `php artisan logo:mark` needs to regenerate the inlined logo derivatives.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        python3 python3-pip python3-venv \
         libpng-dev libjpeg-dev libwebp-dev libfreetype6-dev libzip-dev \
         unzip git \
     && docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype \
@@ -27,14 +26,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Python dependencies ────────────────────────────────────────────────────
-# Its own virtualenv, on PATH as `python`. Debian marks the system interpreter
-# externally-managed, and pandas/statsmodels wheels do not belong in it.
-# Copied before the app so editing a Blade file does not reinstall numpy.
+# Its own virtualenv, on PATH as `python` / `python3`. The INTERPRETER is pinned
+# too (2026-10-13), not taken from the base image's Debian: uv installs exactly
+# Python 3.14.4 and the exact versions in requirements.txt, the same ones the
+# terminal measurement runs on, so the live forecast and the measured one are
+# computed identically. Copied before the app so editing a Blade file does not
+# reinstall numpy.
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+ENV UV_PYTHON_INSTALL_DIR=/opt/python
 ENV VIRTUAL_ENV=/opt/forecast-venv
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 COPY resources/python/requirements.txt /tmp/requirements.txt
-RUN python3 -m venv "$VIRTUAL_ENV" \
-    && pip install --no-cache-dir -r /tmp/requirements.txt
+RUN uv venv --python 3.14.4 "$VIRTUAL_ENV" \
+    && uv pip install --python "$VIRTUAL_ENV/bin/python" --no-cache -r /tmp/requirements.txt \
+    && "$VIRTUAL_ENV/bin/python3" -c "import numpy, scipy, pandas, statsmodels, pymysql"
 
 # ── PHP dependencies ───────────────────────────────────────────────────────
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer

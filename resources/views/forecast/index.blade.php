@@ -244,6 +244,14 @@
             MAPE runs high on intermittent demand by construction &mdash; being one unit out on a month that
             sold two is a 50% error &mdash; which is why MAE and sMAPE are shown beside it.
         </p>
+        @if (! empty($accuracy['env']))
+            <p style="font-size:11px; color:#94a3b8; margin:6px 0 0;">
+                @if ($accuracy['generated_at'])
+                    Run {{ \Carbon\Carbon::parse($accuracy['generated_at'])->format('M j, Y g:i A') }} &middot;
+                @endif
+                {{ collect($accuracy['env'])->map(fn ($v, $k) => ucfirst($k).' '.$v)->implode(' · ') }}
+            </p>
+        @endif
     </div>
     @endif
 

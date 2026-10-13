@@ -297,6 +297,10 @@ class DemandForecastService
             // forecast misses. Null until a run has written abs_error.
             'wape' => $this->wape(),
             'by_volume' => $this->accuracyByVolume(),
+
+            // Which software computed the run (2026-10-13): the store-wide JSON
+            // carries it, so the card can say which versions to compare against.
+            'env' => $this->storewideAccuracy()['env'] ?? null,
         ];
     }
 
