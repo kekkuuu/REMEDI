@@ -2,7 +2,7 @@
 
     python docs/forecast-study/forecast_report.py
 
-Runs the live model (resources/python/generate_forecasts.py: seasonal SARIMA, with the fallback,
+Runs the live model (resources/python/generate_forecasts.py: seasonal SARIMA only,
 on log(1 + units)) on every product in the local database, then prints and saves:
 
   [1/5] Loading sales data
@@ -87,7 +87,7 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     print(BAR)
     print("REMEDI DEMAND AND SALES FORECAST REPORT")
-    print("Model: seasonal SARIMA on log(1 + units); fallback (Croston / recent mean) under 24 months or if SARIMA fails")
+    print("Model: seasonal SARIMA on log(1 + units), every product with 13+ months; no other model")
     print(BAR)
 
     print("\n[1/5] Loading sales data...")

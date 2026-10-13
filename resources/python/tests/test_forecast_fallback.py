@@ -1,5 +1,6 @@
 """
-The forecast fallback and SARIMA failure handling (2026-10-06).
+SARIMA failure handling (2026-10-06) -- and, since 2026-10-13, SARIMA as the only model:
+the Croston / recent-mean fallback is gone, so a product SARIMA cannot serve gets no forecast.
 
     python -m unittest discover -s resources/python/tests -v
 
@@ -45,45 +46,40 @@ NEAR_ZERO_REAL = [1, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0,
 
 
 class InsufficientHistory(unittest.TestCase):
-    def test_short_history_gets_the_recent_mean_without_trying_sarima(self):
+    """SARIMA only, no fallback (2026-10-13): 13+ months is fitted, anything shorter gets no forecast."""
+
+    def test_under_13_months_gets_no_forecast_and_sarima_is_not_tried(self):
         s = series([4, 5, 6, 5, 4, 6, 7, 5, 6, 4, 5, 6])  # 12 months
         with mock.patch.object(gf, "_sarimax_rows", side_effect=AssertionError("SARIMA must not be tried")):
             rows, info = gf.forecast_product_explained(s, HORIZON)
 
-        self.assertEqual(len(rows), HORIZON)
+        self.assertEqual(rows, [])
         self.assertFalse(info["sarima_attempted"])
         self.assertEqual(info["sarima_status"], "skipped")
         self.assertIn("short history", info["failure_reason"])
-        self.assertEqual(info["fallback_method"], gf.FALLBACK_RECENT_MEAN)
-        self.assertEqual({r["method"] for r in rows}, {gf.FALLBACK_RECENT_MEAN})
-        self.assertEqual(rows[0]["forecast_value"], 5.0)  # mean of the last 3: 4, 5, 6
 
-    def test_short_intermittent_history_gets_croston(self):
-        s = series([3, 0, 0, 2, 0, 0, 0, 4, 0, 0, 3, 0, 0, 0])  # 14 months, 4 with a sale
-        rows, info = gf.forecast_product_explained(s, HORIZON)
+    def test_13_to_23_months_is_now_fitted_with_sarima(self):
+        rows, info = gf.forecast_product_explained(seasonal(20), HORIZON)  # 20 months: was a fallback before
 
-        self.assertEqual(info["fallback_method"], gf.FALLBACK_CROSTON)
-        self.assertIn("many_zero_months", info["flags"])
+        self.assertTrue(info["sarima_attempted"])
+        self.assertEqual(info["sarima_status"], "passed")
+        self.assertEqual({r["method"] for r in rows}, {"sarima"})
         self.assertEqual(len(rows), HORIZON)
-        # Croston forecasts the rate: 12 units over 14 months is under 1 a month.
-        self.assertEqual(rows[0]["forecast_value"], 1.0)
 
-    def test_even_two_months_of_history_get_a_forecast(self):
+    def test_two_months_of_history_get_no_forecast(self):
         rows, info = gf.forecast_product_explained(series([5, 7]), HORIZON)
-        self.assertEqual(len(rows), HORIZON)
-        self.assertEqual(info["fallback_method"], gf.FALLBACK_RECENT_MEAN)
+        self.assertEqual(rows, [])
 
 
 class SarimaFailures(unittest.TestCase):
-    def test_a_fit_error_is_logged_and_the_product_falls_back(self):
+    def test_a_fit_error_is_logged_and_the_product_gets_no_forecast(self):
         with mock.patch.object(gf, "_sarimax_rows", side_effect=ValueError("degenerate SARIMA fit")):
             rows, info = gf.forecast_product_explained(seasonal(), HORIZON)
 
         self.assertTrue(info["sarima_attempted"])
         self.assertEqual(info["sarima_status"], "failed")
         self.assertIn("degenerate SARIMA fit", info["failure_reason"])
-        self.assertEqual(info["fallback_method"], gf.FALLBACK_RECENT_MEAN)
-        self.assertEqual(len(rows), HORIZON)
+        self.assertEqual(rows, [])
 
     def test_the_sanity_check_still_rejects_an_unreasonable_forecast(self):
         s = seasonal()
@@ -97,10 +93,9 @@ class SarimaFailures(unittest.TestCase):
 
         self.assertEqual(info["sarima_status"], "failed")
         self.assertIn("above the ceiling", info["failure_reason"])
-        self.assertTrue(all(r["method"] == gf.FALLBACK_RECENT_MEAN for r in rows))
-        self.assertLess(max(r["forecast_value"] for r in rows), 1e6)
+        self.assertEqual(rows, [])
 
-    def test_outliers_are_capped_and_sarima_retried_before_falling_back(self):
+    def test_outliers_are_capped_and_sarima_retried_before_giving_up(self):
         values = list(seasonal())
         values[30] = 2000.0  # one wild month
         s = series(values)
@@ -205,25 +200,28 @@ class SarimaSuccess(unittest.TestCase):
         rows, info = gf.forecast_product_explained(seasonal(), HORIZON)
 
         self.assertEqual(info["sarima_status"], "passed")
-        self.assertIsNone(info["fallback_method"])
         self.assertEqual({r["method"] for r in rows}, {"sarima"})
         self.assertEqual(len(rows), HORIZON)
 
+    def test_no_other_model_is_left_in_the_code(self):
+        for name in ("fallback_rows", "_croston_sba", "FALLBACK_CROSTON", "FALLBACK_RECENT_MEAN"):
+            self.assertFalse(hasattr(gf, name), name)
 
-class NoProductDropped(unittest.TestCase):
-    def test_even_a_crash_inside_the_forecast_still_yields_a_fallback(self):
+
+class EveryProductLogged(unittest.TestCase):
+    def test_a_crash_inside_the_forecast_gives_no_rows_and_is_reported(self):
         with mock.patch.object(gf, "forecast_product_explained", side_effect=RuntimeError("boom")):
             sku, rows, score, error, info = gf._forecast_task(("SKU-X", seasonal(), HORIZON))
 
-        self.assertIsNone(error)
-        self.assertEqual(len(rows), HORIZON)
+        self.assertEqual(rows, [])
+        self.assertIn("RuntimeError: boom", error)
         self.assertIn("crashed: RuntimeError: boom", info["failure_reason"])
 
-    def test_every_product_is_in_the_output_and_the_total_counts_the_fallbacks(self):
+    def test_only_sarima_reaches_the_output_and_every_product_is_logged(self):
         products = {
-            "SEASONAL": list(seasonal(48)),                          # SARIMA
-            "SHORT": [4, 5, 6, 5, 4, 6, 7, 5, 6, 4, 5, 6],            # too short: recent mean
-            "SHORT-INTERMITTENT": [3, 0, 0, 2, 0, 0, 0, 4, 0, 0, 3, 0, 0, 0],  # too short: Croston
+            "SEASONAL": list(seasonal(48)),                           # SARIMA
+            "SHORT-20": list(seasonal(20, seed=3)),                   # 20 months: SARIMA now
+            "TOO-SHORT": [4, 5, 6, 5, 4, 6, 7, 5, 6, 4, 5, 6],         # 12 months: no forecast
             "NEAR-ZERO": NEAR_ZERO_REAL,                               # used to be dropped
         }
         end = pd.Timestamp("2026-07-01")
@@ -253,20 +251,14 @@ class NoProductDropped(unittest.TestCase):
             forecast = pd.read_csv(out)
             logged = pd.read_csv(log)
 
-        self.assertEqual(set(forecast["product_sku"]), set(products))
+        self.assertEqual(set(forecast["product_sku"]), {"SEASONAL", "SHORT-20", "NEAR-ZERO"})
+        self.assertEqual(set(forecast["method"]), {"sarima"})
         self.assertTrue((forecast.groupby("product_sku").size() == HORIZON).all())
-        methods = forecast.groupby("product_sku")["method"].first().to_dict()
-        self.assertEqual(methods["SEASONAL"], "sarima")
-        self.assertEqual(methods["SHORT"], gf.FALLBACK_RECENT_MEAN)
-        self.assertEqual(methods["SHORT-INTERMITTENT"], gf.FALLBACK_CROSTON)
 
-        # The store total is the sum over EVERY product, fallback rows included.
-        by_product = forecast.groupby("product_sku")["forecast_value"].sum()
-        self.assertGreater(by_product["SHORT"], 0)
-        self.assertAlmostEqual(forecast["forecast_value"].sum(), by_product.sum())
-
+        # Every product is in the log, the one without a forecast with its reason.
         self.assertEqual(set(logged["product_sku"]), set(products))
-        self.assertEqual(logged.set_index("product_sku").loc["SHORT", "fallback_method"], gf.FALLBACK_RECENT_MEAN)
+        self.assertNotIn("fallback_method", logged.columns)
+        self.assertIn("short history", logged.set_index("product_sku").loc["TOO-SHORT", "failure_reason"])
 
 
 if __name__ == "__main__":

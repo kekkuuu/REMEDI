@@ -94,9 +94,8 @@ warnings.filterwarnings("ignore")
 #   rule used now (8.47 / 57.7%).
 # SARIMA ONLY (2026-10-04, the user's call): every product is fitted with a
 # SEASONAL SARIMA(p,1,q)(P,0,Q,12) -- no ARIMA, no fallback to a non-seasonal
-# order. (Since 2026-10-06 a product too short for SARIMA, or one every order
-# fails on, gets a non-SARIMA FALLBACK instead of no forecast -- see
-# MIN_MONTHS_FOR_SARIMA.) D = 0 on purpose: with seasonal DIFFERENCING (D = 1) the model reads
+# order, and since 2026-10-13 no non-SARIMA fallback either (see
+# MIN_MONTHS_FOR_SARIMA). D = 0 on purpose: with seasonal DIFFERENCING (D = 1) the model reads
 # this year as "last year plus a change" and copies the store's growth year into
 # a flat one (3-month holdout MAPE 100.9% forced on every product). With D = 0
 # the seasonal term is ONE coefficient the fit estimates, near zero where a
@@ -232,27 +231,23 @@ def _to_units(values):
 SARIMA_SELECTION_HOLDOUT = 3
 MIN_MONTHS_FOR_ANY_FORECAST = 3
 
-# FALLBACK (2026-10-06, at the user's request: "every eligible product should
-# have a forecast"). Before this, a product SARIMA could not fit got NO rows --
-# 4 products a run, silently missing from every total. Now:
+# SARIMA ONLY, NO FALLBACK (2026-10-13, at the user's request: "remove all other
+# models that are not part of SARIMA"). From 2026-10-06 a product SARIMA could not
+# serve -- under 24 months of history, or every order failing -- got Croston's
+# method or the average of its last 3 months instead (26 of 2,617 products). Both
+# are gone. Now:
 #
-#   - Under MIN_MONTHS_FOR_SARIMA months (two yearly cycles) SARIMA is not
-#     attempted: its seasonal term is fitted at lag 12 and cannot be estimated
-#     from less. These products (26 of 2,617, most selling in under half their
-#     months) go straight to the fallback.
-#   - With enough history SARIMA is attempted as before. If every order fails,
-#     the reason is recorded per order (fit error / degenerate fit / negative /
-#     above the ceiling), the series is described (describe_series), one repair
-#     is tried where it applies (outliers capped, then SARIMA again), and only
-#     then does the product fall back.
-#   - The fallback is chosen from the series: Croston's method with the SBA
-#     correction for intermittent demand (half or more of its months at zero),
-#     otherwise the average of the last 3 months -- the baseline the 80/20 test
-#     already measures the model against.
-MIN_MONTHS_FOR_SARIMA = 24
+#   - Every product with at least MIN_MONTHS_FOR_SARIMA months is fitted with
+#     SARIMA. 13, not 24: the seasonal term works at lag 12, so it needs more than
+#     one year of months to be estimated at all; under 24 it is estimated from
+#     little, which the rolling-window contest and the sanity check judge.
+#   - If every order fails, the reason is recorded per order (fit error /
+#     degenerate fit / negative / above the ceiling), the series is described
+#     (describe_series), forecasts thrown above the ceiling by outliers are
+#     refitted once with those months capped -- and if that fails too, the
+#     product gets NO forecast, and the --log CSV says why.
+MIN_MONTHS_FOR_SARIMA = 13
 INTERMITTENT_ZERO_SHARE = 0.5
-FALLBACK_RECENT_MEAN = "fallback_recent_mean"
-FALLBACK_CROSTON = "fallback_croston_sba"
 
 # On the log(1 + units) scale a forecast cannot go below -1 unit, and a slightly
 # negative one means "about nothing". The sanity check rejected ANY negative,
@@ -525,8 +520,8 @@ def _plausible(values, ceiling) -> bool:
       - Anything above the ceiling: a short, noisy series can extrapolate to
         absurd volumes (one product averaging 20/month forecast 778).
 
-    A rejected fit falls through to the next SARIMA order, and past the last one
-    to the fallback (forecast_product_explained). On the log scale "negative"
+    A rejected fit falls through to the next SARIMA order; past the last one the
+    product gets no forecast (forecast_product_explained). On the log scale "negative"
     allows LOG_NEGATIVE_TOLERANCE -- see there.
     """
     return _implausible_reason(values, ceiling) is None
@@ -713,10 +708,10 @@ def _pick_sarima_order(series, holdout, ceiling, candidates=None):
 def forecast_product(monthly: pd.Series, horizon: int):
     """
     Forecast one product: a seasonal SARIMA, the ORDER picked per product from
-    SARIMA_CANDIDATES by rolling-window accuracy (_pick_sarima_order) -- or,
-    when the history is too short for SARIMA or every order fails, the
-    fallback (fallback_rows). Returns one dict per forecast month; [] only for
-    an empty series. forecast_product_explained() also says what happened.
+    SARIMA_CANDIDATES by rolling-window accuracy (_pick_sarima_order). Returns
+    one dict per forecast month, or [] when the history is too short for SARIMA
+    or every order fails -- there is no non-SARIMA fallback (2026-10-13).
+    forecast_product_explained() also says what happened.
     """
     return forecast_product_explained(monthly, horizon)[0]
 
@@ -725,7 +720,7 @@ def forecast_product_explained(monthly: pd.Series, horizon: int, candidates=None
     """
     forecast_product() plus a record of how the forecast was reached, for the
     per-product log (--log): history, whether SARIMA was attempted, whether it
-    passed the sanity check, why it failed, any repair tried, the fallback used.
+    passed the sanity check, why it failed, and any repair tried.
     """
     monthly = monthly.asfreq("MS", fill_value=0)
     info = {
@@ -737,7 +732,6 @@ def forecast_product_explained(monthly: pd.Series, horizon: int, candidates=None
         "candidates": None,
         "failure_reason": None,
         "repair": None,
-        "fallback_method": None,
     }
 
     # ACF / PACF are calculated and RECORDED for every product (identify_orders:
@@ -754,7 +748,7 @@ def forecast_product_explained(monthly: pd.Series, horizon: int, candidates=None
     if len(monthly) >= MIN_MONTHS_FOR_SARIMA:
         # Only a record: a reading that fails must not cost the product its
         # forecast (an exception here would reach _forecast_task's crash path
-        # and hand the product to the fallback).
+        # and leave the product with none).
         try:
             suggested, note = identify_orders(monthly)
             info["acf_pacf"] = f"{note}; suggests {' '.join(_order_label(c) for c in suggested)}"
@@ -791,9 +785,8 @@ def forecast_product_explained(monthly: pd.Series, horizon: int, candidates=None
         info["sarima_status"] = "failed"
         info["failure_reason"] = "; ".join(dict.fromkeys(reasons)) or "no usable fit"
 
-    rows, method = fallback_rows(monthly, horizon, ceiling, info)
-    info["fallback_method"] = method
-    return rows, info
+    # No fallback: a product SARIMA cannot serve gets no forecast (2026-10-13).
+    return [], info
 
 
 def _sarima_attempt(monthly, horizon, candidates, ceiling):
@@ -901,56 +894,6 @@ def _cap_outliers(monthly: pd.Series) -> pd.Series:
     if len(nonzero) < 4:
         return monthly
     return monthly.clip(upper=_outlier_fence(nonzero))
-
-
-def fallback_rows(monthly: pd.Series, horizon: int, ceiling: float, info: dict):
-    """
-    The forecast for a product SARIMA cannot serve: (rows, method).
-
-    Intermittent demand (half or more of its months at zero, at least two
-    sales) gets Croston's method with the Syntetos-Boylan correction -- the
-    standard estimator for it: it forecasts the RATE (average size of a sale
-    over the average gap between sales) rather than chasing zeros. Anything
-    else gets the average of its last 3 months, the baseline the 80/20 test
-    already reports beside the model. The forecast is flat across the horizon,
-    and the 80% band is the 10th-90th percentile of the product's last 12 months
-    (it does not widen with distance -- neither method models that).
-    """
-    s = monthly.asfreq("MS", fill_value=0).astype(float)
-    dates = _future_dates(s, horizon)
-
-    if "many_zero_months" in info["flags"] and info["nonzero_months"] >= 2:
-        method, value = FALLBACK_CROSTON, _croston_sba(s)
-    else:
-        method, value = FALLBACK_RECENT_MEAN, float(s.iloc[-3:].mean())
-
-    recent = s.iloc[-12:].to_numpy()
-    lo, hi = (float(v) for v in np.percentile(recent, [10, 90]))
-    rows = [
-        {"forecast_date": d, "forecast_value": value,
-         "lower_ci": min(lo, value), "upper_ci": max(hi, value), "method": method}
-        for d in dates
-    ]
-    return _clamp_rows(rows, ceiling), method
-
-
-def _croston_sba(s: pd.Series, alpha: float = 0.1) -> float:
-    """Croston's demand rate with the SBA bias correction: (1 - a/2) * size / interval."""
-    values = s.to_numpy(dtype=float)
-    sales = np.flatnonzero(values > 0)
-    if len(sales) == 0:
-        return 0.0
-    # Started from the product's own average sale and average gap, not its
-    # first sale: with a = 0.1 a short history barely moves the estimate, and a
-    # first gap of 1 month put a product selling 6 units in 23 months at 1/month.
-    size = float(values[sales].mean())
-    interval = len(values) / len(sales)
-    previous = sales[0]
-    for i in sales[1:]:
-        size += alpha * (values[i] - size)
-        interval += alpha * ((i - previous) - interval)
-        previous = i
-    return (1 - alpha / 2) * size / interval
 
 
 def _family(seasonal_order) -> str:
@@ -1115,18 +1058,16 @@ def _forecast_task(task):
 
         return sku, rows, score, None, info
     except Exception as exc:  # noqa: BLE001 - deliberately broad, see docstring
-        # Even an unexpected crash must not drop the product: give it the
-        # fallback and log the crash as the failure reason.
+        # An unexpected crash leaves this product with no forecast; it is
+        # logged with the crash as the reason and reported at the end.
         error = f"{type(exc).__name__}: {exc}"
         try:
-            monthly = series.asfreq("MS", fill_value=0)
-            info = {**describe_series(monthly), "sarima_attempted": True, "sarima_status": "failed",
-                    "sarima_order": None, "failure_reason": f"crashed: {error}", "repair": None}
-            ceiling = max(float(monthly.max()) * 2.5, float(monthly.mean()) * 4, 1.0)
-            rows, info["fallback_method"] = fallback_rows(monthly, horizon, ceiling, info)
-            return sku, rows, None, None, info
-        except Exception:  # noqa: BLE001 - nothing left to try; reported at the end
-            return sku, [], None, error, None
+            info = {**describe_series(series.asfreq("MS", fill_value=0)), "sarima_attempted": True,
+                    "sarima_status": "failed", "sarima_order": None,
+                    "failure_reason": f"crashed: {error}", "repair": None}
+        except Exception:  # noqa: BLE001
+            info = None
+        return sku, [], None, error, info
 
 
 def _log_row(sku, rows, info, error):
@@ -1146,7 +1087,6 @@ def _log_row(sku, rows, info, error):
         "sarima_order": info.get("sarima_order"),
         "failure_reason": info.get("failure_reason") or error,
         "repair": info.get("repair"),
-        "fallback_method": info.get("fallback_method"),
         "method": rows[0]["method"] if rows else None,
         "forecast_total": round(float(sum(r["forecast_value"] for r in rows)), 2) if rows else None,
         "forecast_by_month": " ".join(f"{r['forecast_date']:%Y-%m}={r['forecast_value']:g}" for r in rows),
@@ -1196,7 +1136,7 @@ def main():
                         help="Optional path for the store-wide holdout accuracy JSON (all products summed).")
     parser.add_argument("--log", default=None,
                         help="Optional path for the per-product forecast log CSV: history, SARIMA "
-                             "attempted / passed / failed and why, fallback used, final forecast.")
+                             "attempted / passed / failed and why, final forecast.")
     parser.add_argument("--env-path", default=None)
     parser.add_argument("--include-pos", action="store_true",
                         help="also train on the till's own (non-voided) sales")
@@ -1263,8 +1203,8 @@ def main():
     ]
 
     output_rows = []
-    # defaultdict, not a fixed dict: forecast_product() picks from a fallback
-    # chain and adding a method there must not KeyError the write step.
+    # defaultdict, not a fixed dict: a new method label in forecast_product()
+    # must not KeyError the write step.
     method_counts = collections.defaultdict(int)
     failures = []
     # A product can also contribute zero rows with NO exception: rows == []
@@ -1377,15 +1317,13 @@ def main():
         log_df.to_csv(args.log, index=False)
     if len(log_df):
         status = log_df["sarima_status"].fillna("error").value_counts().to_dict()
-        fallback = log_df["fallback_method"].dropna().value_counts().to_dict()
         print("SARIMA: " + " ".join(f"{k}={v}" for k, v in sorted(status.items()))
-              + " | fallback used: " + (" ".join(f"{k}={v}" for k, v in sorted(fallback.items())) or "none")
+              + " | products without a forecast: " + str(int((log_df["sarima_status"] != "passed").sum()))
               + (f" | log -> {args.log}" if args.log else ""), flush=True)
-        failed = log_df[log_df["sarima_status"] == "failed"]
+        failed = log_df[log_df["sarima_status"] != "passed"]
         for r in failed.head(20).itertuples():
-            print(f"  SARIMA failed: {r.product_sku} ({r.months_of_history} months, {r.months_with_sales} with sales;"
-                  f" {r.series_flags or 'no flags'}) -> {r.fallback_method}, total {r.forecast_total}:"
-                  f" {str(r.failure_reason)[:160]}", flush=True)
+            print(f"  No forecast: {r.product_sku} ({r.months_of_history} months, {r.months_with_sales} with sales;"
+                  f" {r.series_flags or 'no flags'}): {str(r.failure_reason)[:160]}", flush=True)
         if len(failed) > 20:
             print(f"  ... and {len(failed) - 20} more in the log", flush=True)
 
@@ -1415,8 +1353,8 @@ def main():
         # run's product list, which this script does not have.
         print(
             f"NOTE: {len(empty_no_error)} product(s) produced no forecast rows this run "
-            "with no error raised. Since the fallback (2026-10-06) that should only be an "
-            "empty series -- anything else is a fault to investigate in the --log CSV.",
+            "with no error raised: under 13 months of history, or every SARIMA order failed. "
+            "The --log CSV gives each one's reason.",
             flush=True,
         )
 

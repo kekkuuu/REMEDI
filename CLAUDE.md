@@ -1785,6 +1785,16 @@ only where a per-product seasonality test passed (Kruskal–Wallis or lag-12 ACF
 holdout 8.21 / 50.7% / 29.5%, 80/20 8.12 / 53.1% / 29.6% (ahead of both baselines), store-wide 4.56% / 7.41%; ARIMA on
 every product measured 8.15 / 49.9% and 8.09 / 52.4%. To go back, restore `is_seasonal()` and the two candidate lists
 from commit 5ba5140 in both scripts and regenerate both pipelines.
+**SARIMA ONLY — the fallback was REMOVED 2026-10-13, at the user's request ("remove all other models that are not
+part of SARIMA"); this supersedes the fallback half of the next paragraph.** `fallback_rows()`, `_croston_sba()` and the
+`FALLBACK_*` labels are gone; `MIN_MONTHS_FOR_SARIMA` dropped 24 → **13** (the seasonal term works at lag 12, so it needs
+more than a year), so the short-history products are fitted with SARIMA too; a product SARIMA still cannot serve gets
+**no forecast** and the `--log` CSV gives the reason (the failure handling, outlier repair and per-order reasons below
+stay). Measured in WSL on the same data: **SARIMA 2,616 of 2,617** — the one left out is ULTRAXIME 100MG/ML 5ML 60ML,
+5 months of history with a single sale; 25 of the 26 former fallback products now SARIMA; holdout MAE 8.31 / RMSE 9.73 /
+MAPE 52.41% / median 38.45% / WAPE 29.87% (unchanged in substance); Nov–Jan 207,899 units / ₱4,644,583.20. The
+`no_history` zero rows for the 21 products that never sold stay — they are a placeholder, not a model. The 80/20 and
+terminal reports keep "mean of last 3" / "repeat last" as comparison BASELINES only; nothing forecasts with them.
 **Fallback and SARIMA failure handling (2026-10-06, at the user's request).** `forecast_product_explained()` in
 `generate_forecasts.py` (`forecast_product()` returns its rows, so every caller — the sales script, the 80/20 and
 rolling evaluations, the report scripts — gets the same behaviour). Under `MIN_MONTHS_FOR_SARIMA` (24) months SARIMA is
