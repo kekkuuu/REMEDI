@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (377 passed, 1323 assertions — measured 2026-10-02) and is a usable regression gate.** It was 22 failed / 3 passed, for
+**The suite is green (400 passed, 10 skipped, 1452 assertions — measured 2026-10-15) and is a usable regression gate.** The 10 skipped are `Feature\Reports\ReportExportTest`, which only runs against MySQL (below). It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -184,6 +184,29 @@ cost a false "security bug" during a QA pass; `DeactivationTest` carries the war
   one), the password form can't be reached without verifying, the code form can't be reached with
   nothing pending, sending is rate limited, and the resend button issues a fresh code, kills the old one, needs a pending request, and shares that one limit. Note the test reads the code out of
   `SmsService::fake()` — it is stored hashed, so there is no other way to get it, which is the point.
+
+- `Feature\Reports\ReportExportTest` — **MySQL only, read-only; skipped on sqlite.** Downloads every report
+  export (Sales / Inventory / Analytics, Excel and PDF), opens the Excel files with PhpSpreadsheet and checks
+  the headings and totals against figures recomputed from SQL (not from `ReportController`): the sales file's
+  Imported / Terminal / Total columns, a four-year DAILY file carrying every day (the screen table lists only
+  the latest rows; the file must not), a category-scoped file, every active product and its stock value, the
+  low-stock file equal to `is_running_out`, the Top Selling ranking and the top five products' units and
+  revenue. Run it alone against the `.env` database: `php artisan test --filter=ReportExportTest` (never a
+  bare `php artisan test` — see above). It uses `DatabaseTransactions`, never `RefreshDatabase`; verified
+  2026-10-15 that audit / product / sales counts are unchanged after a run (10 passed, ~160 s, most of it the
+  two all-time sales aggregates built cold).
+
+- `Feature\BackupTest` — the Database Backup page (`BackupController`): the full backup is an AES-256 `.zip`
+  only its password opens (wrong password: nothing), the password never reaches the audit trail, a short or
+  mismatched password is refused, and the sanitized test copy keeps products / sales / stock while carrying
+  no real name, email, phone, personal email, password hash, void note, IP address or setting.
+  **The zip password can be saved in Safeguard** (Backup Password card, `Setting::BACKUP_PASSWORD_KEY`):
+  stored ENCRYPTED with the app key (`Crypt`), not hashed, because the server must read it back to lock each
+  file -- so it is as safe as APP_KEY. The backup page then needs nothing typed; a one-time password typed
+  there overrides it for that file. A value saved under a different APP_KEY (another host on the same
+  database) reads as unset, and both pages say so. Never in the audit trail. Keep backup audit entries short:
+  `audit_trails.details` is varchar(255) on MySQL and sqlite does not enforce it -- naming all 14 tables
+  answered 500 on the first real download.
 
 Forecasting is the one area still uncovered — neither pipeline, neither service, neither page.
 

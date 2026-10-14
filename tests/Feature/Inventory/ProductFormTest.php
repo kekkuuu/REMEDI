@@ -490,4 +490,93 @@ class ProductFormTest extends TestCase
             'the batch number field must be readonly — the number is assigned, not entered'
         );
     }
+
+    // ── Inline errors and the step after Add Product (QA, 2026-10-15) ────
+
+    /**
+     * Blank Add Product used to lean on the browser's own bubble -- one field
+     * at a time, in the browser's words. Every field now has its own error
+     * line, the form opts out of native validation so the app's check runs,
+     * and the server answers in the same wording under the same field.
+     */
+    public function test_every_product_field_has_its_own_error_line(): void
+    {
+        $html = $this->actingAs(User::factory()->admin()->create())
+            ->get('/products/create')->assertOk()->getContent();
+
+        $this->assertStringContainsString('novalidate data-inline-errors', $html);
+        foreach (['name', 'sku', 'category_id', 'unit', 'selling_price', 'cost_price', 'reorder_level'] as $field) {
+            $this->assertStringContainsString('data-error-for="'.$field.'"', $html, "No error line for {$field}");
+            $this->assertStringContainsString('aria-describedby="'.$field.'-error"', $html);
+        }
+    }
+
+    public function test_a_blank_product_is_refused_field_by_field_in_plain_words(): void
+    {
+        $response = $this->actingAs(User::factory()->admin()->create())
+            ->from('/products/create')
+            ->post('/products', ['name' => '', 'sku' => '', 'category_id' => '', 'unit' => '', 'selling_price' => '', 'reorder_level' => ''])
+            ->assertRedirect('/products/create');
+
+        $errors = session('errors')->getBag('default');
+        $this->assertSame('Enter the product name.', $errors->first('name'));
+        $this->assertSame('Enter the SKU.', $errors->first('sku'));
+        $this->assertSame('Choose a category.', $errors->first('category_id'));
+        $this->assertSame('Choose a unit.', $errors->first('unit'));
+        $this->assertSame('Enter the selling price.', $errors->first('selling_price'));
+        $this->assertSame('Enter the reorder level.', $errors->first('reorder_level'));
+
+        // The redisplay puts each message under its own field.
+        $html = $this->get('/products/create')->getContent();
+        $this->assertMatchesRegularExpression('/data-error-for="sku"[^>]*>Enter the SKU\./', $html);
+    }
+
+    /** The dialog's fetch gets the same messages, keyed by field, to paint inline. */
+    public function test_a_duplicate_sku_comes_back_keyed_to_the_sku_field(): void
+    {
+        $existing = $this->product();
+
+        $this->actingAs(User::factory()->admin()->create())
+            ->postJson('/products', $this->payload(['sku' => $existing->sku]))
+            ->assertStatus(422)
+            ->assertJsonPath('errors.sku.0', 'Another product already uses this SKU (archived products keep theirs).');
+    }
+
+    /**
+     * A new product has no batches, so it is Low/Out of Stock the moment it
+     * exists. Saving it lands on its own page at the Add New Batch card, with
+     * a note saying that stock is the next step.
+     */
+    public function test_adding_a_product_leads_straight_to_adding_its_stock(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $json = $this->actingAs($admin)->postJson('/products', $this->payload())->assertOk();
+        $product = Product::where('sku', 'SKU-UNIT-1')->firstOrFail();
+        $this->assertSame('/products/'.$product->id.'/edit?added=1#add-batch', $json->json('redirect'));
+
+        // The no-JavaScript post goes to the same place.
+        $this->actingAs($admin)->post('/products', $this->payload(['sku' => 'SKU-UNIT-2', 'name' => 'Second']))
+            ->assertRedirect('/products/'.Product::where('sku', 'SKU-UNIT-2')->value('id').'/edit?added=1#add-batch');
+
+        $this->actingAs($admin)->get('/products/'.$product->id.'/edit?added=1')
+            ->assertOk()
+            ->assertSee('Add the first batch now')
+            ->assertSee('id="add-batch"', false);
+    }
+
+    /** Once a batch exists the note has nothing left to say. */
+    public function test_the_add_stock_note_goes_once_the_product_has_stock(): void
+    {
+        $product = $this->product();
+        ProductBatch::create([
+            'product_id' => $product->id, 'batch_number' => 'B-1', 'quantity' => 10, 'qty_received' => 10,
+            'expiry_date' => now()->addYear()->toDateString(), 'received_date' => now()->toDateString(),
+        ]);
+
+        $this->actingAs(User::factory()->admin()->create())
+            ->get('/products/'.$product->id.'/edit?added=1')
+            ->assertOk()
+            ->assertDontSee('Add the first batch now');
+    }
 }

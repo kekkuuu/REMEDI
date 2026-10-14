@@ -2,7 +2,10 @@
 
 namespace App\Models;
 
+use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
 
 /**
@@ -40,6 +43,15 @@ class Setting extends Model
      * admin setting -- it lives here so every host reads the latest run.
      */
     public const STOREWIDE_ACCURACY_KEY = 'forecast_storewide_accuracy';
+
+    /**
+     * The password every full backup zip is locked with (BackupController),
+     * set in Safeguard. ENCRYPTED with the app key (Crypt), not hashed like
+     * the void passcode: the server has to read it back to lock each file,
+     * and a hash cannot be read back. So it is only as safe as APP_KEY --
+     * the database alone does not reveal it, the database plus APP_KEY does.
+     */
+    public const BACKUP_PASSWORD_KEY = 'backup_zip_password';
 
     public static function gcashQrPayload(): ?string
     {
@@ -138,5 +150,43 @@ class Setting extends Model
         $hash = static::get(self::VOID_PASSCODE_KEY);
 
         return $hash !== null && Hash::check($passcode, $hash);
+    }
+
+    public static function backupPasswordIsSet(): bool
+    {
+        return (bool) static::get(self::BACKUP_PASSWORD_KEY);
+    }
+
+    /**
+     * The saved backup password, or null when none is saved -- or when the
+     * one saved cannot be decrypted, which happens if it was saved under a
+     * different APP_KEY (another host sharing this database, or a rotated
+     * key). Callers tell those two apart with backupPasswordIsSet().
+     */
+    public static function backupPassword(): ?string
+    {
+        $stored = static::get(self::BACKUP_PASSWORD_KEY);
+        if (! $stored) {
+            return null;
+        }
+
+        try {
+            return Crypt::decryptString($stored);
+        } catch (DecryptException) {
+            return null;
+        }
+    }
+
+    /** Null removes it. */
+    public static function setBackupPassword(?string $password): void
+    {
+        static::put(self::BACKUP_PASSWORD_KEY, $password === null ? null : Crypt::encryptString($password));
+    }
+
+    public static function backupPasswordSetAt(): ?Carbon
+    {
+        $row = static::where('key', self::BACKUP_PASSWORD_KEY)->whereNotNull('value')->first();
+
+        return $row?->updated_at;
     }
 }

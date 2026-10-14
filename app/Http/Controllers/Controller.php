@@ -30,9 +30,9 @@ class Controller extends BaseController
      * 500 into a validation message, not to decide what a plausible price or
      * quantity is. If a column is ever widened, widen these with it.
      */
-    protected const MAX_MONEY = '99999999.99';
+    public const MAX_MONEY = '99999999.99';
 
-    protected const MAX_COUNT = 2147483647;
+    public const MAX_COUNT = 2147483647;
 
     /**
      * Build a `LIKE %term%` binding with the user's own wildcards escaped.

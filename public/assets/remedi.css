@@ -2298,6 +2298,49 @@
             opacity: 1;
         }
 
+        /* A field with an inline error (products/_field-error, the
+           data-inline-errors check in remedi.js). The message sits under it in
+           .err; the border is the at-a-glance half. */
+        .form-field input[aria-invalid="true"],
+        .form-field select[aria-invalid="true"] {
+            border-color: #dc2626;
+            background: #fffafa;
+        }
+        .form-field input[aria-invalid="true"]:focus,
+        .form-field select[aria-invalid="true"]:focus {
+            border-color: #dc2626;
+            box-shadow: 0 0 0 3px rgba(220, 38, 38, .15);
+        }
+        .form-field .err { font-weight: 500; }
+        .form-field .err[hidden] { display: none; }
+
+        /* "Product added -- add its first batch" on Edit Product, the step
+           after Add Product (ProductController::store, `added=1`). */
+        .next-step {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            margin: 0 0 16px;
+            padding: 14px 16px;
+            border: 1px solid #a7f3d0;
+            border-radius: 12px;
+            background: #ecfdf5;
+            color: #065f46;
+            font-size: 13.5px;
+            line-height: 1.5;
+        }
+        .next-step > i { font-size: 20px; flex: none; margin-top: 1px; color: #059669; }
+        .next-step-link {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            margin-left: 4px;
+            font-weight: 600;
+            color: #047857;
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+
         .form-field-note {
             display: flex;
             align-items: center;

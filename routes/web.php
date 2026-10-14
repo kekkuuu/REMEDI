@@ -116,12 +116,18 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
             Route::get('/safeguard', [SettingsController::class, 'edit'])->name('safeguard.edit');
             Route::put('/safeguard/void-passcode', [SettingsController::class, 'updateVoidPasscode'])->name('safeguard.void-passcode.update');
             Route::put('/safeguard/gcash-qr', [SettingsController::class, 'updateGcashQr'])->name('safeguard.gcash-qr.update');
+            Route::put('/safeguard/backup-password', [SettingsController::class, 'updateBackupPassword'])->name('safeguard.backup-password.update');
 
             // The backup streams the `users` table -- password hashes, reset-code
             // hashes, personal emails. One click from any admin screen left open
             // at the counter was enough to walk off with it, so it asks for the
             // login password the same way Safeguard does.
-            Route::get('/admin/backup', [BackupController::class, 'download'])->name('admin.backup');
+            // The page explains what a backup holds and offers two kinds; the
+            // POST builds the file (an AES-256 zip, or a sanitized test copy).
+            // A POST, not a GET: the full backup's password rides in the body,
+            // never in a URL or a server log.
+            Route::get('/admin/backup', [BackupController::class, 'index'])->name('admin.backup');
+            Route::post('/admin/backup', [BackupController::class, 'download'])->name('admin.backup.download');
         });
         // The old address keeps working for a bookmark.
         Route::redirect('/settings', '/safeguard');

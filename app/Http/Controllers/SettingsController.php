@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AuditTrail;
 use App\Models\Setting;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 /**
  * Store-wide settings an admin sets through the UI. The one thing here so
@@ -18,6 +19,10 @@ class SettingsController extends Controller
         return view('admin.settings.edit', [
             'voidPasscodeSet' => Setting::voidPasscodeIsSet(),
             'gcashQrName' => ($p = Setting::gcashQrPayload()) ? (Setting::qrPhMerchantName($p) ?? 'your account') : null,
+            'backupPasswordSet' => Setting::backupPasswordIsSet(),
+            'backupPasswordReadable' => Setting::backupPassword() !== null,
+            'backupPasswordSetAt' => Setting::backupPasswordSetAt(),
+            'backupPasswordMin' => BackupController::MIN_PASSWORD_LENGTH,
         ]);
     }
 
@@ -42,7 +47,7 @@ class SettingsController extends Controller
         }
 
         if (! Setting::isQrPhPayload($payload)) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
+            throw ValidationException::withMessages([
                 'gcash_qr' => 'That is not a GCash / QR Ph code. Upload the QR from GCash → My QR.',
             ]);
         }
@@ -72,5 +77,37 @@ class SettingsController extends Controller
         AuditTrail::log('Updated', 'Set the POS void passcode');
 
         return $this->actionOk($request, 'Void passcode updated.', redirect()->route('safeguard.edit'));
+    }
+
+    /**
+     * Set, replace or (with `remove`) clear the password full backups are
+     * locked with -- see Setting::BACKUP_PASSWORD_KEY for how it is stored and
+     * BackupController::download() for where it is used. Changing it does not
+     * touch backups already downloaded: each zip keeps the password it was
+     * made with. Never written to the audit trail.
+     */
+    public function updateBackupPassword(Request $request)
+    {
+        if ($request->boolean('remove')) {
+            Setting::setBackupPassword(null);
+            AuditTrail::log('Updated', 'Removed the saved backup password');
+
+            return $this->actionOk($request, 'Backup password removed. A full backup will ask for a password each time.', redirect()->route('safeguard.edit'));
+        }
+
+        $validated = $request->validate([
+            'backup_password' => ['bail', 'required', 'string', 'min:'.BackupController::MIN_PASSWORD_LENGTH, 'max:128', 'confirmed'],
+        ], [
+            'backup_password.required' => 'Enter the backup password.',
+            'backup_password.min' => 'Use at least :min characters for the backup password.',
+            'backup_password.confirmed' => 'The two backup passwords do not match.',
+        ]);
+
+        $replacing = Setting::backupPasswordIsSet();
+        Setting::setBackupPassword($validated['backup_password']);
+
+        AuditTrail::log('Updated', $replacing ? 'Changed the backup password' : 'Set the backup password');
+
+        return $this->actionOk($request, 'Backup password saved. Every full backup from now on is locked with it.', redirect()->route('safeguard.edit'));
     }
 }

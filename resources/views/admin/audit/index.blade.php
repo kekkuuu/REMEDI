@@ -29,14 +29,14 @@
          class="btn btn-primary btn-sm" id="audit-export" data-no-skeleton>
         <i class="ti ti-download" style="font-size:14px;"></i> Export CSV
       </a>
-      {{-- Streams a .sql dump of the operational tables (not the imported/
-           regenerable ones -- see BackupController::BACKUP_TABLES). No restore
+      {{-- Opens the Database Backup page (BackupController::index): what a
+           backup holds, how to handle it, and the two kinds on offer -- an
+           AES-256 encrypted full backup, or a sanitized test copy. No restore
            button by design: this repo's rule for anything that can destroy live
-           data is a person with real database access, not a confirm dialog. --}}
-      {{-- Behind password.confirm (routes/web.php): the dump carries the
-           users table. data-password-gate opens the login-password pop-up in
-           place rather than leaving this page. --}}
-      <a href="{{ route('admin.backup') }}" class="btn btn-secondary btn-sm" data-no-skeleton
+           data is a person with real database access, not a confirm dialog.
+           Behind password.confirm (routes/web.php); data-password-gate opens
+           the login-password pop-up in place rather than leaving this page. --}}
+      <a href="{{ route('admin.backup') }}" class="btn btn-secondary btn-sm"
          data-password-gate="{{ \App\Support\PasswordGate::state() }}">
         <i class="ti ti-database-export" style="font-size:14px;"></i> Backup Database
       </a>

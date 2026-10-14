@@ -28,6 +28,40 @@ class ProductController extends Controller
      * to the loop. destroy() no longer touches these tables at all: it archives
      * the product, so the rows keep pointing at a row that still exists.
      */
+    /**
+     * Names and wording for the product form's errors. Both product forms show
+     * these under the field they belong to (resources/views/products/
+     * _field-error.blade.php), so they are written to be read there: "SKU is
+     * required", not "The sku field is required."
+     */
+    private const FORM_FIELDS = [
+        'name' => 'product name',
+        'sku' => 'SKU',
+        'barcode' => 'barcode',
+        'category_id' => 'category',
+        'unit' => 'unit',
+        'selling_price' => 'selling price',
+        'cost_price' => 'default cost price',
+        'reorder_level' => 'reorder level',
+    ];
+
+    private const FORM_MESSAGES = [
+        'required' => 'Enter the :attribute.',
+        'category_id.required' => 'Choose a category.',
+        'unit.required' => 'Choose a unit.',
+        'numeric' => 'The :attribute must be a number.',
+        'integer' => 'The :attribute must be a whole number.',
+        'min.numeric' => 'The :attribute cannot be below :min.',
+        'max.numeric' => 'The :attribute cannot be more than :max.',
+        'max.string' => 'The :attribute can be at most :max characters.',
+        // An archived product keeps its SKU reserved (see ArchiveTest), so
+        // "taken" can name a product the list does not show by default.
+        'sku.unique' => 'Another product already uses this SKU (archived products keep theirs).',
+        'barcode.unique' => 'Another product already uses this barcode.',
+        'category_id.exists' => 'Choose a category from the list.',
+        'unit.in' => 'Choose a unit from the list.',
+    ];
+
     private const SKU_KEYED_TABLES = [
         'sales_history',
         'demand_forecasts',
@@ -102,14 +136,28 @@ class ProductController extends Controller
             // own note. Feeds DashboardController::computeTodayProfit().
             'cost_price' => 'nullable|numeric|min:0|max:'.self::MAX_MONEY,
             'reorder_level' => 'required|integer|min:0|max:'.self::MAX_COUNT,
-        ]);
+        ], self::FORM_MESSAGES, self::FORM_FIELDS);
 
         $product = Product::create($validated);
         AuditTrail::log('Created', "Added product: {$product->name} (SKU: {$product->sku})");
 
         AlertService::forget();
 
-        return $this->actionOk($request, "Product \"{$product->name}\" added successfully.", redirect()->route('products.index'));
+        // A new product has no batches, so it opens as Low Stock / Out of
+        // Stock everywhere. Land on its own page with the Add New Batch card
+        // called out, rather than back on the list with no hint that stock
+        // is the next step. `added=1` is what shows that callout.
+        $next = route('products.edit', ['product' => $product, 'added' => 1], false).'#add-batch';
+
+        if ($request->wantsJson() || $request->ajax()) {
+            return response()->json([
+                'success' => true,
+                'message' => "Product \"{$product->name}\" added.",
+                'redirect' => $next,
+            ]);
+        }
+
+        return redirect($next);
     }
 
     public function edit(Product $product)
@@ -217,7 +265,7 @@ class ProductController extends Controller
             'selling_price' => 'required|numeric|min:0|max:'.self::MAX_MONEY,
             'cost_price' => 'nullable|numeric|min:0|max:'.self::MAX_MONEY,
             'reorder_level' => 'required|integer|min:0|max:'.self::MAX_COUNT,
-        ]);
+        ], self::FORM_MESSAGES, self::FORM_FIELDS);
 
         $oldSku = $product->sku;
         $skuChanged = $validated['sku'] !== $oldSku;

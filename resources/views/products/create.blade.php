@@ -27,6 +27,7 @@
     </div>
 
     <form method="POST" action="{{ route('products.store') }}"
+          novalidate data-inline-errors
           class="js-confirm" data-confirm-tone="neutral" data-confirm-icon="ti-package"
           data-confirm-title="Add this product?" data-confirm-body="The product will be added to the catalogue and appear in Inventory."
           data-confirm-label="Add product">
@@ -39,7 +40,8 @@
                     <label for="name">Product Name</label>
                 </div>
                 <input type="text" id="name" name="name" value="{{ old('name') }}"
-                       placeholder="Enter product name" required>
+                       placeholder="Enter product name" required data-label="product name" maxlength="255" aria-describedby="name-error" @error('name') aria-invalid="true" @enderror>
+                @include('products._field-error', ['field' => 'name'])
             </div>
 
             <div class="form-field">
@@ -48,7 +50,8 @@
                     <label for="sku">SKU (Product Code)</label>
                 </div>
                 <input type="text" id="sku" name="sku" value="{{ old('sku') }}"
-                       placeholder="Enter SKU or product code" required>
+                       placeholder="Enter SKU or product code" required data-label="SKU" maxlength="50" aria-describedby="sku-error" @error('sku') aria-invalid="true" @enderror>
+                @include('products._field-error', ['field' => 'sku'])
             </div>
 
             <div class="form-field">
@@ -56,12 +59,13 @@
                     <span class="form-chip"><i class="ti ti-category" aria-hidden="true"></i></span>
                     <label for="category_id">Category</label>
                 </div>
-                <select id="category_id" name="category_id" required>
+                <select id="category_id" name="category_id" required data-label="category" aria-describedby="category_id-error" @error('category_id') aria-invalid="true" @enderror>
                     <option value="">-- Select Category --</option>
                     @foreach($categories as $cat)
                         <option value="{{ $cat->id }}" {{ old('category_id') == $cat->id ? 'selected' : '' }}>{{ $cat->name }}</option>
                     @endforeach
                 </select>
+                @include('products._field-error', ['field' => 'category_id'])
             </div>
 
             <div class="form-field">
@@ -73,11 +77,12 @@
                      lowercase "pcs" while every row in the catalogue says
                      "PCS", so each product added here started a second spelling
                      of the same unit. See Product::UNITS. --}}
-                <select id="unit" name="unit" required>
+                <select id="unit" name="unit" required data-label="unit" aria-describedby="unit-error" @error('unit') aria-invalid="true" @enderror>
                     @foreach(\App\Models\Product::unitOptions() as $unitOption)
                         <option value="{{ $unitOption }}" {{ old('unit', 'PCS') === $unitOption ? 'selected' : '' }}>{{ $unitOption }}</option>
                     @endforeach
                 </select>
+                @include('products._field-error', ['field' => 'unit'])
             </div>
 
             <div class="form-field">
@@ -86,7 +91,8 @@
                     <label for="selling_price">Selling Price (&#8369;)</label>
                 </div>
                 <input type="number" step="0.01" id="selling_price" name="selling_price"
-                       value="{{ old('selling_price') }}" placeholder="0.00" required>
+                       value="{{ old('selling_price') }}" placeholder="0.00" required data-label="selling price" min="0" max="{{ \App\Http\Controllers\Controller::MAX_MONEY }}" aria-describedby="selling_price-error" @error('selling_price') aria-invalid="true" @enderror>
+                @include('products._field-error', ['field' => 'selling_price'])
             </div>
 
             {{-- "Default", not bare "Cost Price" -- see products/edit.blade.php's
@@ -106,7 +112,8 @@
                     <label for="cost_price">Default Cost Price (&#8369;)</label>
                 </div>
                 <input type="number" step="0.01" id="cost_price" name="cost_price"
-                       value="{{ old('cost_price') }}" placeholder="0.00">
+                       value="{{ old('cost_price') }}" placeholder="0.00" data-label="default cost price" min="0" max="{{ \App\Http\Controllers\Controller::MAX_MONEY }}" aria-describedby="cost_price-error" @error('cost_price') aria-invalid="true" @enderror>
+                @include('products._field-error', ['field' => 'cost_price'])
                 <span class="form-field-note">
                     <i class="ti ti-info-circle" aria-hidden="true"></i>
                     Optional. Used to work out today's profit on the dashboard.
@@ -119,7 +126,8 @@
                     <label for="reorder_level">Reorder Level (Low Stock Threshold)</label>
                 </div>
                 <input type="number" id="reorder_level" name="reorder_level"
-                       value="{{ old('reorder_level', 10) }}" required>
+                       value="{{ old('reorder_level', 10) }}" required data-label="reorder level" min="0" max="{{ \App\Http\Controllers\Controller::MAX_COUNT }}" step="1" aria-describedby="reorder_level-error" @error('reorder_level') aria-invalid="true" @enderror>
+                @include('products._field-error', ['field' => 'reorder_level'])
                 <span class="form-field-note">
                     <i class="ti ti-info-circle" aria-hidden="true"></i>
                     Alerts fire when sellable stock falls to this level.

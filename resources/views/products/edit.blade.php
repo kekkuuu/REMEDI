@@ -36,6 +36,7 @@
     </div>
 
     <form method="POST" action="{{ route('products.update', $product) }}"
+          novalidate data-inline-errors
           class="js-confirm" data-confirm-tone="neutral" data-confirm-icon="ti-device-floppy"
           data-confirm-title="Save changes?" data-confirm-body="Update this product details."
           data-confirm-label="Save changes">
@@ -54,7 +55,8 @@
                     <span class="form-chip" aria-hidden="true"><i class="ti ti-bottle"></i></span>
                     <label for="name">Product Name</label>
                 </div>
-                <input type="text" id="name" name="name" value="{{ old('name', $product->name) }}" required>
+                <input type="text" id="name" name="name" value="{{ old('name', $product->name) }}" required data-label="product name" maxlength="255" aria-describedby="name-error" @error('name') aria-invalid="true" @enderror>
+                @include('products._field-error', ['field' => 'name'])
             </div>
 
             <div class="form-field">
@@ -62,7 +64,8 @@
                     <span class="form-chip" aria-hidden="true"><i class="ti ti-barcode"></i></span>
                     <label for="sku">SKU (Product Code)</label>
                 </div>
-                <input type="text" id="sku" name="sku" value="{{ old('sku', $product->sku) }}" required>
+                <input type="text" id="sku" name="sku" value="{{ old('sku', $product->sku) }}" required data-label="SKU" maxlength="50" aria-describedby="sku-error" @error('sku') aria-invalid="true" @enderror>
+                @include('products._field-error', ['field' => 'sku'])
             </div>
 
             <div class="form-field">
@@ -70,11 +73,12 @@
                     <span class="form-chip" aria-hidden="true"><i class="ti ti-category"></i></span>
                     <label for="category_id">Category</label>
                 </div>
-                <select id="category_id" name="category_id" required>
+                <select id="category_id" name="category_id" required data-label="category" aria-describedby="category_id-error" @error('category_id') aria-invalid="true" @enderror>
                     @foreach($categories as $cat)
                         <option value="{{ $cat->id }}" {{ old('category_id', $product->category_id) == $cat->id ? 'selected' : '' }}>{{ $cat->name }}</option>
                     @endforeach
                 </select>
+                @include('products._field-error', ['field' => 'category_id'])
             </div>
 
             <div class="form-field">
@@ -84,11 +88,12 @@
                 </div>
                 {{-- unitOptions($product->unit) keeps a legacy value selectable,
                      so editing anything else does not rewrite it. --}}
-                <select id="unit" name="unit" required>
+                <select id="unit" name="unit" required data-label="unit" aria-describedby="unit-error" @error('unit') aria-invalid="true" @enderror>
                     @foreach(\App\Models\Product::unitOptions($product->unit) as $unitOption)
                         <option value="{{ $unitOption }}" {{ old('unit', $product->unit) === $unitOption ? 'selected' : '' }}>{{ $unitOption }}</option>
                     @endforeach
                 </select>
+                @include('products._field-error', ['field' => 'unit'])
             </div>
 
             <div class="form-field">
@@ -96,7 +101,8 @@
                     <span class="form-chip" aria-hidden="true"><i class="ti ti-coin"></i></span>
                     <label for="selling_price">Selling Price (&#8369;)</label>
                 </div>
-                <input type="number" step="0.01" id="selling_price" name="selling_price" value="{{ old('selling_price', $product->selling_price) }}" required>
+                <input type="number" step="0.01" id="selling_price" name="selling_price" value="{{ old('selling_price', $product->selling_price) }}" required data-label="selling price" min="0" max="{{ \App\Http\Controllers\Controller::MAX_MONEY }}" aria-describedby="selling_price-error" @error('selling_price') aria-invalid="true" @enderror>
+                @include('products._field-error', ['field' => 'selling_price'])
             </div>
 
             {{-- "Default", not bare "Cost Price": the Add New Batch card below
@@ -114,7 +120,8 @@
                     <span class="form-chip" aria-hidden="true"><i class="ti ti-receipt-refund"></i></span>
                     <label for="cost_price">Default Cost Price (&#8369;)</label>
                 </div>
-                <input type="number" step="0.01" id="cost_price" name="cost_price" value="{{ old('cost_price', $product->cost_price) }}">
+                <input type="number" step="0.01" id="cost_price" name="cost_price" value="{{ old('cost_price', $product->cost_price) }}" data-label="default cost price" min="0" max="{{ \App\Http\Controllers\Controller::MAX_MONEY }}" aria-describedby="cost_price-error" @error('cost_price') aria-invalid="true" @enderror>
+                @include('products._field-error', ['field' => 'cost_price'])
                 <span class="form-field-note">
                     <i class="ti ti-info-circle" aria-hidden="true"></i>
                     Optional. Used to work out today's profit on the dashboard -- separate from a batch's own delivery cost below.
@@ -126,7 +133,8 @@
                     <span class="form-chip" aria-hidden="true"><i class="ti ti-alert-triangle"></i></span>
                     <label for="reorder_level">Reorder Level (Low Stock Threshold)</label>
                 </div>
-                <input type="number" id="reorder_level" name="reorder_level" value="{{ old('reorder_level', $product->reorder_level) }}" required>
+                <input type="number" id="reorder_level" name="reorder_level" value="{{ old('reorder_level', $product->reorder_level) }}" required data-label="reorder level" min="0" max="{{ \App\Http\Controllers\Controller::MAX_COUNT }}" step="1" aria-describedby="reorder_level-error" @error('reorder_level') aria-invalid="true" @enderror>
+                @include('products._field-error', ['field' => 'reorder_level'])
                 <span class="form-field-note">
                     <i class="ti ti-info-circle" aria-hidden="true"></i>
                     Alerts fire when sellable stock falls to this level.
@@ -146,7 +154,23 @@
     </form>
 </div>
 
-<div class="form-card" style="margin-bottom:20px;">
+{{-- A product arrives here straight from Add Product (ProductController::
+     store, `added=1`). It has no batches yet, so every list already shows it
+     as Low Stock / Out of Stock -- correct, but the next step is not obvious
+     from there. This says so and points at the card below; the link jumps to
+     #add-batch and the script focuses its first field. --}}
+@if(request()->boolean('added') && $product->batches()->doesntExist())
+    <div class="next-step" role="status">
+        <i class="ti ti-circle-check" aria-hidden="true"></i>
+        <div>
+            <strong>Product added.</strong>
+            It has no stock yet, so it shows as Out of Stock until its first batch is in.
+            <a href="#add-batch" class="next-step-link">Add the first batch now <i class="ti ti-arrow-down" aria-hidden="true"></i></a>
+        </div>
+    </div>
+@endif
+
+<div class="form-card" id="add-batch" style="margin-bottom:20px; scroll-margin-top:90px;">
     <div class="section-head">
         <h4>Add New Batch</h4>
     </div>
@@ -454,6 +478,21 @@
 </style>
 
 <script>
+/* Arriving from Add Product (#add-batch), or following the callout's link:
+ * put the cursor in Quantity, the first field the admin types. Not the
+ * received date -- focusing a date field opens its picker (the layout's
+ * date-placeholder script), which nobody asked for on page load. */
+(function () {
+    function focusBatch() {
+        var qty = document.getElementById('quantity');
+        if (qty) qty.focus({ preventScroll: true });
+    }
+    if (location.hash === '#add-batch') focusBatch();
+    document.querySelectorAll('.next-step-link').forEach(function (a) {
+        a.addEventListener('click', function () { setTimeout(focusBatch, 0); });
+    });
+})();
+
 /* The batch number follows the received date.
  *
  * This is a DISPLAY of ProductBatch::nextBatchNumber(), not a second copy of

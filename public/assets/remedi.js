@@ -1415,6 +1415,108 @@
         if (!document.hidden) start();
     })();
 
+    /* ── Inline field errors (forms marked data-inline-errors) ────────────
+       A form opted in with `novalidate data-inline-errors` is checked here
+       before the confirm dialog opens, and every problem is written under its
+       own field at once -- the browser's native bubble shows one field at a
+       time and says nothing a cashier-turned-admin can act on. Each field
+       carries data-label ("selling price") and an empty
+       <p class="err" data-error-for="<name>"> after it
+       (products/_field-error.blade.php). The SERVER is still the guard: a 422
+       from the dialog's fetch is painted the same way (showFieldErrors), which
+       is how a duplicate SKU -- something only the database knows -- lands
+       under the SKU box. Wording matches ProductController::FORM_MESSAGES. */
+    (function () {
+        function errorLine(form, name) {
+            return form.querySelector('[data-error-for="' + name + '"]');
+        }
+
+        function setError(form, field, message) {
+            var line = errorLine(form, field.name);
+            if (message) field.setAttribute('aria-invalid', 'true');
+            else field.removeAttribute('aria-invalid');
+            if (!line) return;
+            line.textContent = message || '';
+            line.hidden = !message;
+        }
+
+        function messageFor(field) {
+            var label = field.dataset.label || field.name;
+            var value = (field.value || '').trim();
+
+            if (value === '') {
+                if (!field.required) return '';
+                return field.tagName === 'SELECT' ? 'Choose a ' + label + '.' : 'Enter the ' + label + '.';
+            }
+
+            if (field.type === 'number') {
+                var n = Number(value);
+                if (!isFinite(n) || field.validity.badInput) return 'The ' + label + ' must be a number.';
+                if (field.min !== '' && n < Number(field.min)) return 'The ' + label + ' cannot be below ' + field.min + '.';
+                if (field.max !== '' && n > Number(field.max)) return 'The ' + label + ' cannot be more than ' + field.max + '.';
+                if (field.getAttribute('step') === '1' && Math.floor(n) !== n) return 'The ' + label + ' must be a whole number.';
+            }
+
+            if (field.maxLength > 0 && value.length > field.maxLength) {
+                return 'The ' + label + ' can be at most ' + field.maxLength + ' characters.';
+            }
+
+            return '';
+        }
+
+        function fields(form) {
+            return Array.prototype.filter.call(form.elements, function (el) {
+                return el.name && el.dataset && el.dataset.label !== undefined;
+            });
+        }
+
+        /* True when every field passes; otherwise writes each message and
+           focuses the first field that failed. */
+        REMEDI.checkFields = function (form) {
+            var first = null;
+            fields(form).forEach(function (field) {
+                var message = messageFor(field);
+                setError(form, field, message);
+                if (message && !first) first = field;
+            });
+            if (first) {
+                first.focus({ preventScroll: true });
+                first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }
+            return !first;
+        };
+
+        /* Paints a Laravel 422's `errors` under the matching fields. Returns
+           false when none of them belong to a field on this form, so the
+           caller can fall back to the dialog rather than say nothing. */
+        REMEDI.showFieldErrors = function (form, errors) {
+            var first = null;
+            Object.keys(errors || {}).forEach(function (name) {
+                var field = form.elements[name];
+                if (!field || !errorLine(form, name)) return;
+                var list = errors[name];
+                setError(form, field, Array.isArray(list) ? list[0] : String(list));
+                if (!first) first = field;
+            });
+            if (first) {
+                first.focus({ preventScroll: true });
+                first.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            }
+            return !!first;
+        };
+
+        // Fixing a field clears its message straight away; it is checked again
+        // on the next submit, not on every keystroke.
+        document.addEventListener('input', clearOwn);
+        document.addEventListener('change', clearOwn);
+        function clearOwn(e) {
+            var field = e.target;
+            var form = field && field.form;
+            if (!form || !form.hasAttribute('data-inline-errors') || !field.hasAttribute('aria-invalid')) return;
+            setError(form, field, '');
+        }
+    })();
+
     /* ── Confirm + AJAX for destructive / state-changing actions ──────────
        One handler for every `form.js-confirm` in the app: delete a product,
        batch, category or user; activate/deactivate a user; mark a batch
@@ -1699,6 +1801,9 @@
             const target = e.target.closest('form.js-confirm');
             if (!target || submitting) return;
             e.preventDefault();
+            // Nothing to confirm while a field is still wrong -- see the
+            // inline-errors block above.
+            if (target.hasAttribute('data-inline-errors') && !REMEDI.checkFields(target)) return;
             open(target);
         });
 
@@ -1772,7 +1877,17 @@
                     reset();
 
                     if (!result.ok || !result.data.success) {
+                        if (target.hasAttribute('data-inline-errors') && result.data && result.data.errors
+                            && REMEDI.showFieldErrors(target, result.data.errors)) return;
                         notify('danger', failureMessage(result.data));
+                        return;
+                    }
+
+                    // The action names its next page (Add Product -> the new
+                    // product's Add New Batch card). Go there; that page says
+                    // what happened, so no "Done" dialog in between.
+                    if (result.data.redirect) {
+                        window.location.href = result.data.redirect;
                         return;
                     }
 

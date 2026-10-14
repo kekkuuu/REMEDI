@@ -133,6 +133,89 @@
     @endif
 </div>
 
+{{-- Backup password (2026-10-15, at the user's request). Every full backup
+     (Audit trail → Backup Database) is an AES-256 zip locked with this, so it
+     is set once here instead of typed for every download. Stored ENCRYPTED
+     with the app key, not hashed -- see Setting::BACKUP_PASSWORD_KEY. --}}
+<div class="form-card" style="margin-top:20px;" id="backup-password">
+    <div class="section-head">
+        <h4>Backup Password</h4>
+    </div>
+
+    <p style="margin:0 0 16px; font-size:13.5px; color:var(--ink-soft);">
+        Every full database backup is a .zip locked with this password (open it with 7-Zip or WinRAR).
+        Set it once here and the backup page uses it automatically. Changing it does not affect backups
+        already downloaded &mdash; each one keeps the password it was made with, so keep a note of old
+        passwords for as long as you keep old backups. It is never shown again after saving.
+    </p>
+
+    <p style="margin:0 0 20px; font-size:13.5px;">
+        @if($backupPasswordSet && $backupPasswordReadable)
+            <span class="badge badge-success"><i class="ti ti-lock" aria-hidden="true"></i> A backup password is set</span>
+            @if($backupPasswordSetAt) &mdash; last changed {{ $backupPasswordSetAt->format('M j, Y g:i A') }}. @endif
+        @elseif($backupPasswordSet)
+            <span class="badge badge-warning"><i class="ti ti-alert-triangle" aria-hidden="true"></i> Saved password cannot be read here</span>
+            &mdash; it was saved on a server with a different app key. Set it again below.
+        @else
+            <span class="badge badge-warning"><i class="ti ti-lock-open" aria-hidden="true"></i> No backup password set</span>
+            &mdash; a full backup asks for a password each time until one is.
+        @endif
+    </p>
+
+    <form method="POST" action="{{ route('safeguard.backup-password.update') }}"
+          class="js-confirm" data-confirm-tone="neutral" data-confirm-icon="ti-file-zip"
+          data-confirm-title="{{ $backupPasswordSet ? 'Change the backup password?' : 'Set the backup password?' }}"
+          data-confirm-body="{{ $backupPasswordSet ? 'New backups will be locked with the new password. Backups already downloaded still open only with the old one.' : 'Every full backup from now on will be locked with this password.' }}"
+          data-confirm-label="{{ $backupPasswordSet ? 'Change password' : 'Set password' }}">
+        @csrf
+        @method('PUT')
+
+        <div class="form-grid">
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip"><i class="ti ti-key" aria-hidden="true"></i></span>
+                    <label for="backup_password">{{ $backupPasswordSet ? 'New backup password' : 'Backup password' }}</label>
+                </div>
+                <input type="password" id="backup_password" name="backup_password" minlength="{{ $backupPasswordMin }}" maxlength="128"
+                       autocomplete="new-password" required>
+                <span class="form-field-note">
+                    <i class="ti ti-info-circle" aria-hidden="true"></i>
+                    At least {{ $backupPasswordMin }} characters. Not your login password.
+                </span>
+                @error('backup_password')<p class="err">{{ $message }}</p>@enderror
+            </div>
+
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip"><i class="ti ti-key" aria-hidden="true"></i></span>
+                    <label for="backup_password_confirmation">Type it again</label>
+                </div>
+                <input type="password" id="backup_password_confirmation" name="backup_password_confirmation" minlength="{{ $backupPasswordMin }}" maxlength="128"
+                       autocomplete="new-password" required>
+            </div>
+        </div>
+
+        <div class="form-actions">
+            <button type="submit" class="btn btn-primary btn-lg">
+                <i class="ti ti-device-floppy" aria-hidden="true"></i> {{ $backupPasswordSet ? 'Change Password' : 'Set Password' }}
+            </button>
+        </div>
+    </form>
+
+    @if($backupPasswordSet)
+        <form method="POST" action="{{ route('safeguard.backup-password.update') }}" style="margin-top:10px;"
+              class="js-confirm" data-confirm-icon="ti-trash"
+              data-confirm-title="Remove the backup password?"
+              data-confirm-body="A full backup will ask for a password each time it is downloaded."
+              data-confirm-label="Remove password">
+            @csrf
+            @method('PUT')
+            <input type="hidden" name="remove" value="1">
+            <button type="submit" class="btn btn-clear"><i class="ti ti-trash" aria-hidden="true"></i> Remove Password</button>
+        </form>
+    @endif
+</div>
+
 {{-- The same reader the POS camera scanner uses (ZXing C++ in WebAssembly). --}}
 <script src="https://cdn.jsdelivr.net/npm/barcode-detector@3.2.2/dist/iife/ponyfill.js"></script>
 <script>
