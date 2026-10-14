@@ -257,12 +257,23 @@ class ReportController extends Controller
             // empty. Archived products with sales stay listed: this reads
             // HISTORY, and a product discontinued last month still has sales
             // to look back on.
-            'productOptions' => Product::withTrashed()
-                ->where(fn ($q) => $q
-                    ->whereIn('sku', DB::table('sales_history')->select('product_sku')->distinct())
-                    ->orWhereIn('id', DB::table('sale_items')->select('product_id')->distinct()))
-                ->orderBy('name')
-                ->get(['id', 'sku', 'name']),
+            //
+            // Cached (2026-10-14): the query scans every sales_history row and
+            // took ~200 ms on its own, on every Sales Report load. The list
+            // changes only when a product first sells (an import or a checkout,
+            // both of which bump a version stamp in the key) or a product is
+            // renamed (AppServiceProvider bumps the POS stamp for that).
+            'productOptions' => SalesHistory::rememberWithStamps(
+                'sales_report_products',
+                fn () => Product::withTrashed()
+                    ->where(fn ($q) => $q
+                        ->whereIn('sku', DB::table('sales_history')->select('product_sku')->distinct())
+                        ->orWhereIn('id', DB::table('sale_items')->select('product_id')->distinct()))
+                    ->orderBy('name')
+                    ->get(['sku', 'name'])
+                    ->map(fn ($p) => (object) ['sku' => $p->sku, 'name' => $p->name])
+                    ->all()
+            ),
 
             // Plain <select>: dozens of staff accounts at most. withTrashed():
             // an archived/deactivated account still has real sales to filter to.

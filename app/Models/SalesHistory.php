@@ -91,6 +91,16 @@ class SalesHistory extends Model
         return 'sh:'.$v.':'.$what.':'.implode(':', $parts);
     }
 
+    /**
+     * Cache $build under both version stamps, until midnight at the latest --
+     * for anything derived from the sales records that must refresh the moment
+     * an import, a checkout or a void changes them.
+     */
+    public static function rememberWithStamps(string $what, callable $build)
+    {
+        return Cache::memo()->remember(static::rangeKey($what, [], dependsOnPos: true), static::cacheUntil(), $build);
+    }
+
     public static function forgetCaches(): void
     {
         foreach (self::CACHE_KEYS as $key) {
@@ -540,6 +550,18 @@ class SalesHistory extends Model
      * rung up since then fell outside every report's default window.
      */
     public static function dateBounds(): array
+    {
+        // Cached on both version stamps (2026-10-14): the bounds move only when
+        // the history is imported or the till records or voids a sale, and both
+        // bump a stamp. Every report view ran these two scans otherwise.
+        return Cache::memo()->remember(
+            static::rangeKey('bounds', [today()->toDateString()], dependsOnPos: true),
+            static::cacheUntil(),
+            fn () => static::computeDateBounds()
+        );
+    }
+
+    private static function computeDateBounds(): array
     {
         $hist = DB::table('sales_history')
             ->selectRaw('MIN(sale_date) AS mn, MAX(sale_date) AS mx')

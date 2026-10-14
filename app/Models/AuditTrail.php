@@ -87,9 +87,15 @@ class AuditTrail extends Model
         ]);
 
         // The bell's System/Updates tabs are built from these rows and cached
-        // for AlertService::TTL_SECONDS. Every write here is, by definition, a
-        // new notification, so retire that cache rather than showing a feed
-        // that is missing the thing the user just did.
-        Cache::memo()->forget('topbar_activity');
+        // for AlertService::TTL_SECONDS. Every write here is a new notification,
+        // so retire that cache rather than showing a feed that is missing the
+        // thing the user just did -- EXCEPT a `Viewed` row, which the feed
+        // filters out (AlertService::activity(), "reads are not news"). Clearing
+        // it for one made every report view rebuild the feed for nothing: a
+        // delete, a re-read and a re-write, each a database round trip on
+        // Vercel (2026-10-14).
+        if ($action !== 'Viewed') {
+            Cache::memo()->forget('topbar_activity');
+        }
     }
 }

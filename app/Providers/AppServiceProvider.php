@@ -96,6 +96,11 @@ class AppServiceProvider extends ServiceProvider
         Product::saved(function (Product $product) {
             if ($product->wasChanged('selling_price')) {
                 self::forgetRevenueCaches();
+            } elseif ($product->wasChanged(['name', 'sku'])) {
+                // The Sales Report's cached product list shows names and SKUs.
+                // Bumping the POS stamp retires it (and only the cheap
+                // POS-dependent aggregates); a rename is rare.
+                SalesHistory::bumpCacheVersion();
             }
         });
 
