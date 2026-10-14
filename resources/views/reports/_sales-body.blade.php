@@ -153,7 +153,9 @@
     <div class="sr-card sr-pad">
         <div class="sr-card-title" style="margin-bottom:12px;">
             <i class="ti ti-chart-bar" aria-hidden="true"></i>
-            {{ $groupTitle }} Sales — {{ $s->format('M d') }} to {{ $e->format('M d, Y') }}
+            {{-- The start's year only when it differs, as the Date Range card does:
+                 "Jul 01 to Oct 07, 2026" read as one year when it spanned four. --}}
+            {{ $groupTitle }} Sales — {{ $s->format($s->year === $e->year ? 'M d' : 'M d, Y') }} to {{ $e->format('M d, Y') }}
         </div>
         @if($dailyBreakdown->isNotEmpty())
             <canvas id="dailySalesChart" height="90"></canvas>
