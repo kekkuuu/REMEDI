@@ -71,23 +71,9 @@
                 <span class="kpi-label">{{ $scopeCashier ? $scopeCashier->name.'\'s Sales' : 'Total Sales' }}</span>
             </div>
             <span class="kpi-value">&#8369;{{ number_format($totalSales, 2) }}</span>
-            {{-- Say what the figure is made of: it merges the imported record
-                 with live POS checkouts, and only the POS half can be listed
-                 as transactions. --}}
-            @if($historyTotal > 0 && $posTotal > 0)
-                <span class="kpi-sub">
-                    &#8369;{{ number_format($historyTotal, 2) }} imported
-                    + &#8369;{{ number_format($posTotal, 2) }} from POS
-                </span>
-            @elseif($posTotal > 0 && $scopeCashier)
-                <span class="kpi-sub">{{ $scopeCashier->name }}'s till sales only &middot; set Cashier to "All cashiers" for the store total</span>
-            @elseif($posTotal > 0)
-                <span class="kpi-sub">all from POS transactions</span>
-            @elseif($scopeCashier)
-                <span class="kpi-sub">no sales by {{ $scopeCashier->name }} in this range</span>
-            @else
-                <span class="kpi-sub">from the imported sales record</span>
-            @endif
+            {{-- No subtitle (removed 2026-10-14, at the user's request). The
+                 imported / this-terminal split it carried is still shown, per
+                 day or month, in "Where the total comes from" below. --}}
         </div>
 
         <div class="kpi" style="--kpi-accent:#3b82f6;">

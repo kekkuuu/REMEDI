@@ -1576,8 +1576,10 @@ by" — the same "say what the KPI is made of" instinct behind the History/POS c
 but the table beneath it lists POS transactions only, because a history row has no transaction
 number or cashier to show. So the KPI could never equal the visible rows: Aug 21–25 read
 ₱283,265.21 above 16 transactions worth ₱31,195.98. Both numbers were right; neither said what it
-was counting. The KPI now carries the split (`$historyTotal` / `$posTotal`) underneath it. If you add
-another figure sourced from the merged series, label it the same way.
+was counting. The KPI carried the split (`$historyTotal` / `$posTotal`) underneath it until
+2026-10-14, when the subtitle was removed at the user's request; the split is still shown per day/month
+in "Where the total comes from" (imported / this terminal columns). If you add another figure sourced
+from the merged series, say what it is made of somewhere on the page.
 
 **A `<select>` with nothing selected displays its FIRST option, and that option was a claim.** The
 Sales Report's month control offers "All time (Sep 2022 – Sep 2026)" at `value=""`, so generating by
