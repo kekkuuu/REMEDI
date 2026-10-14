@@ -2574,3 +2574,57 @@
         setTimeout(once, READY_FALLBACK_MS);
     })();
 
+
+    /* KPI figures stay on ONE line and shrink to fit their card (2026-10-14).
+       A long peso amount ("₱7,634,324.92") has no spaces to wrap on, so
+       .kpi-value's overflow-wrap:break-word split it mid-number at narrow
+       widths ("₱7,634,324." / "92"). Here the figure keeps its normal size and
+       only steps down, 1px at a time to a 14px floor, when it actually does not
+       fit -- short counts like "653" never change size. Re-fitted when a card
+       resizes, when cards arrive over AJAX (the dashboard body, the live report
+       filters) and once the web font has loaded. A .kpi-value that sets its
+       own inline style (the Analytics top-product name, which SHOULD wrap) is
+       left alone, and without JavaScript the CSS wrap is still the fallback. */
+    (function () {
+        if (!('ResizeObserver' in window) || !('MutationObserver' in window)) return;
+
+        var MIN_PX = 14;
+
+        function fit(el) {
+            el.style.fontSize = '';
+            var size = parseFloat(window.getComputedStyle(el).fontSize);
+            while (el.scrollWidth > el.clientWidth && size > MIN_PX) {
+                size -= 1;
+                el.style.fontSize = size + 'px';
+            }
+        }
+
+        var resized = new ResizeObserver(function (entries) {
+            entries.forEach(function (entry) { fit(entry.target); });
+        });
+
+        function adopt(root) {
+            var found = root.matches && root.matches('.kpi-value') ? [root] : [];
+            if (root.querySelectorAll) found = found.concat([].slice.call(root.querySelectorAll('.kpi-value')));
+            found.forEach(function (el) {
+                if (el.dataset.fit) return;
+                if (el.getAttribute('style')) { el.dataset.fit = 'skip'; return; }
+                el.dataset.fit = '1';
+                fit(el);
+                resized.observe(el);
+            });
+        }
+
+        adopt(document.body);
+        new MutationObserver(function (mutations) {
+            mutations.forEach(function (m) {
+                m.addedNodes.forEach(function (n) { if (n.nodeType === 1) adopt(n); });
+            });
+        }).observe(document.body, { childList: true, subtree: true });
+
+        if (document.fonts && document.fonts.ready) {
+            document.fonts.ready.then(function () {
+                document.querySelectorAll('.kpi-value[data-fit="1"]').forEach(fit);
+            });
+        }
+    })();

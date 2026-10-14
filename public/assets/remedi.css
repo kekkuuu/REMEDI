@@ -2006,6 +2006,14 @@
             overflow-wrap: break-word;
         }
 
+        /* Once remedi.js has taken a figure over, it stays on one line and the
+           script shrinks the font to fit instead (2026-10-14): break-word split
+           "₱7,634,324.92" mid-number. Without JavaScript the wrap above stands. */
+        .kpi-value[data-fit="1"] {
+            white-space: nowrap;
+            overflow-wrap: normal;
+        }
+
         .kpi-sub {
             display: block;
             margin-top: 4px;
