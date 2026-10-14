@@ -148,7 +148,7 @@
 
                         $expired = $p->expiredBatches ? $p->expiredBatches->count() : 0;
                     @endphp
-                <tr data-search="{{ Str::lower($p->name.' '.($p->category->name ?? '').' '.$p->sku) }}">
+                <tr data-search="{{ Str::lower($p->name.' '.($p->category->name ?? '').' '.$p->sku) }}"@if($p->is_running_out) data-low="1"@endif>
                     <td class="idx">{{ $loop->iteration }}</td>
                     <td><div class="strong">{{ $p->name }}</div>@if($expired)<div class="expired-note"><i class="ti ti-alert-triangle"></i> {{ $expired }} expired batch{{ $expired > 1 ? 'es' : '' }}</div>@endif</td>
                     <td class="muted">{{ $p->category->name ?? '—' }}</td>
@@ -263,25 +263,14 @@
                 <th class="mid">Status</th>
             </tr>
         </thead>
-        <tbody>
-            @forelse($products as $p)
-                @php $expired = $p->expiredBatches ? $p->expiredBatches->count() : 0; @endphp
-            <tr>
-                <td class="idx">{{ $loop->iteration }}</td>
-                <td class="strong">{{ $p->name }}
-                    @if($expired)<div class="expired-note">{{ $expired }} expired batch{{ $expired > 1 ? 'es' : '' }}</div>@endif</td>
-                <td class="muted">{{ $p->category->name ?? '—' }}</td>
-                <td class="strong {{ $p->is_running_out ? 'stock is-low' : '' }}">{{ $p->total_stock }} {{ $p->unit }}</td>
-                <td class="num muted">₱{{ number_format($p->selling_price, 2) }}</td>
-                <td class="num strong">₱{{ number_format($p->total_stock * $p->selling_price, 2) }}</td>
-                <td class="mid"><span class="{{ $p->is_running_out ? 'st-low' : 'st-ok' }}">{{ $p->is_running_out ? 'Low Stock' : 'OK' }}</span></td>
-            </tr>
-            @empty
-            <tr>
-                <td colspan="7" class="empty">No products found.</td>
-            </tr>
-            @endforelse
-        </tbody>
+        {{-- Filled in the BROWSER when the page is printed, from the screen
+             table above (buildInventoryPrintRows() in reports/inventory.blade.php,
+             run by the Print button and on `beforeprint`, so Ctrl+P is covered
+             too). Rendering both tables server-side sent all 2,637 products
+             twice -- ~3 MB per load (2026-10-14). The screen rows carry every
+             value the print row shows; `data-low` adds the one they do not,
+             Product::is_running_out, which this copy's status column reads. --}}
+        <tbody id="invPrintRows"></tbody>
         <tfoot>
             <tr>
                 <td colspan="5" class="label">Total Stock Value</td>

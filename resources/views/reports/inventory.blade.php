@@ -314,6 +314,71 @@
     initInventorySearch('');
 </script>
 <script>
+/* The print copy's rows, built from the screen table when the page is printed
+   (the server no longer sends the catalogue twice -- see #invPrintRows in
+   reports/_inventory-body). Every row of the screen table, whatever the
+   search box is hiding: a printed report stays complete. textContent only,
+   so a product name can never become markup. */
+function buildInventoryPrintRows() {
+    var tbody = document.getElementById('invPrintRows');
+    if (!tbody || tbody.dataset.built === '1') return;
+
+    function cell(tr, cls, text) {
+        var td = document.createElement('td');
+        if (cls) td.className = cls;
+        if (text !== undefined) td.textContent = text;
+        tr.appendChild(td);
+        return td;
+    }
+
+    var screenRows = document.querySelectorAll('.inv-rep tbody tr[data-search]');
+    var frag = document.createDocumentFragment();
+
+    screenRows.forEach(function (src) {
+        var c = src.cells;
+        var low = src.dataset.low === '1';
+        var tr = document.createElement('tr');
+
+        cell(tr, 'idx', c[0].textContent.trim());
+
+        var name = cell(tr, 'strong', c[1].querySelector('.strong').textContent);
+        var note = c[1].querySelector('.expired-note');
+        if (note) {
+            var div = document.createElement('div');
+            div.className = 'expired-note';
+            div.textContent = note.textContent.trim();
+            name.appendChild(div);
+        }
+
+        cell(tr, 'muted', c[2].textContent.trim());
+        var unit = c[3].querySelector('.unit');
+        cell(tr, low ? 'strong stock is-low' : 'strong',
+            c[3].querySelector('.stock').textContent.trim() + (unit ? unit.textContent : ''));
+        cell(tr, 'num muted', c[4].textContent.trim());
+        cell(tr, 'num strong', c[5].textContent.trim());
+
+        var status = document.createElement('span');
+        status.className = low ? 'st-low' : 'st-ok';
+        status.textContent = low ? 'Low Stock' : 'OK';
+        cell(tr, 'mid').appendChild(status);
+
+        frag.appendChild(tr);
+    });
+
+    if (!screenRows.length) {
+        var tr = document.createElement('tr');
+        var td = cell(tr, 'empty', 'No products found.');
+        td.colSpan = 7;
+        frag.appendChild(tr);
+    }
+
+    tbody.appendChild(frag);
+    tbody.dataset.built = '1';
+}
+// Ctrl+P and the browser's own Print menu too, not only the button.
+window.addEventListener('beforeprint', buildInventoryPrintRows);
+</script>
+<script>
 /* Live filters, the way the Sales Report does it: a change fetches ONLY the
    report body (ReportController::inventory answers AJAX with {html, state}),
    swaps it in and redraws the charts. Clicks are caught on #invReport, below
@@ -410,7 +475,8 @@
 
     // Print what is on screen: wait for a refresh that is on its way.
     document.getElementById('invPrint').addEventListener('click', function () {
-        if (inFlight) inFlight.then(function () { window.print(); }); else window.print();
+        var printNow = function () { buildInventoryPrintRows(); window.print(); };
+        if (inFlight) inFlight.then(printNow); else printNow();
     });
 })();
 </script>

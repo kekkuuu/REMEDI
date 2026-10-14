@@ -132,19 +132,269 @@ class DashboardController extends Controller
         // presented as their day. Sales are already per-user everywhere else
         // (SaleController scopes staff to their own rows), so the dashboard was
         // the odd one out.
-        $todayByUser = Sale::whereDate('created_at', today())
+        //
+        // ONE query for every sales figure on this page (2026-10-14): today
+        // (total, count, this cashier's share, per hour), yesterday, the last 7
+        // and 14 days and the 30-day hourly baseline were six separate queries,
+        // each a database round trip on Vercel (~25 ms each). A shop's 30 days
+        // of non-voided checkouts is a few hundred rows; everything below is
+        // the same filter applied to them in memory.
+        $recentSales = Sale::where('created_at', '>=', today()->subDays(self::HOURLY_HISTORY_DAYS)->startOfDay())
             ->where('payment_voided', false)
-            ->selectRaw('user_id, COALESCE(SUM(total_amount), 0) as total, COUNT(*) as cnt')
-            ->groupBy('user_id')
-            ->get();
+            ->get(['user_id', 'created_at', 'total_amount']);
+        $onDay = fn (string $date) => $recentSales->filter(fn ($s) => $s->created_at->toDateString() === $date);
 
-        $todaySales = (float) $todayByUser->sum('total');
-        $todayTransactions = (int) $todayByUser->sum('cnt');
+        $todaysSaleRows = $onDay(today()->toDateString());
+        $todaySales = (float) $todaysSaleRows->sum('total_amount');
+        $todayTransactions = $todaysSaleRows->count();
 
-        $mine = $todayByUser->firstWhere('user_id', $user->id);
-        $myTodaySales = (float) ($mine->total ?? 0);
-        $myTodayTransactions = (int) ($mine->cnt ?? 0);
+        $mine = $todaysSaleRows->where('user_id', $user->id);
+        $myTodaySales = (float) $mine->sum('total_amount');
+        $myTodayTransactions = $mine->count();
 
+        // Every stock-derived figure -- low stock, expiring, expired, returns,
+        // the category breakdown and the expiry overview -- from ONE cached
+        // snapshot (2026-10-14). Building it loads every product and batch,
+        // ~500 ms of database and ~450 ms of PHP on Vercel, on every visit,
+        // although none of it moves until stock does. See stockSnapshot().
+        $stock = self::stockSnapshot();
+        ['returnableCount' => $returnableCount, 'returnStats' => $returnStats,
+            'nonPharmaReturnStats' => $nonPharmaReturnStats, 'expiryOverview' => $expiryOverview,
+            'totalProducts' => $totalProducts] = $stock['scalars'];
+        $lowStockProducts = collect($stock['lowStockIds']);
+        $expiredBatches = collect($stock['expiredIds']);
+        $needToReturnBatches = collect($stock['needToReturnIds']);
+        $nonPharmaNeedToReturnBatches = collect($stock['nonPharmaNeedToReturnIds']);
+        $lowestStockChart = collect($stock['lowestStockChart']);
+        $expiringSoonBatches = collect($stock['expiringSoonBatches']);
+        $categoryBreakdown = collect($stock['categoryBreakdown']);
+
+        // ── Panels added for the redesigned dashboard ──
+
+        // Sales deltas. Only computed where a real comparison exists: the POS
+        // records every checkout with a timestamp, so today-vs-yesterday and
+        // this-week-vs-last-week are honest. The stock counters below (low
+        // stock, expiring, expired, returns) deliberately get NO delta —
+        // nothing snapshots them daily, so "vs yesterday" there would be an
+        // invented number.
+        $yesterdayTotal = (float) $onDay(today()->subDay()->toDateString())->sum('total_amount');
+
+        // Feeds ATC below -- the trailing-7-day TRANSACTION COUNT, not the
+        // revenue total. The revenue side of this query used to feed a "Last
+        // 7 Days" KPI tile, replaced by Revenue Today (profit) below at the
+        // user's request; only the count survives here.
+        $weekStart = today()->subDays(6)->startOfDay();
+        $last7Transactions = $recentSales->filter(fn ($s) => $s->created_at->gte($weekStart))->count();
+
+        $atv = self::computeAtv($todaySales, $todayTransactions);
+        $atc = self::computeAtc($last7Transactions);
+
+        // Revenue Today (profit): each line's price and its product's
+        // cost_price, for today AND yesterday in one query, split by day here
+        // -- see computeTodayProfit()'s own docblock for why a line with no
+        // cost set is excluded rather than assumed to be pure profit. Voided
+        // sales excluded outright, same as every other "today" figure on this
+        // page.
+        $profitLinesByDay = DB::table('sale_items')
+            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+            ->join('products', 'products.id', '=', 'sale_items.product_id')
+            ->where('sales.created_at', '>=', today()->subDay()->startOfDay())
+            ->where('sales.created_at', '<', today()->addDay()->startOfDay())
+            ->where('sales.payment_voided', false)
+            ->select('sales.created_at', 'sale_items.quantity', 'sale_items.price', 'products.cost_price')
+            ->get()
+            ->groupBy(fn ($line) => substr((string) $line->created_at, 0, 10));
+
+        $todayProfitData = self::computeTodayProfit($profitLinesByDay->get(today()->toDateString(), collect()));
+        $yesterdayProfitData = self::computeTodayProfit($profitLinesByDay->get(today()->subDay()->toDateString(), collect()));
+
+        $pctChange = static function (float $now, float $before): ?float {
+            if ($before <= 0.0) {
+                return null;   // no baseline — a percentage would be meaningless
+            }
+
+            return round((($now - $before) / $before) * 100, 1);
+        };
+
+        $hour = (int) now()->format('G');
+
+        $data = [
+            'greeting' => match (true) {
+                $hour < 12 => 'Good morning',
+                $hour < 18 => 'Good afternoon',
+                default => 'Good evening',
+            },
+            'salesTodayDelta' => $pctChange($todaySales, $yesterdayTotal),
+            'todayProfit' => $todayProfitData['profit'],
+            'todayProfitMissingCost' => $todayProfitData['missing_cost_count'],
+            'todayProfitDelta' => $pctChange($todayProfitData['profit'], $yesterdayProfitData['profit']),
+            'atv' => $atv,
+            'atc' => $atc,
+
+            // Recent POS checkouts for the transactions panel. 15, not 6: the
+            // panel now scrolls inside a capped box (see .dash-lower-main
+            // .list-scroll), so more rows cost no page height and the panel
+            // stops being a six-row teaser.
+            'recentSales' => Sale::withCount('items')->latest()->take(15)->get(),
+
+            // Sales Summary: quarterly revenue for the latest year that has
+            // data, from sales_history (the POS table holds only this
+            // terminal's handful of checkouts).
+            'quarterSummary' => SalesHistory::quarterlyRevenue(),
+        ];
+
+        $data['expiryOverview'] = $expiryOverview;
+
+        $data += compact('returnableCount', 'todaySales', 'todayTransactions', 'myTodaySales', 'myTodayTransactions', 'lowStockProducts', 'lowestStockChart', 'expiringSoonBatches', 'expiredBatches', 'returnStats', 'needToReturnBatches', 'nonPharmaReturnStats', 'nonPharmaNeedToReturnBatches', 'categoryBreakdown');
+
+        // The full sales/inventory dashboard (monthly sales chart, high/low
+        // demand, lowest stock vs. reorder level, expiring soon) is shared
+        // by admin AND staff — both roles work the floor and need the same
+        // at-a-glance picture. Only strictly admin-only figures (user counts,
+        // etc.) stay behind the isAdmin() check below.
+        $data['totalProducts'] = $totalProducts;
+
+        // High/Low Demand Product — read from sales_history (the imported
+        // sales records), NOT from sale_items. The POS tables only hold the
+        // handful of transactions rung up on this install, so ranking demand
+        // off them showed a near-empty chart while years of real sales sat
+        // unused in sales_history. Window is anchored to the newest row in
+        // that table, not to today. Cached; see SalesHistory.
+        $demand = SalesHistory::recentDemand(30);
+
+        $data['topProducts'] = $demand['top'];
+        $data['lowDemandProducts'] = $demand['low'];
+
+        // Until the POS has enough real sales, fall back to historical
+        // receiving volume (imported from the supplier transaction
+        // history) as a demand proxy so these cards aren't empty.
+        $data['demandFromHistory'] = false;
+
+        if ($data['topProducts']->isEmpty() && $data['lowDemandProducts']->isEmpty()) {
+            $data['demandFromHistory'] = true;
+
+            $receiptTotals = InventoryReceipt::selectRaw('product_sku, SUM(qty) as total_qty')
+                ->groupBy('product_sku')
+                ->pluck('total_qty', 'product_sku');
+
+            $productsBySku = Product::whereIn('sku', $receiptTotals->keys())->get()->keyBy('sku');
+
+            $ranked = $receiptTotals
+                ->map(fn ($qty, $sku) => isset($productsBySku[$sku])
+                    ? (object) ['product' => $productsBySku[$sku], 'total_qty' => $qty]
+                    : null)
+                ->filter()
+                ->values();
+
+            $data['topProducts'] = $ranked->sortByDesc('total_qty')->take(5)->values();
+            $data['lowDemandProducts'] = $ranked->sortBy('total_qty')->take(3)->values();
+        }
+
+        // Total sales per month, full history, from sales_history.
+        //
+        // This used to sum the `sales` table over a hardcoded 3-month window.
+        // That table only holds live POS checkouts, so the chart showed a
+        // single populated month plus two empty bars, while the imported
+        // records (30+ months of them) were never plotted. Both the wrong
+        // source and the too-narrow window are fixed here.
+        $data['monthlySales'] = SalesHistory::monthlyRevenue();
+
+        if ($user && $user->isAdmin()) { // Added a quick null-check for safety
+            // Extra admin-only stats (not used by the shared dashboard
+            // partial today, but kept available for admin-only views).
+            $data['totalUsers'] = User::count();
+
+            // Daily sales for the last 14 days (used elsewhere, kept for compatibility)
+            $dailySalesRaw = $recentSales
+                ->groupBy(fn ($s) => $s->created_at->toDateString())
+                ->map(fn ($day) => $day->sum('total_amount'));
+
+            $data['dailySales'] = collect(range(13, 0))->mapWithKeys(function ($daysAgo) use ($dailySalesRaw) {
+                $date = now()->subDays($daysAgo)->toDateString();
+
+                return [$date => (float) ($dailySalesRaw[$date] ?? 0)];
+            });
+
+            // Derived from the 14-day series above instead of a separate
+            // sum() query — the last 7 days of it is exactly weekSales.
+            $data['weekSales'] = $data['dailySales']->slice(-7)->sum();
+
+            // Seasonal trends (avg. revenue per calendar month, all-time),
+            // from sales_history for the same reason as the charts above --
+            // the POS table has too few months to show a season at all.
+            // Derived in PHP from the already-cached monthly series, so it
+            // adds no query of its own.
+            $data['seasonalTrends'] = SalesHistory::seasonalTrends();
+
+            // Hourly Sales & Transaction Volume -- TODAY vs. this terminal's
+            // own recent HISTORICAL average, same shape as the Sales
+            // Report's own hourly breakdown (ReportController::
+            // buildSalesReportData), scoped to today because the dashboard
+            // has no date-range picker to scope it by. POS-only, and the
+            // "historical" half is too: sales_history (the imported 4-year
+            // record) has a DATE per row, never a time, so it has no hour to
+            // average -- there is no such thing as "yesterday's hourly
+            // pattern" anywhere except in this terminal's own POS history.
+            //
+            // HOURLY_HISTORY_DAYS (30): averaged over however many of the
+            // last 30 days actually have trade, not divided by a flat 30 --
+            // a terminal only 10 days old would otherwise show an average
+            // three times lower than it really is. today() itself is
+            // excluded from both the day count and the average, since it is
+            // the thing being compared against.
+            $hourlyHistoryDays = $recentSales->filter(fn ($s) => $s->created_at->lt(today()));
+
+            $historyDayCount = max(1, $hourlyHistoryDays->map(fn ($sale) => $sale->created_at->toDateString())->unique()->count());
+
+            $data['hourlyToday'] = collect(range(0, 23))->map(function ($hour) use ($todaysSaleRows, $hourlyHistoryDays, $historyDayCount) {
+                $inHour = $todaysSaleRows->filter(fn ($sale) => (int) $sale->created_at->format('G') === $hour);
+                $inHourHistory = $hourlyHistoryDays->filter(fn ($sale) => (int) $sale->created_at->format('G') === $hour);
+
+                return (object) [
+                    'hour' => $hour,
+                    'label' => now()->setTime($hour, 0)->format('g A'),
+                    'transactions' => $inHour->count(),
+                    'revenue' => round((float) $inHour->sum('total_amount'), 2),
+                    'avgRevenue' => round((float) $inHourHistory->sum('total_amount') / $historyDayCount, 2),
+                ];
+            });
+
+            $data['hourlyHistoryDayCount'] = $historyDayCount;
+
+            return $this->dashboardResponse($request, 'admin', $data);
+        }
+
+        return $this->dashboardResponse($request, 'staff', $data);
+    }
+
+    /**
+     * Every stock-derived dashboard figure, cached until stock next moves.
+     *
+     * Built from every product and batch (~2,600 of each), so it is the
+     * heaviest part of the dashboard; cached under AlertService::
+     * dashboardStockKey() (which carries today's date, because expiry
+     * countdowns are relative to today) and cleared by AlertService::forget(),
+     * which every stock change in the app already calls -- checkout, void,
+     * batch and product saves, returns, imports -- plus category changes. The
+     * TTL is only a backstop for a write that skips the model events.
+     *
+     * Lists the page only COUNTS are kept as ids, and the low-stock chart as
+     * the three values it plots: kept as models, the snapshot was 3.3 MB,
+     * because every batch carries its product and every product its batches.
+     * The expiring list keeps its batches (the page renders each row), each
+     * with its product and category only.
+     */
+    private static function stockSnapshot(): array
+    {
+        return \Illuminate\Support\Facades\Cache::memo()->remember(
+            \App\Services\AlertService::dashboardStockKey(),
+            now()->addMinutes(10),
+            fn () => self::computeStockSnapshot()
+        );
+    }
+
+    private static function computeStockSnapshot(): array
+    {
         // Every stat below (low stock, expiring soon, expired, medicine
         // returns) used to run as four separate queries that each
         // re-fetched overlapping batch + product + category data from
@@ -347,79 +597,6 @@ class DashboardController extends Controller
             ->sortByDesc('stock')
             ->values();
 
-        // ── Panels added for the redesigned dashboard ──
-
-        // Sales deltas. Only computed where a real comparison exists: the POS
-        // records every checkout with a timestamp, so today-vs-yesterday and
-        // this-week-vs-last-week are honest. The stock counters below (low
-        // stock, expiring, expired, returns) deliberately get NO delta —
-        // nothing snapshots them daily, so "vs yesterday" there would be an
-        // invented number.
-        $yesterdayTotal = (float) Sale::whereDate('created_at', today()->subDay())
-            ->where('payment_voided', false)->sum('total_amount');
-
-        // Feeds ATC below -- the trailing-7-day TRANSACTION COUNT, not the
-        // revenue total. The revenue side of this query used to feed a "Last
-        // 7 Days" KPI tile, replaced by Revenue Today (profit) below at the
-        // user's request; only the count survives here.
-        $last7Transactions = (int) Sale::where('created_at', '>=', today()->subDays(6)->startOfDay())
-            ->where('payment_voided', false)
-            ->count();
-
-        $atv = self::computeAtv($todaySales, $todayTransactions);
-        $atc = self::computeAtc($last7Transactions);
-
-        // Revenue Today (profit): one query per day, each line's price and
-        // its product's cost_price -- see computeTodayProfit()'s own
-        // docblock for why a line with no cost set is excluded rather than
-        // assumed to be pure profit. Voided sales excluded outright, same
-        // as every other "today" figure on this page.
-        $profitLines = static fn ($date) => DB::table('sale_items')
-            ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
-            ->join('products', 'products.id', '=', 'sale_items.product_id')
-            ->whereDate('sales.created_at', $date)
-            ->where('sales.payment_voided', false)
-            ->select('sale_items.quantity', 'sale_items.price', 'products.cost_price')
-            ->get();
-
-        $todayProfitData = self::computeTodayProfit($profitLines(today()));
-        $yesterdayProfitData = self::computeTodayProfit($profitLines(today()->subDay()));
-
-        $pctChange = static function (float $now, float $before): ?float {
-            if ($before <= 0.0) {
-                return null;   // no baseline — a percentage would be meaningless
-            }
-
-            return round((($now - $before) / $before) * 100, 1);
-        };
-
-        $hour = (int) now()->format('G');
-
-        $data = [
-            'greeting' => match (true) {
-                $hour < 12 => 'Good morning',
-                $hour < 18 => 'Good afternoon',
-                default => 'Good evening',
-            },
-            'salesTodayDelta' => $pctChange($todaySales, $yesterdayTotal),
-            'todayProfit' => $todayProfitData['profit'],
-            'todayProfitMissingCost' => $todayProfitData['missing_cost_count'],
-            'todayProfitDelta' => $pctChange($todayProfitData['profit'], $yesterdayProfitData['profit']),
-            'atv' => $atv,
-            'atc' => $atc,
-
-            // Recent POS checkouts for the transactions panel. 15, not 6: the
-            // panel now scrolls inside a capped box (see .dash-lower-main
-            // .list-scroll), so more rows cost no page height and the panel
-            // stops being a six-row teaser.
-            'recentSales' => Sale::withCount('items')->latest()->take(15)->get(),
-
-            // Sales Summary: quarterly revenue for the latest year that has
-            // data, from sales_history (the POS table holds only this
-            // terminal's handful of checkouts).
-            'quarterSummary' => SalesHistory::quarterlyRevenue(),
-        ];
-
         // Expiry Overview: every in-stock batch that has an expiry date, split
         // into the three horizons the app already works in. Derived from
         // $activeBatches, so no extra query.
@@ -427,7 +604,7 @@ class DashboardController extends Controller
         $soonCutoff = today()->addDays(ProductBatch::EXPIRY_SOON_DAYS);
         $midCutoff = today()->addDays(60);
 
-        $data['expiryOverview'] = [
+        $expiryOverview = [
             'expired' => $datedBatches->filter(fn ($b) => $b->is_expired)->count(),
             'soon' => $datedBatches->filter(fn ($b) => ! $b->is_expired && $b->expiry_date <= $soonCutoff)->count(),
             'mid' => $datedBatches->filter(fn ($b) => ! $b->is_expired
@@ -435,135 +612,33 @@ class DashboardController extends Controller
             'good' => $datedBatches->filter(fn ($b) => ! $b->is_expired && $b->expiry_date > $midCutoff)->count(),
         ];
 
-        $data += compact('returnableCount', 'todaySales', 'todayTransactions', 'myTodaySales', 'myTodayTransactions', 'lowStockProducts', 'lowestStockChart', 'expiringSoonBatches', 'expiredBatches', 'returnStats', 'needToReturnBatches', 'nonPharmaReturnStats', 'nonPharmaNeedToReturnBatches', 'categoryBreakdown');
+        return [
+            'scalars' => [
+                'returnableCount' => $returnableCount,
+                'returnStats' => $returnStats,
+                'nonPharmaReturnStats' => $nonPharmaReturnStats,
+                'expiryOverview' => $expiryOverview,
+                'totalProducts' => Product::count(),
+            ],
+            'lowStockIds' => $lowStockProducts->pluck('id')->all(),
+            'expiredIds' => $expiredBatches->pluck('id')->all(),
+            'needToReturnIds' => $needToReturnBatches->pluck('id')->all(),
+            'nonPharmaNeedToReturnIds' => $nonPharmaNeedToReturnBatches->pluck('id')->all(),
+            'lowestStockChart' => $lowestStockChart
+                ->map(fn ($p) => (object) ['name' => $p->name, 'total_stock' => $p->total_stock, 'reorder_level' => $p->reorder_level])
+                ->all(),
+            'expiringSoonBatches' => $expiringSoonBatches
+                ->map(function ($b) {
+                    $copy = $b->withoutRelations();
+                    if ($b->product) {
+                        $copy->setRelation('product', $b->product->withoutRelations()->setRelation('category', $b->product->category));
+                    }
 
-        // The full sales/inventory dashboard (monthly sales chart, high/low
-        // demand, lowest stock vs. reorder level, expiring soon) is shared
-        // by admin AND staff — both roles work the floor and need the same
-        // at-a-glance picture. Only strictly admin-only figures (user counts,
-        // etc.) stay behind the isAdmin() check below.
-        $data['totalProducts'] = Product::count();
-
-        // High/Low Demand Product — read from sales_history (the imported
-        // sales records), NOT from sale_items. The POS tables only hold the
-        // handful of transactions rung up on this install, so ranking demand
-        // off them showed a near-empty chart while years of real sales sat
-        // unused in sales_history. Window is anchored to the newest row in
-        // that table, not to today. Cached; see SalesHistory.
-        $demand = SalesHistory::recentDemand(30);
-
-        $data['topProducts'] = $demand['top'];
-        $data['lowDemandProducts'] = $demand['low'];
-
-        // Until the POS has enough real sales, fall back to historical
-        // receiving volume (imported from the supplier transaction
-        // history) as a demand proxy so these cards aren't empty.
-        $data['demandFromHistory'] = false;
-
-        if ($data['topProducts']->isEmpty() && $data['lowDemandProducts']->isEmpty()) {
-            $data['demandFromHistory'] = true;
-
-            $receiptTotals = InventoryReceipt::selectRaw('product_sku, SUM(qty) as total_qty')
-                ->groupBy('product_sku')
-                ->pluck('total_qty', 'product_sku');
-
-            $productsBySku = Product::whereIn('sku', $receiptTotals->keys())->get()->keyBy('sku');
-
-            $ranked = $receiptTotals
-                ->map(fn ($qty, $sku) => isset($productsBySku[$sku])
-                    ? (object) ['product' => $productsBySku[$sku], 'total_qty' => $qty]
-                    : null)
-                ->filter()
-                ->values();
-
-            $data['topProducts'] = $ranked->sortByDesc('total_qty')->take(5)->values();
-            $data['lowDemandProducts'] = $ranked->sortBy('total_qty')->take(3)->values();
-        }
-
-        // Total sales per month, full history, from sales_history.
-        //
-        // This used to sum the `sales` table over a hardcoded 3-month window.
-        // That table only holds live POS checkouts, so the chart showed a
-        // single populated month plus two empty bars, while the imported
-        // records (30+ months of them) were never plotted. Both the wrong
-        // source and the too-narrow window are fixed here.
-        $data['monthlySales'] = SalesHistory::monthlyRevenue();
-
-        if ($user && $user->isAdmin()) { // Added a quick null-check for safety
-            // Extra admin-only stats (not used by the shared dashboard
-            // partial today, but kept available for admin-only views).
-            $data['totalUsers'] = User::count();
-
-            // Daily sales for the last 14 days (used elsewhere, kept for compatibility)
-            $dailySalesRaw = Sale::selectRaw('DATE(created_at) as sale_date, SUM(total_amount) as total')
-                ->where('created_at', '>=', now()->subDays(13)->startOfDay())
-                ->where('payment_voided', false)
-                ->groupBy('sale_date')
-                ->pluck('total', 'sale_date');
-
-            $data['dailySales'] = collect(range(13, 0))->mapWithKeys(function ($daysAgo) use ($dailySalesRaw) {
-                $date = now()->subDays($daysAgo)->toDateString();
-
-                return [$date => (float) ($dailySalesRaw[$date] ?? 0)];
-            });
-
-            // Derived from the 14-day series above instead of a separate
-            // sum() query — the last 7 days of it is exactly weekSales.
-            $data['weekSales'] = $data['dailySales']->slice(-7)->sum();
-
-            // Seasonal trends (avg. revenue per calendar month, all-time),
-            // from sales_history for the same reason as the charts above --
-            // the POS table has too few months to show a season at all.
-            // Derived in PHP from the already-cached monthly series, so it
-            // adds no query of its own.
-            $data['seasonalTrends'] = SalesHistory::seasonalTrends();
-
-            // Hourly Sales & Transaction Volume -- TODAY vs. this terminal's
-            // own recent HISTORICAL average, same shape as the Sales
-            // Report's own hourly breakdown (ReportController::
-            // buildSalesReportData), scoped to today because the dashboard
-            // has no date-range picker to scope it by. POS-only, and the
-            // "historical" half is too: sales_history (the imported 4-year
-            // record) has a DATE per row, never a time, so it has no hour to
-            // average -- there is no such thing as "yesterday's hourly
-            // pattern" anywhere except in this terminal's own POS history.
-            //
-            // HOURLY_HISTORY_DAYS (30): averaged over however many of the
-            // last 30 days actually have trade, not divided by a flat 30 --
-            // a terminal only 10 days old would otherwise show an average
-            // three times lower than it really is. today() itself is
-            // excluded from both the day count and the average, since it is
-            // the thing being compared against.
-            $hourlyHistoryDays = Sale::whereDate('created_at', '>=', today()->subDays(self::HOURLY_HISTORY_DAYS))
-                ->whereDate('created_at', '<', today())
-                ->where('payment_voided', false)
-                ->get(['created_at', 'total_amount']);
-
-            $historyDayCount = max(1, $hourlyHistoryDays->map(fn ($sale) => $sale->created_at->toDateString())->unique()->count());
-
-            $todaysSaleRows = Sale::whereDate('created_at', today())
-                ->where('payment_voided', false)
-                ->get(['created_at', 'total_amount']);
-
-            $data['hourlyToday'] = collect(range(0, 23))->map(function ($hour) use ($todaysSaleRows, $hourlyHistoryDays, $historyDayCount) {
-                $inHour = $todaysSaleRows->filter(fn ($sale) => (int) $sale->created_at->format('G') === $hour);
-                $inHourHistory = $hourlyHistoryDays->filter(fn ($sale) => (int) $sale->created_at->format('G') === $hour);
-
-                return (object) [
-                    'hour' => $hour,
-                    'label' => now()->setTime($hour, 0)->format('g A'),
-                    'transactions' => $inHour->count(),
-                    'revenue' => round((float) $inHour->sum('total_amount'), 2),
-                    'avgRevenue' => round((float) $inHourHistory->sum('total_amount') / $historyDayCount, 2),
-                ];
-            });
-
-            $data['hourlyHistoryDayCount'] = $historyDayCount;
-
-            return $this->dashboardResponse($request, 'admin', $data);
-        }
-
-        return $this->dashboardResponse($request, 'staff', $data);
+                    return $copy;
+                })
+                ->all(),
+            'categoryBreakdown' => $categoryBreakdown->all(),
+        ];
     }
 
     /**

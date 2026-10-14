@@ -730,5 +730,20 @@ class AlertService
         }
 
         Cache::memo()->forget('topbar_activity');
+
+        // The dashboard's stock snapshot (DashboardController::stockSnapshot())
+        // is built from the same products and batches as these alerts, so
+        // every path that already clears them -- every stock change -- clears
+        // it too.
+        Cache::memo()->forget(self::dashboardStockKey());
+    }
+
+    /**
+     * Key of the dashboard's stock snapshot. Carries today's date: its expiry
+     * figures count days from today, so yesterday's copy must not be served.
+     */
+    public static function dashboardStockKey(): string
+    {
+        return 'dashboard_stock:'.today()->toDateString();
     }
 }

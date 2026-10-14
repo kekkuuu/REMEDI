@@ -55,7 +55,11 @@ class AppServiceProvider extends ServiceProvider
         // `deleted` fires for an ARCHIVE (a soft delete) too, and `restored`
         // is its mirror image: an archived product vanishes from every alert
         // count and a restored one comes straight back into them.
-        foreach ([ProductBatch::class, Product::class] as $model) {
+        //
+        // Category too (2026-10-14): its NAME drives is_medicine and the
+        // extended return window, and labels the dashboard's category chart,
+        // which is cached with the rest of the dashboard's stock snapshot.
+        foreach ([ProductBatch::class, Product::class, Category::class] as $model) {
             $model::saved(fn () => AlertService::forget());
             $model::deleted(fn () => AlertService::forget());
             $model::restored(fn () => AlertService::forget());

@@ -524,6 +524,22 @@ dashboard read `pos_cache_version` four times). **Read AND clear those keys thro
 ServerTiming` (first global middleware) sends `Server-Timing: app;dur=…, db;dur=…;desc="N queries"` on every
 response — read it in DevTools → Network → Timing to see the server's share of a live page apart from the trip.
 
+**Fourth pass, 2026-10-14 (measured live with `Server-Timing`, ~25–30 ms per query Frankfurt → Amsterdam).**
+(1) **The dashboard's stock panels are a cached snapshot** (`DashboardController::stockSnapshot()`, key
+`AlertService::dashboardStockKey()` = `dashboard_stock:<today>`, 10-minute backstop TTL): low stock, expiring, expired,
+returns, the category breakdown and the expiry overview no longer load all ~2,600 products and batches per visit. It
+is cleared by `AlertService::forget()` — which every stock change already calls — and by Category saves (added to the
+same model hooks). Lists the page only counts are stored as ids and the low-stock chart as its three plotted values:
+stored as models the snapshot was 3.3 MB. **If a dashboard panel needs a new field from these lists, add it to
+`computeStockSnapshot()`'s return** — the view no longer gets the models. Admin and staff body HTML were diffed
+before/after: identical. (2) **One query for the last 30 days of sales** answers today/yesterday/7/14/30-day figures,
+and one query both days' profit lines. (3) **The Inventory report's print rows are built in the browser** from the
+screen table (`buildInventoryPrintRows()`, on Print and `beforeprint`); the page was 3.1 MB because it rendered the
+catalogue twice. All 2,637 rows verified identical to the old server-rendered copy. (4) The Sales Report's product
+list and `SalesHistory::dateBounds()` are cached under both sales stamps (`rememberWithStamps()`), and a `Viewed`
+audit row no longer clears the bell's `topbar_activity`. **Cookie sessions were tried on Vercel and reverted the
+same day**: a sign-in lasted one page there (it works locally; cause not found), so `SESSION_DRIVER` stays `database`.
+
 Migration `2026_09_02_000001_create_sessions_and_cache_tables` exists for this deploy and no-ops
 locally. **A container filesystem is rebuilt on every deploy and is not shared between instances**,
 so `CACHE_DRIVER=file` there means every deploy signs everyone out and two instances disagree about
