@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (397 passed, 10 skipped, 1426 assertions — measured 2026-10-15) and is a usable regression gate.** The 10 skipped are `Feature\Reports\ReportExportTest`, which only runs against MySQL (below). It was 22 failed / 3 passed, for
+**The suite is green (399 passed, 10 skipped, 1442 assertions — measured 2026-10-15) and is a usable regression gate.** The 10 skipped are `Feature\Reports\ReportExportTest`, which only runs against MySQL (below). It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -205,6 +205,10 @@ cost a false "security bug" during a QA pass; `DeactivationTest` carries the war
   full backup until one is set, and the zip is locked with the password typed. Stored HASHED like the void
   passcode (`Setting::checkBackupPassword()`) -- the server only checks it. The download is `throttle:6,1`.
   (For a few hours the same day it was stored encrypted and used without typing; that was replaced.)
+  **Both backup files are zips because Vercel refuses a function response over ~4.5 MB**
+  (`FUNCTION_RESPONSE_PAYLOAD_TOO_LARGE`): the sanitized copy was a bare .sql and answered 500 on live
+  (2026-10-15); it is now a plain zip (no password) -- 6.6 MB of SQL → 0.66 MB measured locally. Any new
+  download must stay under that limit on Vercel.
   Keep backup audit entries short: `audit_trails.details` is varchar(255) on MySQL and sqlite does not
   enforce it -- naming all 14 tables answered 500 on the first real download.
 

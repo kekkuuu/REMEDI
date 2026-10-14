@@ -67,9 +67,19 @@ class BackupTest extends TestCase
         return $admin;
     }
 
+    /** The .sql inside a test copy: a plain zip holding exactly one file. */
     private function body(TestResponse $response): string
     {
-        return file_get_contents($response->baseResponse->getFile()->getPathname());
+        $this->assertSame('application/zip', $response->headers->get('content-type'));
+
+        $zip = new ZipArchive;
+        $this->assertTrue($zip->open($response->baseResponse->getFile()->getPathname()) === true);
+        $this->assertSame(1, $zip->numFiles);
+        $this->assertSame(ZipArchive::EM_NONE, $zip->statIndex(0)['encryption_method'], 'the test copy needs no password');
+        $sql = $zip->getFromIndex(0);
+        $zip->close();
+
+        return $sql;
     }
 
     public function test_the_backup_page_explains_handling_and_offers_both_kinds(): void
@@ -339,5 +349,22 @@ class BackupTest extends TestCase
         $this->assertNotFalse($start);
 
         return substr($html, $start, strpos($html, '</main>', $start) ?: null);
+    }
+
+    /**
+     * Vercel refuses a response over ~4.5 MB, and the live test copy was over
+     * that as a bare .sql (a 500, FUNCTION_RESPONSE_PAYLOAD_TOO_LARGE). It is
+     * zipped now; the file sent must be a fraction of the SQL inside it.
+     */
+    public function test_the_test_copy_is_compressed(): void
+    {
+        $admin = $this->shop();
+
+        $response = $this->actingAs($admin)->withSession($this->confirmed())
+            ->post('/admin/backup', ['type' => 'sanitized'])->assertOk();
+
+        $this->assertStringEndsWith('.zip', $response->headers->get('content-disposition'));
+        $sent = filesize($response->baseResponse->getFile()->getPathname());
+        $this->assertLessThan(strlen($this->body($response)) / 2, $sent);
     }
 }

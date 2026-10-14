@@ -97,7 +97,7 @@
         </div>
 
         <p class="backup-copy">
-            A plain <strong>.sql</strong> file for testing or showing the data, with the people taken out.
+            A <strong>.sql</strong> file in a plain .zip (no password) for testing or showing the data, with the people taken out.
             Products, stock, sales and forecasts are kept as they are, so every report still adds up.
         </p>
         <ul class="backup-list">

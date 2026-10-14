@@ -86,7 +86,7 @@ class BackupController extends Controller
      *   be TYPED for every download and is refused unless it matches (2026-10-15,
      *   at the user's request). The server keeps only its hash, so a lost
      *   password means unreadable backups; the page says so.
-     * - `sanitized`: a plain .sql for testing or for showing someone the data,
+     * - `sanitized`: a .sql (in a plain zip) for testing or showing the data,
      *   with the people taken out (see sanitizeRow()). Products, stock, sales
      *   and forecasts are untouched, so the numbers still add up.
      *
@@ -132,9 +132,22 @@ class BackupController extends Controller
         }
 
         if ($sanitized) {
+            // Zipped, without a password: Vercel refuses a function response
+            // over ~4.5 MB (FUNCTION_RESPONSE_PAYLOAD_TOO_LARGE), and the plain
+            // .sql is already larger than that on the live catalogue. SQL
+            // compresses roughly ten to one, and Windows opens a plain zip on
+            // its own. Measured 2026-10-15: the live download answered 500
+            // as a bare .sql.
+            $zipPath = tempnam(sys_get_temp_dir(), 'remedi-zip-');
+            $zip = new ZipArchive;
+            $zip->open($zipPath, ZipArchive::OVERWRITE);
+            $zip->addFile($sqlPath, $sqlName);
+            $zip->close();
+            @unlink($sqlPath);
+
             AuditTrail::log('Viewed', 'Downloaded sanitized test copy of the database (no personal data)');
 
-            return response()->download($sqlPath, $sqlName, ['Content-Type' => 'application/sql'])
+            return response()->download($zipPath, 'remedi-test-copy-'.$stamp.'.zip', ['Content-Type' => 'application/zip'])
                 ->deleteFileAfterSend();
         }
 
