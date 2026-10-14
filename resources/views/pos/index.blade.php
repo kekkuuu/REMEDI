@@ -27,6 +27,11 @@
         align-items: start;
     }
 
+    /* Grid items default to min-width:auto -- they will not shrink below their
+       widest content -- so at 768px the products column came out 21px wider
+       than the page and the content area scrolled sideways (2026-10-15). */
+    .pos-layout > *, .pos-grid > * { min-width: 0; }
+
     .pos-cart { position: sticky; top: 16px; height: fit-content; }
 
     .pos-grid {

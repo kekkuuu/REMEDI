@@ -127,7 +127,7 @@
     </div>
 
     {{-- Top Selling + Slow Moving --}}
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:1.5rem;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px;margin-bottom:1.5rem;">
 
         {{-- Top Selling Chart --}}
         <div style="border:0.5px solid #e5e7eb;border-radius:12px;background:#fff;padding:16px;">
@@ -161,7 +161,7 @@
     </div>
 
     {{-- Top Selling + Slow Moving (tables) --}}
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:1.5rem;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px;margin-bottom:1.5rem;">
 
         {{-- Top Selling --}}
         <div style="border:0.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;">
@@ -258,7 +258,7 @@
     </div>
 
     {{-- Sales by Category + Sales by Staff --}}
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:1.5rem;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px;margin-bottom:1.5rem;">
 
         {{-- Sales by Category — merges sales_history with the till the same
              way Top-Selling above does (ReportController::buildAnalyticsReportData). --}}

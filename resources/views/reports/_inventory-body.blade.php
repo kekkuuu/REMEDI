@@ -63,7 +63,7 @@
     </div>
 
     {{-- Charts --}}
-    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;margin-bottom:1.5rem;">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px;margin-bottom:1.5rem;">
         <div style="border:0.5px solid #e5e7eb;border-radius:12px;background:#fff;padding:16px;">
             <div style="font-size:14px;font-weight:500;color:#111;margin-bottom:12px;">
                 <i class="ti ti-chart-pie" style="font-size:14px;vertical-align:-1px;margin-right:6px;color:#4f46e5;"></i>

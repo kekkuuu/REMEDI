@@ -70,7 +70,9 @@
 @endif
 
 <div class="card">
-    <div style="display:grid; grid-template-columns: repeat(4, 1fr); gap:16px; margin-bottom:20px;">
+    {{-- Four across where they fit, two (or one) on a phone: a fixed
+         repeat(4, 1fr) squeezed "Payment Method" past a 320px screen. --}}
+    <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(min(150px, 100%), 1fr)); gap:16px; margin-bottom:20px; overflow-wrap:anywhere;">
         <p style="margin:0;"><strong>Transaction No:</strong><br>{{ $sale->transaction_no }}</p>
         <p style="margin:0;"><strong>Date/Time:</strong><br>{{ $sale->created_at->format('M d, Y h:i A') }}</p>
         <p style="margin:0;"><strong>Cashier:</strong><br>{{ $sale->user->name }}</p>

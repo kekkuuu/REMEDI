@@ -10,7 +10,7 @@
      survives a reload. --}}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jsbarcode/3.11.6/JsBarcode.all.min.js"></script>
 <style>
-    .bc-layout { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 20px; align-items: start; }
+    .bc-layout { display: grid; grid-template-columns: minmax(min(300px, 100%), 380px) 1fr; gap: 20px; align-items: start; }
     @media (max-width: 1000px) { .bc-layout { grid-template-columns: 1fr; } }
     .bc-controls { display: flex; flex-direction: column; gap: 18px; }
     .bc-block > label, .bc-block > .bc-label { display: block; font-weight: 600; font-size: 13px; color: #334155; margin-bottom: 6px; }

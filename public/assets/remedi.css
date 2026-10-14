@@ -40,9 +40,16 @@
         .sidebar-scrim { display: none; }
 
         /* ── Sidebar ── */
+        /* --sb-w is the ONE sidebar width (2026-10-15): 280px here, 216px on
+           tablets, 264px for the phone drawer. Children take it too (so they
+           keep their width while the panel collapses), minus their own side
+           margins below -- a plain fixed width on every child pushed the
+           divider and the promo card past the edge, clipping the card's right
+           border at every size and the category counts on tablets. */
         .sidebar {
-            width: 280px;
-            min-width: 280px;
+            --sb-w: 280px;
+            width: var(--sb-w);
+            min-width: var(--sb-w);
             min-height: 100vh;
             background: var(--nav-bg);
             display: flex;
@@ -54,7 +61,7 @@
             transition: width 0.22s ease, min-width 0.22s ease, opacity 0.18s ease;
         }
 
-        .sidebar > * { width: 280px; }
+        .sidebar > * { width: var(--sb-w); }
 
         /* Hidden state: collapse the sidebar away entirely */
         html[data-sidebar-hidden="true"] .sidebar {
@@ -148,6 +155,7 @@
 
         /* ── Promo card at the foot of the nav ── */
         .sidebar-promo {
+            width: calc(var(--sb-w) - 24px);
             margin: 14px 12px 4px;
             padding: 16px 15px;
             border-radius: 14px;
@@ -172,6 +180,7 @@
         }
 
         .sidebar .brand-divider {
+            width: calc(var(--sb-w) - 44px);
             height: 0.5px;
             background: var(--nav-line);
             margin: 0 22px 16px;
@@ -347,7 +356,15 @@
             font-weight: 600;
         }
 
+        /* The name wraps and the count never shrinks, so a long category name
+           ("Medicine / Pharmaceutical") cannot push its count out of the panel. */
+        .nav-sublink .nav-sub-name {
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+
         .nav-sublink .nav-sub-count {
+            flex-shrink: 0;
             margin-left: auto;
             font-size: 11px;
             color: #6f938a;
@@ -806,7 +823,14 @@
             color: #1e293b;
         }
 
-        .topbar-user { display: flex; align-items: center; gap: 12px; }
+        /* The title gives way, never the bell (2026-10-15): on a 320px phone a
+           long title ("Inventory Monitoring") pushed the bell and the avatar
+           past the edge, where .main-content clipped them. The title now ends
+           in "…" and the bell/avatar group keeps its width. */
+        .topbar-left { min-width: 0; flex: 1 1 auto; }
+        .topbar h2 { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+        .topbar-user { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 
         .topbar-bell {
             position: relative;
@@ -3128,7 +3152,7 @@
 
             /* Reclaim horizontal room: the sidebar narrows and drops its
                labels to icons only. */
-            .sidebar, .sidebar > * { width: 216px; min-width: 216px; }
+            .sidebar { --sb-w: 216px; }
             .sidebar a, .nav-link-btn { font-size: 14px; padding: 10px 12px; }
             .sidebar .brand { padding: 22px 14px 14px; }
 
@@ -3165,7 +3189,7 @@
                 box-shadow: 0 0 40px rgba(15, 23, 42, .35);
             }
 
-            .sidebar, .sidebar > * { width: 264px; min-width: 264px; }
+            .sidebar { --sb-w: 264px; }
 
             /* On mobile the toggle means "slide away", not "collapse to 0" —
                collapsing width would reflow the drawer's contents. */
@@ -3199,6 +3223,10 @@
             /* Name and role badge are the first things to go — the avatar
                still identifies who's signed in. */
             .topbar-user strong, .topbar-user .badge { display: none; }
+            /* And the "Administrator"/"Staff" line under it (2026-10-15): with
+               the name gone it was a lone label taking ~80px from the page
+               title, which a 320px phone cut to "Inv…". */
+            .topbar-role { display: none; }
 
             .content-body { padding: 16px 14px; }
 
@@ -3276,6 +3304,12 @@
            (₱1,229,088.65) forced into every tile. Page height 4,073 -> 3,675px. */
         @media (max-width: 420px) {
             .kpi-grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+            /* Two tiles across a 320px phone leave ~134px each, and a label
+               word like "TRANSACTION" cannot break: beside the 42px chip it ran
+               past the tile edge (2026-10-15). A smaller chip makes the room. */
+            .kpi-head { gap: 8px; }
+            .kpi-head i { width: 32px; height: 32px; font-size: 17px; }
+            .kpi-label { letter-spacing: 0.02em; }
         }
 
         /* Touch targets. "View All" was 64x21 -- fine for a mouse, under half

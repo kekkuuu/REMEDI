@@ -119,7 +119,7 @@
                         </a>
                         @foreach($sidebarCategories ?? [] as $sidebarCategory)
                             <a href="{{ route('inventory.index', ['category_id' => $sidebarCategory->id]) }}" class="nav-sublink {{ $activeCategoryId === $sidebarCategory->id ? 'active' : '' }}">
-                                <i class="ti ti-point" aria-hidden="true"></i> {{ $sidebarCategory->name }}
+                                <i class="ti ti-point" aria-hidden="true"></i> <span class="nav-sub-name">{{ $sidebarCategory->name }}</span>
                                 <span class="nav-sub-count">{{ $sidebarCategory->products_count }}</span>
                             </a>
                         @endforeach
