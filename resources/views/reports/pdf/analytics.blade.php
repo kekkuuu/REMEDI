@@ -39,7 +39,11 @@
         </tbody>
     </table>
 
-    <h2>Slow Moving Products &mdash; showing {{ $slowMoving->count() }} of {{ number_format($slowMovingCount) }}</h2>
+    @if ($slowMovingFallback)
+        <h2>Slowest-Selling Products &mdash; none sold under {{ $slowThresholdLabel }} units; the {{ $slowMoving->count() }} that sold least</h2>
+    @else
+        <h2>Slow Moving Products &mdash; showing {{ $slowMoving->count() }} of {{ number_format($slowMovingCount) }}</h2>
+    @endif
     <table class="rows">
         <thead>
             <tr><th>SKU</th><th>Product</th><th class="num">Units Sold</th><th class="num">Stock on Hand</th></tr>

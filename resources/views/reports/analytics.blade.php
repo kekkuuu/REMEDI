@@ -122,7 +122,7 @@
                 <span class="kpi-label">Slow-Moving Items</span>
             </div>
             <span class="kpi-value">{{ number_format($slowMovingCount) }}</span>
-            <span class="kpi-sub">under 5 units &middot; most stock first</span>
+            <span class="kpi-sub">under {{ $slowThresholdLabel }} units sold in this period &middot; 5 per 30 days</span>
         </div>
     </div>
 
@@ -146,8 +146,11 @@
         <div style="border:0.5px solid #e5e7eb;border-radius:12px;background:#fff;padding:16px;">
             <div style="font-size:14px;font-weight:500;color:#111;margin-bottom:12px;">
                 <i class="ti ti-chart-bar" style="font-size:14px;vertical-align:-1px;margin-right:6px;color:#633806;"></i>
-                Top 10 Slow-Moving Products
+                {{ $slowMovingFallback ? '10 Slowest-Selling Products' : 'Top 10 Slow-Moving Products' }}
             </div>
+            @if($slowMovingFallback)
+                <p style="color:#6b7280;font-size:12px;margin:-6px 0 10px;">No product sold under {{ $slowThresholdLabel }} units in this period, so these are the 10 that sold the least.</p>
+            @endif
             @if($slowMoving->isNotEmpty())
                 <canvas id="slowMovingChart" height="200"></canvas>
             @else
@@ -208,8 +211,13 @@
         {{-- Slow Moving --}}
         <div style="border:0.5px solid #e5e7eb;border-radius:12px;overflow:hidden;background:#fff;">
             <div style="padding:14px 16px;border-bottom:0.5px solid #e5e7eb;display:flex;align-items:center;gap:8px;">
-                <span style="font-size:14px;font-weight:500;color:#111;">Slow-Moving Products</span>
-                <span style="font-size:11px;color:#94a3b8;">{{ $slowMovingCount > $slowMoving->count() ? 'slowest '.number_format($slowMoving->count()).' of '.number_format($slowMovingCount) : 'all '.number_format($slowMovingCount) }} &middot; most stock first &middot; scroll</span>
+                @if($slowMovingFallback)
+                    <span style="font-size:14px;font-weight:500;color:#111;">Slowest-Selling Products</span>
+                    <span style="font-size:11px;color:#94a3b8;">none under {{ $slowThresholdLabel }} units &middot; the {{ number_format($slowMoving->count()) }} that sold least</span>
+                @else
+                    <span style="font-size:14px;font-weight:500;color:#111;">Slow-Moving Products</span>
+                    <span style="font-size:11px;color:#94a3b8;">{{ $slowMovingCount > $slowMoving->count() ? 'slowest '.number_format($slowMoving->count()).' of '.number_format($slowMovingCount) : 'all '.number_format($slowMovingCount) }} &middot; most stock first &middot; scroll</span>
+                @endif
                 <span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:20px;background:#FAEEDA;color:#633806;">Low Demand</span>
             </div>
             <div class="table-scroll list-scroll"><table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -217,6 +225,7 @@
                     <tr style="background:#f9fafb;">
                         <th style="width:38px;padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">#</th>
                         <th style="padding:9px 14px;text-align:left;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Product</th>
+                        <th style="width:80px;padding:9px 14px;text-align:right;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Sold</th>
                         <th style="width:110px;padding:9px 14px;text-align:right;font-size:11px;font-weight:500;color:#6b7280;text-transform:uppercase;letter-spacing:0.04em;border-bottom:0.5px solid #e5e7eb;">Stock</th>
                     </tr>
                 </thead>
@@ -227,6 +236,7 @@
                         onmouseout="this.style.background=''">
                         <td style="padding:10px 14px;color:#9ca3af;font-size:12px;">{{ $loop->iteration }}</td>
                         <td style="padding:10px 14px;font-weight:500;color:#111;">{{ $sm->name }}</td>
+                        <td style="padding:10px 14px;text-align:right;color:#374151;">{{ number_format($sm->units_sold) }}</td>
                         <td style="padding:10px 14px;text-align:right;">
                             <span style="font-size:11px;font-weight:500;padding:3px 8px;border-radius:20px;background:#FAEEDA;color:#633806;">
                                 {{ $sm->total_stock }}
@@ -235,7 +245,7 @@
                     </tr>
                     @empty
                     <tr>
-                        <td colspan="3" style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">
+                        <td colspan="4" style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">
                             <i class="ti ti-circle-check" style="font-size:24px;display:block;margin-bottom:6px;color:#16a34a;"></i>
                             No slow-moving products.
                         </td>
@@ -443,7 +453,7 @@
         </div>
         <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #f59e0b;background:#fffbeb;border-radius:8px;padding:12px 14px;">
             <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Slow-Moving</div>
-            <div style="font-size:18px;font-weight:600;color:#854F0B;">{{ $slowMoving->count() }}</div>
+            <div style="font-size:18px;font-weight:600;color:#854F0B;">{{ number_format($slowMovingCount) }}</div>
         </div>
     </div>
 
@@ -480,9 +490,14 @@
          Printing every product that fell under the threshold ran to ~60 pages
          for a single month. --}}
     <div class="print-section-title" style="font-size:13px;font-weight:600;color:#111;margin-bottom:8px;">
-        Slow-Moving Products
-        @if($slowMovingCount > $slowMoving->count())
-            <span style="color:#6b7280;font-weight:400;">&mdash; the slowest {{ number_format($slowMoving->count()) }} of {{ number_format($slowMovingCount) }}, most stock first</span>
+        @if($slowMovingFallback)
+            Slowest-Selling Products
+            <span style="color:#6b7280;font-weight:400;">&mdash; none sold under {{ $slowThresholdLabel }} units; the {{ number_format($slowMoving->count()) }} that sold least</span>
+        @else
+            Slow-Moving Products
+            @if($slowMovingCount > $slowMoving->count())
+                <span style="color:#6b7280;font-weight:400;">&mdash; the slowest {{ number_format($slowMoving->count()) }} of {{ number_format($slowMovingCount) }}, most stock first</span>
+            @endif
         @endif
     </div>
     <div class="table-scroll"><table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:24px;">
@@ -490,6 +505,7 @@
             <tr style="background:#f3f4f6;">
                 <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">#</th>
                 <th style="padding:8px 12px;text-align:left;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Product</th>
+                <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Units Sold</th>
                 <th style="padding:8px 12px;text-align:right;font-size:11px;font-weight:600;color:#374151;text-transform:uppercase;letter-spacing:0.04em;border:1px solid #e5e7eb;">Current Stock</th>
             </tr>
         </thead>
@@ -498,11 +514,12 @@
             <tr style="{{ $loop->even ? 'background:#f9fafb;' : 'background:#fff;' }}">
                 <td style="padding:7px 12px;border:1px solid #e5e7eb;color:#9ca3af;font-size:11px;">{{ $loop->iteration }}</td>
                 <td style="padding:7px 12px;border:1px solid #e5e7eb;font-weight:500;color:#111;">{{ $sm->name }}</td>
+                <td style="padding:7px 12px;border:1px solid #e5e7eb;text-align:right;color:#374151;">{{ number_format($sm->units_sold) }}</td>
                 <td style="padding:7px 12px;border:1px solid #e5e7eb;text-align:right;color:#854F0B;font-weight:500;">{{ $sm->total_stock }}</td>
             </tr>
             @empty
             <tr>
-                <td colspan="3" style="padding:16px;text-align:center;color:#9ca3af;border:1px solid #e5e7eb;">None.</td>
+                <td colspan="4" style="padding:16px;text-align:center;color:#9ca3af;border:1px solid #e5e7eb;">None.</td>
             </tr>
             @endforelse
         </tbody>
@@ -633,8 +650,10 @@
         data: {
             labels: {!! json_encode($slowMoving->take(10)->pluck('name')) !!},
             datasets: [{
-                label: 'Stock',
-                data: {!! json_encode($slowMoving->take(10)->pluck('total_stock')) !!},
+                // The fallback list is ranked by units SOLD, so it plots them;
+                // a real slow-moving list plots the stock it is sitting on.
+                label: {!! json_encode($slowMovingFallback ? 'Units sold' : 'Stock') !!},
+                data: {!! json_encode($slowMoving->take(10)->pluck($slowMovingFallback ? 'units_sold' : 'total_stock')) !!},
                 backgroundColor: (ctx) => chartGradient(ctx, '#f59e0b', true),
                 borderRadius: 4,
                 maxBarThickness: 16,

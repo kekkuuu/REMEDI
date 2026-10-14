@@ -13,7 +13,8 @@ class AnalyticsSlowMovingSheet implements FromCollection, ShouldAutoSize, WithHe
 {
     use EscapesFormulas;
 
-    public function __construct(private Collection $rows) {}
+    /** $slowestSellers: no product sold under the slow-moving rate, so the rows are the slowest sellers instead. */
+    public function __construct(private Collection $rows, private bool $slowestSellers = false) {}
 
     public function collection()
     {
@@ -37,6 +38,6 @@ class AnalyticsSlowMovingSheet implements FromCollection, ShouldAutoSize, WithHe
 
     public function title(): string
     {
-        return 'Slow Moving Products';
+        return $this->slowestSellers ? 'Slowest-Selling Products' : 'Slow Moving Products';
     }
 }

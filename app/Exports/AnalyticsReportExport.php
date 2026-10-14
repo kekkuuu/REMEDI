@@ -17,7 +17,7 @@ class AnalyticsReportExport implements WithMultipleSheets
     {
         return [
             new AnalyticsTopProductsSheet($this->data['topProducts']),
-            new AnalyticsSlowMovingSheet($this->data['slowMoving']),
+            new AnalyticsSlowMovingSheet($this->data['slowMoving'], $this->data['slowMovingFallback'] ?? false),
         ];
     }
 }

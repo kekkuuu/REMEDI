@@ -55,6 +55,9 @@ class ReportController extends Controller
      */
     private const SLOW_MOVING_LIST_CAP = 100;
 
+    /** How many slowest sellers stand in when no product sells under the slow-moving rate. */
+    private const SLOWEST_SELLERS_SHOWN = 10;
+
     /**
      * How many POS transactions the PRINT copy lists.
      *
@@ -912,13 +915,14 @@ class ReportController extends Controller
             ->selectRaw('products.id, products.name, products.sku, COALESCE(SUM(product_batches.quantity), 0) AS total_stock')
             ->groupBy('products.id', 'products.name', 'products.sku')
             ->get()
-            ->filter(fn ($p) => (float) ($soldQuantities[$p->sku] ?? 0) < $slowThreshold)
             ->map(function ($p) use ($soldQuantities) {
                 $p->units_sold = (float) ($soldQuantities[$p->sku] ?? 0);
                 $p->total_stock = (int) $p->total_stock;
 
                 return $p;
             });
+        $catalogue = $slowAll;
+        $slowAll = $slowAll->filter(fn ($p) => $p->units_sold < $slowThreshold);
 
         $slowMovingCount = $slowAll->count();
 
@@ -936,6 +940,19 @@ class ReportController extends Controller
             ->take(self::SLOW_MOVING_LIST_CAP)
             ->sortBy([['total_stock', 'desc'], ['units_sold', 'asc']])
             ->values();
+
+        // When NOTHING sells under the rate, the list shows the slowest
+        // SLOWEST_SELLERS_SHOWN sellers instead (2026-10-14, at the user's
+        // request: on steady data the section was simply empty). They are
+        // labelled as the slowest sellers, never as slow moving, and
+        // $slowMovingCount stays the true count of products under the rate.
+        $slowMovingFallback = $slowMoving->isEmpty();
+        if ($slowMovingFallback) {
+            $slowMoving = $catalogue
+                ->sortBy([['units_sold', 'asc'], ['total_stock', 'desc']])
+                ->take(self::SLOWEST_SELLERS_SHOWN)
+                ->values();
+        }
 
         $trend = SalesHistory::trendBetween($start, $end);
         $granularity = $trend['granularity'];
@@ -973,8 +990,14 @@ class ReportController extends Controller
                 'revenue' => round((float) $r->revenue, 2),
             ]);
 
+        // The rule in words for the KPI and the headings: the window's own
+        // threshold (5 per 30 days scaled to its length), so "all time" no
+        // longer reads as "under 5 units" when it means under ~261.
+        $slowThresholdLabel = rtrim(rtrim(number_format($slowThreshold, 1), '0'), '.');
+
         return compact(
-            'topProducts', 'slowMoving', 'slowMovingCount', 'salesTrend', 'seasonalTrends',
+            'topProducts', 'slowMoving', 'slowMovingCount', 'slowMovingFallback', 'slowThresholdLabel',
+            'salesTrend', 'seasonalTrends',
             'months', 'month', 'start', 'end', 'dataStart', 'dataEnd', 'granularity',
             'salesByCategory', 'salesByStaff'
         );
