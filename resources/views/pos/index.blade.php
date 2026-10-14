@@ -369,11 +369,10 @@
              labelled "QR".
              Hidden for Cash, and rebuilt whenever the method or the total
              changes -- see updateQrPayment() below. --}}
-        {{-- With the shop's GCash QR saved on the Safeguard page (2026-10-01)
-             the box draws THAT code, which any GCash or bank app can pay -- and
-             with the ORDER TOTAL written into it (2026-10-02), so the paying
-             app opens with the amount already filled in. See qrPhWithAmount(). --}}
-        <div id="qr-payment-box" data-qr-payload="{{ $gcashQrPayload }}"
+        {{-- The uploaded shop GCash QR (Safeguard, 2026-10-01 .. 2026-10-15) was
+             removed at the user's request: without PayMongo this box shows the
+             plain REMEDI code and the cashier confirms the payment by hand. --}}
+        <div id="qr-payment-box"
              data-paymongo="{{ $paymongoEnabled ? '1' : '' }}" data-paymongo-url="{{ route('pos.qr-payments.store', [], false) }}"
              style="display:none; margin-bottom:14px; padding:12px; border:1px dashed #a5b4fc; border-radius:8px; background:#f8fafc; text-align:center;">
             {{-- PayMongo (2026-10-02): a fresh QR Ph code per sale, with the
@@ -391,11 +390,7 @@
             </div>
             <div id="qr-code-canvas" style="display:inline-flex; justify-content:center;"></div>
             <p class="qr-own-caption" style="margin:8px 0 0; font-size:.78rem; color:#64748b;">
-                @if($gcashQrPayload)
-                    Scan with GCash or any bank app &middot; <strong style="color:#111827;">&#8369;<span id="qr-amount">0.00</span></strong> is filled in
-                @else
-                    Scan to pay &#8369;<span id="qr-amount">0.00</span>
-                @endif
+                Scan to pay &#8369;<span id="qr-amount">0.00</span>
             </p>
             <p class="qr-own-caption" style="margin:2px 0 0; font-size:.85rem; font-weight:600; letter-spacing:.06em; color:#111827;">REMEDI</p>
         </div>
@@ -750,47 +745,6 @@
         return (m === 'gcash' || m === 'qr') ? 'Customer has paid — Complete Sale' : 'Checkout';
     }
 
-    /* QR Ph with the amount in it (2026-10-02, at the user's request) -- what
-       GCash's own "Add amount" button produces. An EMV QR is a run of
-       tag-length-value fields; this rewrites the saved STATIC code as a
-       DYNAMIC one: tag 01 (point of initiation) "11" -> "12", tag 54
-       (transaction amount) set to the total, fields kept in tag order, and the
-       CRC-16 in tag 63 recomputed over the result -- an app refuses a code
-       whose checksum does not match. Nothing is stored: the saved code stays
-       static and this is rebuilt for every total. */
-    function qrPhCrc(data) {
-        let crc = 0xFFFF;
-        for (let k = 0; k < data.length; k++) {
-            crc ^= data.charCodeAt(k) << 8;
-            for (let b = 0; b < 8; b++) {
-                crc = (crc & 0x8000) ? ((crc << 1) ^ 0x1021) : (crc << 1);
-                crc &= 0xFFFF;
-            }
-        }
-        return crc.toString(16).toUpperCase().padStart(4, '0');
-    }
-
-    function qrPhWithAmount(payload, amount) {
-        const fields = [];
-        for (let i = 0; i + 4 <= payload.length;) {
-            const id = payload.substr(i, 2);
-            const len = parseInt(payload.substr(i + 2, 2), 10);
-            if (isNaN(len)) return payload;          // not a QR Ph code after all
-            fields.push([id, payload.substr(i + 4, len)]);
-            i += 4 + len;
-        }
-        const value = Number(amount || 0);
-        if (!(value > 0)) return payload;            // nothing to charge: keep it static
-
-        const kept = fields.filter(([id]) => id !== '54' && id !== '63')
-            .map(([id, v]) => [id, id === '01' ? '12' : v]);
-        const at = kept.findIndex(([id]) => id > '54');
-        kept.splice(at === -1 ? kept.length : at, 0, ['54', value.toFixed(2)]);
-
-        const body = kept.map(([id, v]) => id + String(v.length).padStart(2, '0') + v).join('') + '6304';
-        return body + qrPhCrc(body);
-    }
-
     /* ===== PayMongo QR (2026-10-02) =====
        With PayMongo configured, a QR method asks the server for a QR Ph code
        made for THIS cart (amount inside, single use), shows it, and polls
@@ -929,23 +883,17 @@
 
         if (viaPm) { pmRequest(); return; }
 
-        // The shop's GCash QR when one is saved (Safeguard page), with this
-        // sale's total in it; else the shop's name -- which no payment app
-        // accepts, see the Safeguard note.
-        const savedQr = box.dataset.qrPayload || '';
-        const isPayable = savedQr !== '';
-        const payload = isPayable ? qrPhWithAmount(savedQr, cartTotal) : 'REMEDI';
+        // The shop's name: a code to scan, not a payment link (PayMongo, above,
+        // is the payable one when it is configured).
+        const payload = 'REMEDI';
 
         if (typeof QRCode === 'undefined') return;
 
         if (!qrPaymentInstance) {
-            // A QR Ph code is ~170 characters, far denser than a word, so it
-            // is drawn larger and at medium error correction: at 128px a
-            // phone held up to the screen struggles to resolve the modules.
             qrPaymentInstance = new QRCode(canvas, {
-                text: payload, width: isPayable ? 208 : 128, height: isPayable ? 208 : 128,
+                text: payload, width: 128, height: 128,
                 colorDark: '#111827', colorLight: '#ffffff',
-                correctLevel: isPayable ? QRCode.CorrectLevel.M : QRCode.CorrectLevel.H,
+                correctLevel: QRCode.CorrectLevel.H,
             });
         } else {
             qrPaymentInstance.clear();

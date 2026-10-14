@@ -70,11 +70,9 @@ class BackupController extends Controller
             'emptyInCopy' => self::SANITIZED_EMPTY_TABLES,
             'canEncrypt' => self::canEncrypt(),
             'minPassword' => self::MIN_PASSWORD_LENGTH,
-            // Set in Safeguard (Setting::BACKUP_PASSWORD_KEY). "Set but not
-            // readable" means it was saved under another APP_KEY.
-            'savedPassword' => Setting::backupPassword() !== null,
-            'savedPasswordUnreadable' => Setting::backupPasswordIsSet() && Setting::backupPassword() === null,
-            'savedPasswordAt' => Setting::backupPasswordSetAt(),
+            // Set in Safeguard (Setting::BACKUP_PASSWORD_KEY); a full backup
+            // cannot be taken until it is.
+            'passwordSet' => Setting::backupPasswordIsSet(),
         ]);
     }
 
@@ -84,9 +82,10 @@ class BackupController extends Controller
      * - `full`: everything, restorable, and therefore everything sensitive --
      *   account emails and phone numbers, password and reset-code hashes, the
      *   audit trail. It is only ever handed over inside an AES-256 encrypted
-     *   .zip, under a password the admin types here and the server never
-     *   stores. Lose the password and the file is unreadable; that is the
-     *   trade, and the page says so.
+     *   .zip, locked with the backup password set in Safeguard -- which must
+     *   be TYPED for every download and is refused unless it matches (2026-10-15,
+     *   at the user's request). The server keeps only its hash, so a lost
+     *   password means unreadable backups; the page says so.
      * - `sanitized`: a plain .sql for testing or for showing someone the data,
      *   with the people taken out (see sanitizeRow()). Products, stock, sales
      *   and forecasts are untouched, so the numbers still add up.
@@ -97,18 +96,23 @@ class BackupController extends Controller
      */
     public function download(Request $request)
     {
-        // The password set in Safeguard, when there is one; a password typed
-        // on the backup page overrides it for that one file.
-        $saved = Setting::backupPassword();
-
         $data = $request->validate([
             'type' => ['bail', 'required', 'string', Rule::in(['full', 'sanitized'])],
-            'password' => ['bail', Rule::requiredIf(fn () => $request->input('type') === 'full' && $saved === null), 'nullable', 'string', 'min:'.self::MIN_PASSWORD_LENGTH, 'max:128', 'confirmed'],
+            'password' => ['bail', 'required_if:type,full', 'nullable', 'string', 'max:128'],
         ], [
-            'password.required' => 'Choose a password to protect the backup, or set one in Safeguard.',
-            'password.min' => 'Use at least :min characters for the backup password.',
-            'password.confirmed' => 'The two backup passwords do not match.',
+            'password.required_if' => 'Enter the backup password.',
         ]);
+
+        if ($data['type'] === 'full') {
+            if (! Setting::backupPasswordIsSet()) {
+                return back()->withErrors(['password' => 'No backup password has been set up yet.']);
+            }
+            // Wrong answers are throttled at the route (throttle:6,1), the
+            // same allowance as the login-password confirmation in front of it.
+            if (! Setting::checkBackupPassword($data['password'])) {
+                return back()->withErrors(['password' => 'Incorrect backup password.']);
+            }
+        }
 
         $sanitized = $data['type'] === 'sanitized';
 
@@ -138,8 +142,7 @@ class BackupController extends Controller
         $zip = new ZipArchive;
         $zip->open($zipPath, ZipArchive::OVERWRITE);
         $zip->addFile($sqlPath, $sqlName);
-        $oneTime = ($data['password'] ?? null) !== null && $data['password'] !== '';
-        $zip->setEncryptionName($sqlName, ZipArchive::EM_AES_256, $oneTime ? $data['password'] : $saved);
+        $zip->setEncryptionName($sqlName, ZipArchive::EM_AES_256, $data['password']);
         $zip->close();
         @unlink($sqlPath);
 
@@ -147,8 +150,7 @@ class BackupController extends Controller
         // Short on purpose: audit_trails.details is varchar(255) on MySQL, and
         // naming all the tables overflowed it (sqlite never enforces it, so
         // only a real download showed the 500). BACKUP_TABLES lists them.
-        AuditTrail::log('Viewed', 'Downloaded encrypted database backup ('.count(self::BACKUP_TABLES).' tables, locked with '
-            .($oneTime ? 'a one-time password' : 'the Safeguard backup password').')');
+        AuditTrail::log('Viewed', 'Downloaded encrypted database backup ('.count(self::BACKUP_TABLES).' tables)');
 
         return response()->download($zipPath, 'remedi-backup-'.$stamp.'.zip', ['Content-Type' => 'application/zip'])
             ->deleteFileAfterSend();

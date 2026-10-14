@@ -2,10 +2,8 @@
 
 namespace App\Models;
 
-use Illuminate\Contracts\Encryption\DecryptException;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Crypt;
 use Illuminate\Support\Facades\Hash;
 
 /**
@@ -28,16 +26,6 @@ class Setting extends Model
     public const VOID_PASSCODE_KEY = 'pos_void_passcode';
 
     /**
-     * The shop's own GCash / InstaPay QR -- the decoded QR Ph text of the
-     * "My QR" code (2026-10-01, at the user's request). The POS draws it for
-     * GCash / Other QR so a customer's app can actually pay it; a QR holding
-     * plain text ("REMEDI", a phone number) is refused by every e-wallet as
-     * invalid. In the database, not the code: the repository is public and
-     * the payload carries the account holder's details.
-     */
-    public const GCASH_QR_KEY = 'pos_gcash_qr_payload';
-
-    /**
      * The demand model scored on the whole store's monthly units (JSON),
      * written by forecast:generate and shown on the Forecasting page. Not an
      * admin setting -- it lives here so every host reads the latest run.
@@ -45,83 +33,12 @@ class Setting extends Model
     public const STOREWIDE_ACCURACY_KEY = 'forecast_storewide_accuracy';
 
     /**
-     * The password every full backup zip is locked with (BackupController),
-     * set in Safeguard. ENCRYPTED with the app key (Crypt), not hashed like
-     * the void passcode: the server has to read it back to lock each file,
-     * and a hash cannot be read back. So it is only as safe as APP_KEY --
-     * the database alone does not reveal it, the database plus APP_KEY does.
+     * The backup password, set in Safeguard (2026-10-15). Every full backup
+     * asks for it, refuses any other, and locks its zip with the password
+     * typed -- so the server only ever CHECKS it, and it is stored HASHED like
+     * the void passcode; the database never holds it in a readable form.
      */
     public const BACKUP_PASSWORD_KEY = 'backup_zip_password';
-
-    public static function gcashQrPayload(): ?string
-    {
-        $payload = static::get(self::GCASH_QR_KEY);
-
-        return $payload !== null && $payload !== '' ? $payload : null;
-    }
-
-    /**
-     * Whether a string is a well-formed EMV / QR Ph payload: starts with the
-     * format indicator, every tag-length-value parses to the end, and the
-     * trailing CRC (tag 63) matches -- the same check a paying app makes.
-     */
-    public static function isQrPhPayload(string $payload): bool
-    {
-        if (strlen($payload) > 512 || ! str_starts_with($payload, '000201')) {
-            return false;
-        }
-
-        $i = 0;
-        $last = null;
-        while ($i < strlen($payload)) {
-            if (! preg_match('/^(\d{2})(\d{2})/', substr($payload, $i, 4), $m)) {
-                return false;
-            }
-            $len = (int) $m[2];
-            if ($i + 4 + $len > strlen($payload)) {
-                return false;
-            }
-            $last = $m[1];
-            $i += 4 + $len;
-        }
-
-        if ($last !== '63' || substr($payload, -8, 4) !== '6304') {
-            return false;
-        }
-
-        return strtoupper(substr($payload, -4)) === self::qrPhCrc(substr($payload, 0, -4));
-    }
-
-    /** The account name a QR Ph payload carries (tag 59), for display. */
-    public static function qrPhMerchantName(string $payload): ?string
-    {
-        $i = 0;
-        while ($i + 4 <= strlen($payload)) {
-            $id = substr($payload, $i, 2);
-            $len = (int) substr($payload, $i + 2, 2);
-            if ($id === '59') {
-                return substr($payload, $i + 4, $len);
-            }
-            $i += 4 + $len;
-        }
-
-        return null;
-    }
-
-    /** CRC-16/CCITT-FALSE, the checksum EMV QR codes end with. */
-    public static function qrPhCrc(string $data): string
-    {
-        $crc = 0xFFFF;
-        for ($k = 0; $k < strlen($data); $k++) {
-            $crc ^= ord($data[$k]) << 8;
-            for ($b = 0; $b < 8; $b++) {
-                $crc = ($crc & 0x8000) ? (($crc << 1) ^ 0x1021) : ($crc << 1);
-                $crc &= 0xFFFF;
-            }
-        }
-
-        return sprintf('%04X', $crc);
-    }
 
     public static function get(string $key, ?string $default = null): ?string
     {
@@ -157,30 +74,29 @@ class Setting extends Model
         return (bool) static::get(self::BACKUP_PASSWORD_KEY);
     }
 
-    /**
-     * The saved backup password, or null when none is saved -- or when the
-     * one saved cannot be decrypted, which happens if it was saved under a
-     * different APP_KEY (another host sharing this database, or a rotated
-     * key). Callers tell those two apart with backupPasswordIsSet().
-     */
-    public static function backupPassword(): ?string
+    /** Hash and store a new backup password, replacing whatever was there. */
+    public static function setBackupPassword(string $password): void
     {
-        $stored = static::get(self::BACKUP_PASSWORD_KEY);
-        if (! $stored) {
-            return null;
+        static::put(self::BACKUP_PASSWORD_KEY, Hash::make($password));
+    }
+
+    /**
+     * False when none is set, as well as on a wrong password. A value that is
+     * not a hash this app can verify (one written by an earlier version)
+     * counts as wrong rather than throwing.
+     */
+    public static function checkBackupPassword(string $password): bool
+    {
+        $hash = static::get(self::BACKUP_PASSWORD_KEY);
+        if (! $hash) {
+            return false;
         }
 
         try {
-            return Crypt::decryptString($stored);
-        } catch (DecryptException) {
-            return null;
+            return Hash::check($password, $hash);
+        } catch (\RuntimeException) {
+            return false;
         }
-    }
-
-    /** Null removes it. */
-    public static function setBackupPassword(?string $password): void
-    {
-        static::put(self::BACKUP_PASSWORD_KEY, $password === null ? null : Crypt::encryptString($password));
     }
 
     public static function backupPasswordSetAt(): ?Carbon

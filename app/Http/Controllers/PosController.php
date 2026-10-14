@@ -33,13 +33,10 @@ class PosController extends Controller
             ]);
         }
 
-        // The shop's GCash / InstaPay QR, uploaded on the Safeguard page.
-        $gcashQrPayload = \App\Models\Setting::gcashQrPayload();
-
         // Automatic QR payments when PayMongo is configured (QrPaymentController).
         $paymongoEnabled = \App\Services\PayMongo::enabled();
 
-        return view('pos.index', compact('products', 'gcashQrPayload', 'paymongoEnabled'));
+        return view('pos.index', compact('products', 'paymongoEnabled'));
     }
 
     /**

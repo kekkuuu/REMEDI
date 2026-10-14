@@ -115,7 +115,6 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
         Route::middleware('password.confirm')->group(function () {
             Route::get('/safeguard', [SettingsController::class, 'edit'])->name('safeguard.edit');
             Route::put('/safeguard/void-passcode', [SettingsController::class, 'updateVoidPasscode'])->name('safeguard.void-passcode.update');
-            Route::put('/safeguard/gcash-qr', [SettingsController::class, 'updateGcashQr'])->name('safeguard.gcash-qr.update');
             Route::put('/safeguard/backup-password', [SettingsController::class, 'updateBackupPassword'])->name('safeguard.backup-password.update');
 
             // The backup streams the `users` table -- password hashes, reset-code
@@ -127,7 +126,7 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
             // A POST, not a GET: the full backup's password rides in the body,
             // never in a URL or a server log.
             Route::get('/admin/backup', [BackupController::class, 'index'])->name('admin.backup');
-            Route::post('/admin/backup', [BackupController::class, 'download'])->name('admin.backup.download');
+            Route::post('/admin/backup', [BackupController::class, 'download'])->middleware('throttle:6,1')->name('admin.backup.download');
         });
         // The old address keeps working for a bookmark.
         Route::redirect('/settings', '/safeguard');

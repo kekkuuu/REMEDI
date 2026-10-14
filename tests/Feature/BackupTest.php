@@ -10,6 +10,7 @@ use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 use ZipArchive;
@@ -140,21 +141,50 @@ class BackupTest extends TestCase
         $this->assertNull($row['password_otp_hash']);
     }
 
-    public function test_a_full_backup_needs_a_password(): void
+    /**
+     * The backup password is set in Safeguard and must be TYPED for every
+     * full backup (2026-10-15, at the user's request): with none set there is
+     * no full backup at all, and a missing or wrong one is refused.
+     */
+    public function test_a_full_backup_needs_the_safeguard_password_every_time(): void
     {
         $admin = $this->shop();
 
+        // None set: refused, and the page sends the admin to Safeguard.
+        $this->actingAs($admin)->withSession($this->confirmed())
+            ->post('/admin/backup', ['type' => 'full', 'password' => self::PASSWORD])
+            ->assertSessionHasErrors('password');
+        $this->actingAs($admin)->withSession($this->confirmed())->get('/admin/backup')
+            ->assertSee('No backup password has been set up yet')
+            ->assertDontSee('name="type" value="full"', false);
+
+        Setting::setBackupPassword(self::PASSWORD);
+
         $this->actingAs($admin)->withSession($this->confirmed())
             ->post('/admin/backup', ['type' => 'full'])
-            ->assertSessionHasErrors('password');
+            ->assertSessionHasErrors(['password' => 'Enter the backup password.']);
+        $this->actingAs($admin)->withSession($this->confirmed())
+            ->post('/admin/backup', ['type' => 'full', 'password' => 'a-guess-that-is-wrong'])
+            ->assertSessionHasErrors(['password' => 'Incorrect backup password.']);
+
+        $this->assertFalse(AuditTrail::where('details', 'like', 'Downloaded encrypted%')->exists());
+    }
+
+    /** Six tries a minute, like the login-password check in front of it. */
+    public function test_guessing_the_backup_password_is_throttled(): void
+    {
+        $admin = $this->shop();
+        Setting::setBackupPassword(self::PASSWORD);
+
+        for ($i = 0; $i < 6; $i++) {
+            $this->actingAs($admin)->withSession($this->confirmed())
+                ->post('/admin/backup', ['type' => 'full', 'password' => 'wrong-'.$i])
+                ->assertSessionHasErrors('password');
+        }
 
         $this->actingAs($admin)->withSession($this->confirmed())
-            ->post('/admin/backup', ['type' => 'full', 'password' => 'short', 'password_confirmation' => 'short'])
-            ->assertSessionHasErrors('password');
-
-        $this->actingAs($admin)->withSession($this->confirmed())
-            ->post('/admin/backup', ['type' => 'full', 'password' => self::PASSWORD, 'password_confirmation' => self::PASSWORD.'x'])
-            ->assertSessionHasErrors('password');
+            ->post('/admin/backup', ['type' => 'full', 'password' => self::PASSWORD])
+            ->assertStatus(429);
     }
 
     public function test_a_full_backup_is_an_encrypted_zip_that_only_its_password_opens(): void
@@ -164,9 +194,10 @@ class BackupTest extends TestCase
         }
 
         $admin = $this->shop();
+        Setting::setBackupPassword(self::PASSWORD);
 
         $response = $this->actingAs($admin)->withSession($this->confirmed())
-            ->post('/admin/backup', ['type' => 'full', 'password' => self::PASSWORD, 'password_confirmation' => self::PASSWORD])
+            ->post('/admin/backup', ['type' => 'full', 'password' => self::PASSWORD])
             ->assertOk();
 
         $this->assertSame('application/zip', $response->headers->get('content-type'));
@@ -201,28 +232,24 @@ class BackupTest extends TestCase
         }
 
         $admin = $this->shop();
+        Setting::setBackupPassword(self::PASSWORD);
         $this->actingAs($admin)->withSession($this->confirmed())
-            ->post('/admin/backup', ['type' => 'full', 'password' => self::PASSWORD, 'password_confirmation' => self::PASSWORD])
+            ->post('/admin/backup', ['type' => 'full', 'password' => self::PASSWORD])
             ->assertOk();
 
         $this->assertTrue(AuditTrail::where('details', 'like', 'Downloaded encrypted database backup%')->exists());
         $this->assertFalse(AuditTrail::where('details', 'like', '%'.self::PASSWORD.'%')->exists());
+
+        // audit_trails.details is varchar(255) on MySQL; sqlite does not
+        // enforce it, so check the length here or only production finds out.
+        foreach (AuditTrail::pluck('details') as $details) {
+            $this->assertLessThanOrEqual(255, strlen($details), $details);
+        }
     }
 
-    // ── The backup password kept in Safeguard (2026-10-15) ───────────────
+    // ── Setting the backup password in Safeguard ─────────────────────────
 
-    private function openWith(TestResponse $response, string $password): string|false
-    {
-        $zip = new ZipArchive;
-        $zip->open($response->baseResponse->getFile()->getPathname());
-        $zip->setPassword($password);
-        $sql = $zip->getFromIndex(0);
-        $zip->close();
-
-        return $sql;
-    }
-
-    public function test_an_admin_sets_the_backup_password_in_safeguard_and_it_is_stored_encrypted(): void
+    public function test_an_admin_sets_the_backup_password_in_safeguard_and_only_its_hash_is_kept(): void
     {
         $admin = User::factory()->admin()->create();
 
@@ -231,18 +258,19 @@ class BackupTest extends TestCase
             ->assertSessionHasNoErrors();
 
         $raw = Setting::where('key', Setting::BACKUP_PASSWORD_KEY)->value('value');
-        $this->assertNotSame(self::PASSWORD, $raw);
         $this->assertStringNotContainsString(self::PASSWORD, $raw);
-        $this->assertSame(self::PASSWORD, Setting::backupPassword());
+        $this->assertTrue(Hash::check(self::PASSWORD, $raw));
+        $this->assertTrue(Setting::checkBackupPassword(self::PASSWORD));
 
         $this->assertTrue(AuditTrail::where('details', 'Set the backup password')->exists());
         $this->assertFalse(AuditTrail::where('details', 'like', '%'.self::PASSWORD.'%')->exists());
 
-        // Changing it is logged as a change, and the new one replaces the old.
+        // Changing it is logged as a change, and the old one stops working.
         $this->actingAs($admin)->withSession($this->confirmed())
             ->put('/safeguard/backup-password', ['backup_password' => 'another-long-password', 'backup_password_confirmation' => 'another-long-password'])
             ->assertSessionHasNoErrors();
-        $this->assertSame('another-long-password', Setting::backupPassword());
+        $this->assertFalse(Setting::checkBackupPassword(self::PASSWORD));
+        $this->assertTrue(Setting::checkBackupPassword('another-long-password'));
         $this->assertTrue(AuditTrail::where('details', 'Changed the backup password')->exists());
     }
 
@@ -275,77 +303,41 @@ class BackupTest extends TestCase
         $this->assertFalse(Setting::backupPasswordIsSet());
     }
 
-    public function test_a_full_backup_uses_the_saved_password_without_asking(): void
+    /** A value left by the earlier (encrypted) version is refused, not a crash. */
+    public function test_a_stored_value_that_is_not_a_hash_is_simply_wrong(): void
     {
-        if (! BackupController::canEncrypt()) {
-            $this->markTestSkipped('This PHP build has no AES zip support.');
-        }
+        Setting::put(Setting::BACKUP_PASSWORD_KEY, 'eyJpdiI6Im5vdC1hLWhhc2gifQ==');
 
-        $admin = $this->shop();
-        Setting::setBackupPassword(self::PASSWORD);
-
-        $this->actingAs($admin)->withSession($this->confirmed())->get('/admin/backup')
-            ->assertSee('backup password set in Safeguard');
-
-        $response = $this->actingAs($admin)->withSession($this->confirmed())
-            ->post('/admin/backup', ['type' => 'full'])
-            ->assertOk();
-
-        $this->assertStringContainsString('maria@remedi.com', $this->openWith($response, self::PASSWORD));
-        $this->assertTrue(AuditTrail::where('details', 'like', '%Safeguard backup password%')->exists());
-
-        // audit_trails.details is varchar(255) on MySQL; sqlite does not
-        // enforce it, so check the length here or only production finds out.
-        foreach (AuditTrail::pluck('details') as $details) {
-            $this->assertLessThanOrEqual(255, strlen($details), $details);
-        }
+        $this->assertFalse(Setting::checkBackupPassword(self::PASSWORD));
     }
 
-    public function test_a_one_time_password_overrides_the_saved_one_for_that_file(): void
+    /**
+     * Neither the backup page nor a refused password says where the password
+     * is kept (2026-10-15, at the user's request) -- that would point whoever
+     * is guessing at the right page.
+     */
+    public function test_the_backup_page_never_says_where_the_password_is_kept(): void
     {
-        if (! BackupController::canEncrypt()) {
-            $this->markTestSkipped('This PHP build has no AES zip support.');
-        }
-
         $admin = $this->shop();
+
+        $html = $this->actingAs($admin)->withSession($this->confirmed())->get('/admin/backup')->getContent();
+        $this->assertStringNotContainsString('Safeguard', $this->pageBody($html));
+
         Setting::setBackupPassword(self::PASSWORD);
+        $html = $this->actingAs($admin)->withSession($this->confirmed())->get('/admin/backup')->getContent();
+        $this->assertStringNotContainsString('Safeguard', $this->pageBody($html));
 
-        $response = $this->actingAs($admin)->withSession($this->confirmed())
-            ->post('/admin/backup', ['type' => 'full', 'password' => 'just-for-this-file', 'password_confirmation' => 'just-for-this-file'])
-            ->assertOk();
-
-        $this->assertFalse($this->openWith($response, self::PASSWORD));
-        $this->assertStringContainsString('maria@remedi.com', $this->openWith($response, 'just-for-this-file'));
+        $this->actingAs($admin)->withSession($this->confirmed())->from('/admin/backup')
+            ->post('/admin/backup', ['type' => 'full', 'password' => 'a-guess-that-is-wrong']);
+        $this->assertStringNotContainsString('Safeguard', session('errors')->first('password'));
     }
 
-    public function test_removing_the_saved_password_makes_the_backup_ask_again(): void
+    /** The page's own content, without the sidebar (which links Safeguard by name). */
+    private function pageBody(string $html): string
     {
-        $admin = $this->shop();
-        Setting::setBackupPassword(self::PASSWORD);
+        $start = strpos($html, 'Database Backup</h3>');
+        $this->assertNotFalse($start);
 
-        $this->actingAs($admin)->withSession($this->confirmed())
-            ->put('/safeguard/backup-password', ['remove' => 1])
-            ->assertSessionHasNoErrors();
-        $this->assertFalse(Setting::backupPasswordIsSet());
-
-        $this->actingAs($admin)->withSession($this->confirmed())
-            ->post('/admin/backup', ['type' => 'full'])
-            ->assertSessionHasErrors('password');
-    }
-
-    /** Saved under another APP_KEY: unreadable here, so treated as not saved. */
-    public function test_a_password_saved_under_another_app_key_is_not_used(): void
-    {
-        $admin = $this->shop();
-        Setting::put(Setting::BACKUP_PASSWORD_KEY, 'eyJpdiI6Im5vdC1yZWFsIn0=');
-
-        $this->assertTrue(Setting::backupPasswordIsSet());
-        $this->assertNull(Setting::backupPassword());
-
-        $this->actingAs($admin)->withSession($this->confirmed())->get('/admin/backup')
-            ->assertSee('cannot be read on this server');
-        $this->actingAs($admin)->withSession($this->confirmed())
-            ->post('/admin/backup', ['type' => 'full'])
-            ->assertSessionHasErrors('password');
+        return substr($html, $start, strpos($html, '</main>', $start) ?: null);
     }
 }

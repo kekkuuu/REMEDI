@@ -42,70 +42,45 @@
         <p class="backup-copy">
             Everything needed to restore REMEDI, as a <strong>.zip protected with AES-256</strong>.
             Open it with 7-Zip or WinRAR; the zip tool built into Windows cannot open AES-encrypted files.
-            <strong>The password is not stored anywhere</strong>: lose it and the backup cannot be opened.
+            It is locked with the <strong>backup password</strong>, which you type for every download.
+            REMEDI cannot show or recover it: lose it and the backups made with it cannot be opened.
         </p>
 
         @if($canEncrypt)
-            {{-- With a password saved in Safeguard the file is locked with it
-                 and nothing needs typing; the fields below then only override
-                 it for this one file. Without one they are required. --}}
-            @if($savedPassword)
-                <p class="backup-saved">
-                    <i class="ti ti-lock" aria-hidden="true"></i>
-                    <span>Locked with the <strong>backup password set in Safeguard</strong>@if($savedPasswordAt) (last changed {{ $savedPasswordAt->format('M j, Y') }})@endif.
-                    <a href="{{ route('safeguard.edit') }}#backup-password">Change it in Safeguard</a></span>
-                </p>
-            @elseif($savedPasswordUnreadable)
-                <p class="backup-unavailable">
-                    <i class="ti ti-alert-triangle" aria-hidden="true"></i>
-                    <span>The backup password saved in Safeguard cannot be read on this server (it was saved under a different app key).
-                    Type a password below, or <a href="{{ route('safeguard.edit') }}#backup-password">set it again in Safeguard</a>.</span>
-                </p>
+            {{-- The backup password is set in Safeguard and typed here for
+                 EVERY download; anything else is refused (2026-10-15, at the
+                 user's request). The zip is locked with it. Nothing on this
+                 page says WHERE it is set -- also at the user's request: a
+                 hint like that is a clue to whoever is guessing. --}}
+            @if($passwordSet)
+                <form method="POST" action="{{ route('admin.backup.download') }}" class="backup-form" data-no-skeleton autocomplete="off">
+                    @csrf
+                    <input type="hidden" name="type" value="full">
+                    <div class="form-field">
+                        <div class="form-field-head">
+                            <span class="form-chip"><i class="ti ti-key" aria-hidden="true"></i></span>
+                            <label for="backup_password">Backup password</label>
+                        </div>
+                        <input type="password" id="backup_password" name="password" required maxlength="128"
+                               autocomplete="off" aria-describedby="backup_password_note">
+                        <span class="form-field-note" id="backup_password_note">
+                            <i class="ti ti-info-circle" aria-hidden="true"></i>
+                            The file is locked with this password.
+                        </span>
+                        @error('password')<p class="err">{{ $message }}</p>@enderror
+                    </div>
+                    <div class="form-actions">
+                        <button type="submit" class="btn btn-primary">
+                            <i class="ti ti-download" aria-hidden="true"></i> <span>Download encrypted backup</span>
+                        </button>
+                    </div>
+                </form>
             @else
-                <p class="backup-copy" style="margin-top:0;">
-                    Tip: <a href="{{ route('safeguard.edit') }}#backup-password">set a backup password in Safeguard</a> so you don't type one every time.
+                <p class="backup-unavailable">
+                    <i class="ti ti-lock-open" aria-hidden="true"></i>
+                    <span>No backup password has been set up yet, so a full backup cannot be downloaded.</span>
                 </p>
             @endif
-
-            <form method="POST" action="{{ route('admin.backup.download') }}" class="backup-form" data-no-skeleton autocomplete="off">
-                @csrf
-                <input type="hidden" name="type" value="full">
-
-                @if($savedPassword)
-                    <details class="backup-override" @if($errors->has('password')) open @endif>
-                        <summary>Use a different password for this file</summary>
-                @endif
-                <div class="form-field">
-                    <div class="form-field-head">
-                        <span class="form-chip"><i class="ti ti-key" aria-hidden="true"></i></span>
-                        <label for="backup_password">{{ $savedPassword ? 'One-time password' : 'Backup password' }}</label>
-                    </div>
-                    <input type="password" id="backup_password" name="password" @unless($savedPassword) required @endunless minlength="{{ $minPassword }}" maxlength="128"
-                           autocomplete="new-password" aria-describedby="backup_password_note">
-                    <span class="form-field-note" id="backup_password_note">
-                        <i class="ti ti-info-circle" aria-hidden="true"></i>
-                        At least {{ $minPassword }} characters. Not your login password.
-                    </span>
-                    @error('password')<p class="err">{{ $message }}</p>@enderror
-                </div>
-                <div class="form-field" style="margin-top:14px;">
-                    <div class="form-field-head">
-                        <span class="form-chip"><i class="ti ti-key" aria-hidden="true"></i></span>
-                        <label for="backup_password_confirmation">Type it again</label>
-                    </div>
-                    <input type="password" id="backup_password_confirmation" name="password_confirmation" @unless($savedPassword) required @endunless minlength="{{ $minPassword }}" maxlength="128"
-                           autocomplete="new-password">
-                </div>
-                @if($savedPassword)
-                    </details>
-                @endif
-
-                <div class="form-actions">
-                    <button type="submit" class="btn btn-primary">
-                        <i class="ti ti-download" aria-hidden="true"></i> <span>Download encrypted backup</span>
-                    </button>
-                </div>
-            </form>
         @else
             <p class="backup-unavailable">
                 <i class="ti ti-alert-triangle" aria-hidden="true"></i>
@@ -164,15 +139,7 @@
     .backup-list { margin: 0 0 12px; padding-left: 18px; font-size: 13px; color: var(--ink-soft); line-height: 1.55; }
     .backup-list code { font-size: 12px; }
     .backup-unavailable { display: flex; gap: 8px; font-size: 13.5px; color: #92400e; }
-    .backup-unavailable a, .backup-saved a, .backup-copy a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
-    .backup-saved {
-        display: flex; gap: 8px; align-items: flex-start;
-        margin: 0 0 14px; padding: 10px 12px; border-radius: 10px;
-        background: #ecfdf5; border: 1px solid #a7f3d0; color: #065f46; font-size: 13.5px; line-height: 1.5;
-    }
-    .backup-saved > i { font-size: 18px; flex: none; margin-top: 1px; }
-    .backup-override { margin: 0 0 4px; }
-    .backup-override summary { cursor: pointer; font-size: 13px; color: var(--ink-soft); margin-bottom: 12px; }
+    .backup-unavailable a, .backup-copy a { color: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 2px; }
     .section-head h4 i { margin-right: 8px; }
 </style>
 
