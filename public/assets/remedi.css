@@ -3112,6 +3112,10 @@
         /* Only the app's own row tables need a minimum; report tables set
            their own widths and would otherwise gain a needless scrollbar. */
         .table-scroll > table.remedi-table { min-width: 560px; }
+        /* A short table (three narrow columns, like a product's Monthly
+           forecast) fits its card at any width; the 560px floor only gave it a
+           sideways scrollbar that hid half of its last column (2026-10-14). */
+        .table-scroll > table.remedi-table.is-narrow { min-width: 0; }
 
         /* ══════════════ TABLET ══════════════ */
         @media (max-width: 1024px) {

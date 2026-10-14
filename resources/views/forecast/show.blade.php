@@ -288,7 +288,7 @@
     <p style="margin:0 0 16px; font-size:13px; color:#64748b;">
         How many units we expect to sell each month. Actual sales will usually land inside the likely range.
     </p>
-    <div class="table-scroll"><table class="remedi-table">
+    <div class="table-scroll"><table class="remedi-table is-narrow">
         <thead>
             <tr>
                 <th>Month</th>
