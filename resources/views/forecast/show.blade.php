@@ -326,7 +326,8 @@
 
    Drawn in beforeDatasetsDraw so it sits BEHIND the lines and the confidence
    band rather than washing them out, and clipped to the chart area so it never
-   bleeds over the axes. */
+   bleeds over the axes. It opens on the next month still ahead (see
+   firstForecastIndex below), not on the first forecast row. */
 const forecastRegionPlugin = {
     id: 'forecastRegion',
     beforeDatasetsDraw(chart, args, opts) {
@@ -364,11 +365,51 @@ const forecastRegionPlugin = {
     },
 };
 
-// Index of the first month that is forecast-only, i.e. where the actual series
-// has run out. -1 (no shading) when everything on the axis is actual.
+// The shade starts at the NEXT month to forecast -- the same month the "Next
+// month forecast" figure above quotes ($firstActionableMonth, from
+// App\Support\ForecastHorizon) -- not where the actual line runs out
+// (2026-10-15, at the user's request). Forecast months already over (or in
+// progress) keep their dashed line but sit outside the shade, and the shade
+// moves on by itself once a month ends. If that month is past the end of the
+// axis there is nothing ahead to shade; if it is before the start, shade it all.
 const L = @json($months);
-const actualForShade = @json($actualSeries);
-const firstForecastIndex = actualForShade.findIndex((v, i) => v === null && i > 0);
+const nextMonthKey = @json($nextMonthKey);
+function firstAheadIndex(labels) {
+    const at = labels.indexOf(nextMonthKey);
+    if (at >= 0) return at;
+    return labels.length && nextMonthKey < labels[0] ? 0 : -1;
+}
+const firstForecastIndex = firstAheadIndex(L);
+
+/* The 80% band follows the same boundary (same day, at the user's request:
+   "the whole shaded area"). Months before the next one keep their dashed
+   forecast line but lose their band; the band opens from a POINT on the
+   forecast one month earlier and widens from the next month on -- the same
+   pinch it used to make at the last actual month. With nothing on the axis
+   still ahead, there is no band at all. */
+function bandFromNextMonth(labels, lower, upper, forecast) {
+    const first = firstAheadIndex(labels);
+    if (first === 0) return [lower, upper];
+    if (first < 0) return [lower.map(() => null), upper.map(() => null)];
+    const lo = lower.slice(), up = upper.slice();
+    for (let i = 0; i < first; i++) {
+        const pinch = i === first - 1 && forecast[i] !== null && forecast[i] !== undefined;
+        lo[i] = pinch ? forecast[i] : null;
+        up[i] = pinch ? forecast[i] : null;
+    }
+    return [lo, up];
+}
+/* Dashed only from the next month on (same day, at the user's request): a
+   forecast month already over, or in progress, is drawn SOLID like the actual
+   line, so the dash pattern -- like the shade -- marks what is still ahead.
+   The segment into the next month is the first dashed one. The dataset keeps
+   borderDash so the legend still shows the forecast as a dashed line. */
+function dashFromNextMonth(labels) {
+    const first = firstAheadIndex(labels);
+    return (ctx) => (first >= 0 && ctx.p1DataIndex >= first ? [5, 4] : []);
+}
+
+const [bandLower, bandUpper] = bandFromNextMonth(L, @json($lowerSeries), @json($upperSeries), @json($forecastSeries));
 
 new Chart(document.getElementById('productForecastChart'), {
     type: 'line',
@@ -377,7 +418,7 @@ new Chart(document.getElementById('productForecastChart'), {
         datasets: [
             {
                 label: 'Lower bound',
-                data: @json($lowerSeries),
+                data: bandLower,
                 borderWidth: 0,
                 pointRadius: 0,
                 fill: false,
@@ -385,7 +426,7 @@ new Chart(document.getElementById('productForecastChart'), {
             },
             {
                 label: 'Confidence band',
-                data: @json($upperSeries),
+                data: bandUpper,
                 borderWidth: 0,
                 pointRadius: 0,
                 backgroundColor: 'rgba(79, 70, 229, 0.12)',
@@ -409,6 +450,7 @@ new Chart(document.getElementById('productForecastChart'), {
                 backgroundColor: 'transparent',
                 borderWidth: 2,
                 borderDash: [5, 4],
+                segment: { borderDash: dashFromNextMonth(L) },
                 pointRadius: 2,
                 tension: 0.25,
                 spanGaps: false,
@@ -451,6 +493,7 @@ new Chart(document.getElementById('productForecastChart'), {
 });
 
 @if ($hasSalesForecast)
+const [sfBandLower, sfBandUpper] = bandFromNextMonth(@json($sfMonths), @json($sfRevenueLowerSeries), @json($sfRevenueUpperSeries), @json($sfForecastRevenueSeries));
 new Chart(document.getElementById('productSalesForecastChart'), {
     type: 'line',
     data: {
@@ -458,7 +501,7 @@ new Chart(document.getElementById('productSalesForecastChart'), {
         datasets: [
             {
                 label: 'Lower bound',
-                data: @json($sfRevenueLowerSeries),
+                data: sfBandLower,
                 borderWidth: 0,
                 pointRadius: 0,
                 fill: false,
@@ -466,7 +509,7 @@ new Chart(document.getElementById('productSalesForecastChart'), {
             },
             {
                 label: 'Confidence band',
-                data: @json($sfRevenueUpperSeries),
+                data: sfBandUpper,
                 borderWidth: 0,
                 pointRadius: 0,
                 backgroundColor: 'rgba(15, 110, 86, 0.12)',
@@ -490,6 +533,7 @@ new Chart(document.getElementById('productSalesForecastChart'), {
                 backgroundColor: 'transparent',
                 borderWidth: 2,
                 borderDash: [5, 4],
+                segment: { borderDash: dashFromNextMonth(@json($sfMonths)) },
                 pointRadius: 2,
                 tension: 0.25,
                 spanGaps: false,

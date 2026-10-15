@@ -1989,9 +1989,19 @@ instead of from a point. Test `$joinMonth` BEFORE the forecast lookup, never aft
 miss at a glance and invisible in print. It draws in `beforeDatasetsDraw` so the tint sits BEHIND the
 lines and the confidence band instead of washing them out, is clipped to `chartArea` so it cannot
 bleed over the axes, and opens half a step left of the first forecast-only point so the boundary
-falls between the last actual and the first prediction rather than through a marker. The boundary is
-the first index where the ACTUAL series runs out — not where forecast rows begin — because the
-current month legitimately carries both.
+falls between the last actual and the first prediction rather than through a marker. **The boundary
+is the NEXT month to forecast (2026-10-15, at the user's request)** — `$nextMonthKey`, the same
+`ForecastHorizon::firstActionableMonth()` the "Next month forecast" KPI quotes — not where the actual
+series runs out: forecast months already over or in progress keep their dashed line outside the shade,
+and the shade moves on by itself when a month ends. (It used to open at the first index where the
+ACTUAL series ran out, which on a record ending in July shaded Aug–Oct as if they were still ahead.) **The 80%
+band follows the same boundary** (`bandFromNextMonth()`, both charts on the page): it pinches to a point
+on the forecast one month before the next month and widens from there; earlier forecast months keep the
+dashed line with no band. This overrides the "band pinches at `$joinMonth`" rule below for the band
+only — the forecast LINE still joins the actual at `$joinMonth`. **And the forecast line is dashed only
+from the next month on** (`dashFromNextMonth()`, Chart.js `segment.borderDash`): forecast months already
+over or in progress draw solid like the actual line; the dataset keeps `borderDash` so the legend still
+shows the forecast as dashed.
 
 **`App\Support\ForecastHorizon` is the one definition of when a forecast becomes actionable.** The
 boundary used to exist three times over: `scopeNextMonthOnly()` on both forecast models (dead code,
