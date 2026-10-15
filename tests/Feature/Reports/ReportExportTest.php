@@ -5,6 +5,7 @@ namespace Tests\Feature\Reports;
 use App\Models\Product;
 use App\Models\SalesHistory;
 use App\Models\User;
+use App\Support\SalesLineItems;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
@@ -57,10 +58,20 @@ class ReportExportTest extends TestCase
     }
 
     /** Every row of every sheet, raw values, keyed by sheet title. */
-    private function sheets(TestResponse $response): array
+    /**
+     * Every sheet's rows, keyed by title. The Sales Report's "Transaction
+     * Items" sheet runs to tens of thousands of lines, and PhpSpreadsheet
+     * holds each cell as an object (over 512 MB for a month), so it is
+     * loaded only when a test asks for it.
+     */
+    private function sheets(TestResponse $response, bool $withLines = false): array
     {
         $this->assertStringContainsString('spreadsheetml', (string) $response->headers->get('content-type'));
-        $book = IOFactory::load($response->baseResponse->getFile()->getPathname());
+        $path = $response->baseResponse->getFile()->getPathname();
+        $reader = IOFactory::createReaderForFile($path);
+        $names = array_filter($reader->listWorksheetNames($path), fn ($n) => $withLines || $n !== 'Transaction Items');
+        $reader->setLoadSheetsOnly(array_values($names));
+        $book = $reader->load($path);
         $out = [];
         foreach ($book->getAllSheets() as $sheet) {
             $out[$sheet->getTitle()] = $sheet->toArray(null, true, false, false);
@@ -152,6 +163,44 @@ class ReportExportTest extends TestCase
 
         $this->assertCount($days, $data, 'one row per day with a sale');
         $this->assertSame(self::cents($this->revenueBetween($start, $end)['total']), array_sum(array_map(fn ($r) => self::cents($r[4]), $data)));
+    }
+
+    /**
+     * The second sheet lists every sale line of the period in the transaction
+     * file's columns (2026-10-15): till lines plus one imported line per
+     * product per day, adding up to the same revenue as the report.
+     */
+    public function test_the_sales_excel_lists_every_line_and_they_add_up_to_the_total(): void
+    {
+        $start = now()->subMonthsNoOverflow(3)->startOfMonth()->toDateString();
+        $end = now()->subMonthsNoOverflow(3)->endOfMonth()->toDateString();
+
+        ini_set('memory_limit', '2G'); // PhpSpreadsheet reading a month of lines -- the test, not the app
+        $book = $this->sheets($this->download("/reports/sales/export?format=xlsx&start_date={$start}&end_date={$end}"), withLines: true);
+        $this->assertArrayHasKey('Transaction Items', $book);
+        $sheet = $book['Transaction Items'];
+        $this->assertSame(SalesLineItems::HEADINGS, array_slice($sheet[0], 0, 13));
+
+        $rows = array_slice($sheet, 1);
+        $totalRow = array_values(array_filter($rows, fn ($r) => $r[0] === 'TOTAL'))[0] ?? null;
+        $this->assertNotNull($totalRow, 'TOTAL row missing');
+        $lines = array_values(array_filter($rows, fn ($r) => $r[0] !== null && $r[0] !== 'TOTAL' && ! str_starts_with((string) $r[0], 'Showing')));
+
+        $historyLines = DB::table('sales_history')->whereBetween('sale_date', [$start, $end])
+            ->whereIn('product_sku', DB::table('products')->select('sku'))->count();
+        $tillLines = DB::query()->fromSub(DB::table('sale_items as si')->join('sales as s', 's.id', '=', 'si.sale_id')
+            ->where('s.payment_voided', false)->whereBetween(DB::raw('DATE(s.created_at)'), [$start, $end])
+            ->groupBy('s.id', 'si.product_id', 'si.price')->select('s.id'), 't')->count();
+        $this->assertCount($historyLines + $tillLines, $lines, 'one line per imported product-day plus one per till sale line');
+
+        $expected = $this->revenueBetween($start, $end);
+        $this->assertSame(self::cents($expected['total']), self::cents($totalRow[10]), 'TOTAL Line Total = the report\'s revenue');
+        $this->assertSame(self::cents($expected['total']), array_sum(array_map(fn ($r) => self::cents($r[10]), $lines)));
+
+        foreach (array_slice($lines, 0, 200) as $r) {
+            $this->assertMatchesRegularExpression('/^\d{13}$|^\S+$/', (string) $r[4], 'SKU kept as text');
+            $this->assertSame(self::cents((float) $r[7] * (float) $r[8]), self::cents($r[10]), "Line total for {$r[3]}");
+        }
     }
 
     public function test_a_category_scoped_sales_export_counts_only_that_category(): void

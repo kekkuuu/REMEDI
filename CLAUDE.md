@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (399 passed, 10 skipped, 1442 assertions — measured 2026-10-15) and is a usable regression gate.** The 10 skipped are `Feature\Reports\ReportExportTest`, which only runs against MySQL (below). It was 22 failed / 3 passed, for
+**The suite is green (403 passed, 11 skipped, 1461 assertions — measured 2026-10-15) and is a usable regression gate.** The 11 skipped are `Feature\Reports\ReportExportTest`, which only runs against MySQL (below). It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -1555,6 +1555,23 @@ all; it shows the day/month breakdown instead, so this is purely about paper.
 **Daily / Weekly / Monthly / Yearly GROUP the Sales Report — they no longer pick a date range (2026-09-28, the user's choice from options).** They were quick RANGES counted from today, and on a Monday "this week" and "today" were the same empty day, so two buttons drew the identical report and the live filters looked broken. Now `?group=day|week|month|year` buckets the chosen dates: one bar and one table row per day, week (Monday start), month or year; the totals do not move, the shape does. `SalesHistory::groupedTrendBetween()` builds a DAILY series (history cached under `rangeKey('daily')`, the till fresh) and `bucketDaily()` rolls it up — the category/product view goes through the same function (`scopedTrendBetween(..., $group)`), and the till's per-bucket column keys through the same `bucketKey()`, so no date can land in two buckets. With nothing chosen the group is `autoGroup()` (day ≤ 92 days, else month), and an old `?period=weekly` link reads as a grouping. `active_days` counts days with a sale in EITHER record — Average / Day moved ₱7,922 → ₱7,824 because the till's own days now count. The breakdown table lists the latest 366 rows (the graph and the footer cover all) — Daily over four years is 1,695 rows and was 1.5 MB per click, now 395 KB. `periodRange()` and its test remain but nothing calls them. The fetches are same-origin relative, `cache: 'no-store'`, and both answers carry `Vary: Accept, X-Requested-With`. Covered by `Feature\Reports\SalesGroupingTest`.
 
 **Nothing is shown as selected unless the person picked it, and the graph's axis is the whole range (2026-09-28, both at the user's request).** The automatic grouping (`autoGroup()`) used to light up "Monthly" and write `group=month` into the address, which read as a filter nobody set; `$chosenGroup` (null unless `group`/`period` was sent) now drives the button and the hidden field, and clicking the lit button again unselects it. The graph draws `SalesHistory::bucketAxis()` — every bucket from start to end, zero where nothing sold — because a cashier who only sold in Aug–Sep collapsed a 57-bar Monthly graph to 2 bars that looked like the graph had gone; it now keeps the Jan 2022 – Sep 2026 axis with their sales at the end. The breakdown TABLE still lists only buckets with a sale.
+
+**The Sales Report's Excel download has a second sheet, "Transaction Items" (2026-10-15, at the user's request:
+"make the sales report like this" -- the transaction file's own columns: Order#, Date / Time, Product ID, Product
+Name, SKU / Barcode, Category, Unit, Quantity, Unit Price, Unit Cost, Line Total, Line Cost, Gross Profit).**
+`App\Support\SalesLineItems::between()` is the one definition: till sales are real lines (transaction number and
+time, grouped per sale + product + price so a FEFO split is one line, voided sales out); the imported record is one
+line per product per day marked "Imported", date only, at the CURRENT selling price -- so the lines add up to the
+report's Total Sales (July 2026: 27,085 lines, ₱2,682,248.49, equal to the report). Cost is `cost_price`; none set
+means blank cost/profit. Same range and filters as the report (a cashier drops the imported lines). **Capped at
+`MAX_LINES` (40,000), keeping the latest, with a note row** -- the imported record is ~385 lines a day and Vercel
+refuses a response over ~4.5 MB (~82 bytes a line). **The workbook is written by `App\Support\XlsxWriter`, not
+Laravel Excel**: PhpSpreadsheet built 20,000 lines in 7.8 s / 272 MB, the streaming writer in 1.0 s / 76 MB, and
+it writes every string as text (SKUs stay 13 digits, no formulas). The history half reads `sales_history` alone by
+its date index with a products subquery -- joined first, all-time took 68 s, now 1.7 s. `SalesBreakdownSheet` /
+`SalesLineItemsSheet` define the two sheets. Covered by `Feature\Reports\SalesLineItemsTest` (sqlite) and
+`ReportExportTest` (MySQL: line count and TOTAL against SQL; its helper skips the line sheet unless asked, since
+PhpSpreadsheet needs over 512 MB to READ a month of it).
 
 **Print must print what you asked for.** The month picker submits on change; the two date inputs do
 not, and wait for Generate — right, since setting a start date should not fire a report before the end

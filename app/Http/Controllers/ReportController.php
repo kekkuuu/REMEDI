@@ -12,6 +12,7 @@ use App\Models\Sale;
 use App\Models\SaleItem;
 use App\Models\SalesHistory;
 use App\Models\User;
+use App\Support\SalesLineItems;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -306,7 +307,21 @@ class ReportController extends Controller
             AuditTrail::log('Viewed', 'Exported Sales Report as Excel ('.$data['start'].' to '.$data['end'].
                 ($data['scopeLabel'] ? ", {$data['scopeLabel']}" : '').')');
 
-            return Excel::download(new SalesReportExport($data), "sales-report-{$range}{$scopeSuffix}.xlsx");
+            // The second sheet lists every sale line under the same range and
+            // filters (App\Support\SalesLineItems) -- a product filter wins over
+            // a category one, as it does on the page.
+            $lines = SalesLineItems::between(
+                $data['start'], $data['end'],
+                $data['scopeProduct'] ? null : $data['scopeCategory']?->id,
+                $data['scopeProduct']?->sku,
+                $data['scopeCashier']?->id,
+            );
+
+            return response()->download(
+                (new SalesReportExport($data, $lines))->save(),
+                "sales-report-{$range}{$scopeSuffix}.xlsx",
+                ['Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'],
+            )->deleteFileAfterSend();
         }
 
         AuditTrail::log('Viewed', 'Exported Sales Report as PDF ('.$data['start'].' to '.$data['end'].

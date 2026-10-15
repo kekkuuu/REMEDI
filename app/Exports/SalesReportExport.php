@@ -2,59 +2,40 @@
 
 namespace App\Exports;
 
-use Maatwebsite\Excel\Concerns\FromCollection;
-use Maatwebsite\Excel\Concerns\ShouldAutoSize;
-use Maatwebsite\Excel\Concerns\WithHeadings;
-use Maatwebsite\Excel\Concerns\WithMapping;
-use Maatwebsite\Excel\Concerns\WithTitle;
+use App\Support\XlsxWriter;
 
 /**
- * Same breakdown the Sales Report's "Where the total comes from" table
- * shows on screen -- one row per day or month bucket, split into the
- * imported record and this terminal's own POS sales. $data comes straight
- * from ReportController::buildSalesReportData(), so the export can never
- * disagree with the page it was generated from about the range or totals.
+ * The Sales Report's Excel download, two sheets:
+ * - the day/month breakdown the page shows (SalesBreakdownSheet), and
+ * - every sale line in the transaction file's own layout (SalesLineItemsSheet,
+ *   2026-10-15, at the user's request), built by App\Support\SalesLineItems
+ *   with the same range and filters the report used.
+ *
+ * Written with App\Support\XlsxWriter rather than Laravel Excel: the line sheet
+ * runs to tens of thousands of rows, which PhpSpreadsheet holds in memory cell
+ * by cell. The sheet classes stay the one definition of what each sheet says.
  */
-class SalesReportExport implements FromCollection, ShouldAutoSize, WithHeadings, WithMapping, WithTitle
+class SalesReportExport
 {
-    public function __construct(private array $data) {}
+    public function __construct(private array $data, private array $lines) {}
 
-    public function collection()
+    /** Builds the workbook in a temp file and returns its path. */
+    public function save(): string
     {
-        return $this->data['dailyBreakdown'];
-    }
+        $xlsx = new XlsxWriter;
 
-    public function headings(): array
-    {
-        return ['Period', 'Units Sold', 'Imported Revenue (PHP)', 'This Terminal Revenue (PHP)', 'Total Revenue (PHP)'];
-    }
+        $breakdown = new SalesBreakdownSheet($this->data);
+        $xlsx->addSheet(
+            $breakdown->title(),
+            $breakdown->headings(),
+            $breakdown->collection()->map(fn ($row) => $breakdown->map($row)),
+            [1 => XlsxWriter::INT, 2 => XlsxWriter::MONEY, 3 => XlsxWriter::MONEY, 4 => XlsxWriter::MONEY],
+            [18, 12, 22, 26, 20],
+        );
 
-    public function map($row): array
-    {
-        $total = (float) $row['revenue'];
-        $pos = (float) ($this->data['posByBucket'][$row['key']] ?? 0);
+        $lines = new SalesLineItemsSheet($this->lines);
+        $xlsx->addSheet($lines->title(), $lines->headings(), $lines->rows(), $lines->kinds(), $lines->widths());
 
-        return [
-            $row['label'],
-            $row['units'],
-            round($total - $pos, 2),
-            $pos,
-            $total,
-        ];
-    }
-
-    public function title(): string
-    {
-        if (! $this->data['scopeLabel']) {
-            return 'Sales Report';
-        }
-
-        // Excel sheet names cap at 31 characters and reject :\/?*[] -- a
-        // product name can carry any of those (this catalogue has products
-        // with "/" and "%" in their names) and easily runs past the limit.
-        $label = str_replace([':', '\\', '/', '?', '*', '[', ']'], '-', $this->data['scopeLabel']);
-        $suffix = ' — '.$label;
-
-        return 'Sales Report'.substr($suffix, 0, 31 - strlen('Sales Report'));
+        return $xlsx->save();
     }
 }
