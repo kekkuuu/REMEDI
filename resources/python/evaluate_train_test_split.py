@@ -228,9 +228,12 @@ def main():
             print(f"Store-wide (all products summed): MAPE {storewide['mape']}%, WAPE {storewide['wape']}%")
 
     if args.summary:
+        # 4 decimals, not 2: the page shows 1, and rounding twice (16.947 ->
+        # 16.95 -> 17.0) made the card disagree with this script's own printout
+        # (16.9) on the same figure.
         def clean(v):
             v = float(v)
-            return None if math.isnan(v) else round(v, 2)
+            return None if math.isnan(v) else round(v, 4)
 
         summary = {
             "generated_at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),

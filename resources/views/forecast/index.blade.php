@@ -270,6 +270,108 @@
     @endif
 
 
+    {{-- The chronological train/test split (2026-10-02, at the user's
+         request; removed 2026-10-06, back 2026-10-16, both at the user's
+         request): each product's first 80% of months train the model, the
+         last 20% test it, never shuffled. Overall figures from
+         forecast:evaluate-split --summary, read through App\Support\ForecastSplit.
+         The two baselines are what a buyer could do with no model at all, so
+         the model's numbers mean something only beside them -- and the card
+         says plainly when the model loses to them. --}}
+    @if ($split)
+    @php
+        $splitRows = [
+            'model' => 'SARIMA model (as in the app)',
+            'mean_last_3' => 'Baseline: average of last 3 months',
+            'repeat_last' => 'Baseline: repeat last month',
+        ];
+        $splitPct = fn ($v) => $v === null ? '—' : number_format($v, 1).'%';
+        $sm = $split['metrics']['model'];
+        $sb = $split['metrics']['mean_last_3'] ?? null;
+    @endphp
+    <div style="border:0.5px solid #e5e7eb; border-radius:12px; background:#fff; padding:16px; margin-bottom:18px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:6px;">
+            <span style="font-size:14px; font-weight:500; color:#111;">
+                <i class="ti ti-arrows-split-2" style="font-size:14px; vertical-align:-1px; margin-right:6px; color:#185FA5;"></i>
+                {{ $split['train_pct'] }}/{{ $split['test_pct'] }} train/test evaluation
+            </span>
+            <span style="font-size:12px; color:#6b7280;">
+                {{ number_format($split['scored']) }} of {{ number_format($split['products']) }} products &middot; run {{ \Carbon\Carbon::parse($split['generated_at'])->format('M j, Y') }}
+            </span>
+        </div>
+        <p style="font-size:12px; color:#64748b; margin:0 0 12px;">
+            Each product's months are split in time order, never shuffled: the first {{ $split['train_pct'] }}% train the model, the last
+            {{ $split['test_pct'] }}% test it. Most products train on {{ $split['typical']['train_period'] }}
+            ({{ $split['typical']['train_months'] }} months) and are tested on {{ $split['typical']['test_period'] }}
+            ({{ $split['typical']['test_months'] }} months ahead, in one go).
+        </p>
+
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(130px, 1fr)); gap:12px; margin-bottom:14px;">
+            @foreach ([['MAE', number_format($sm['mae'], 2), 'units out per month'],
+                       ['RMSE', number_format($sm['rmse'], 2), 'large misses weighted heavier'],
+                       ['MAPE', $splitPct($sm['mape']), 'average of '.number_format($split['mape_defined']).' products'],
+                       ['sMAPE', $splitPct($sm['smape']), 'still works when a product sold nothing'],
+                       ['WAPE', $splitPct($sm['wape']), 'total units missed ÷ total sold']] as [$label, $value, $hint])
+                <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
+                    <p style="font-size:12px; color:#64748b; margin:0 0 4px;">{{ $label }}</p>
+                    <p style="font-size:20px; font-weight:600; margin:0;">{{ $value }}</p>
+                    <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">{{ $hint }}</p>
+                </div>
+            @endforeach
+        </div>
+
+        <div class="table-scroll"><table style="width:100%; border-collapse:collapse; font-size:13px; margin-bottom:12px;">
+            <thead>
+                <tr style="background:#f9fafb;">
+                    @foreach (['Method', 'MAE', 'RMSE', 'MAPE', 'sMAPE', 'WAPE'] as $i => $h)
+                        <th style="padding:8px 12px; text-align:{{ $i ? 'right' : 'left' }}; font-size:11px; font-weight:500; color:#6b7280; text-transform:uppercase; letter-spacing:0.04em;">{{ $h }}</th>
+                    @endforeach
+                </tr>
+            </thead>
+            <tbody>
+                @foreach ($splitRows as $key => $label)
+                    @php $m = $split['metrics'][$key] ?? null; @endphp
+                    @if ($m)
+                    <tr style="border-bottom:0.5px solid #e5e7eb; {{ $key === 'model' ? 'font-weight:600;' : '' }}">
+                        <td style="padding:9px 12px; color:#374151;">{{ $label }}</td>
+                        <td style="padding:9px 12px; text-align:right;">{{ number_format($m['mae'], 2) }}</td>
+                        <td style="padding:9px 12px; text-align:right;">{{ number_format($m['rmse'], 2) }}</td>
+                        <td style="padding:9px 12px; text-align:right;">{{ $splitPct($m['mape']) }}</td>
+                        <td style="padding:9px 12px; text-align:right;">{{ $splitPct($m['smape']) }}</td>
+                        <td style="padding:9px 12px; text-align:right;">{{ $splitPct($m['wape']) }}</td>
+                    </tr>
+                    @endif
+                @endforeach
+            </tbody>
+        </table></div>
+
+        <div style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom:8px;">
+            @foreach (['Normal' => '#16a34a', 'Acceptable' => '#d97706', 'Not acceptable' => '#dc2626'] as $g => $colour)
+                <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:#f8fafc; border:0.5px solid #e5e7eb; font-size:12px; color:#374151;">
+                    <span style="width:8px; height:8px; border-radius:50%; background:{{ $colour }};"></span>
+                    {{ $g }} <strong>{{ number_format($split['grades'][$g] ?? 0) }}</strong>
+                </span>
+            @endforeach
+            @if ($split['storewide'] ?? null)
+                <span style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px; border-radius:999px; background:#f0fdf4; border:0.5px solid #bbf7d0; font-size:12px; color:#166534;">
+                    Whole store (all products added up): MAPE <strong>{{ $splitPct($split['storewide']['mape']) }}</strong>
+                </span>
+            @endif
+        </div>
+
+        <p style="font-size:11px; color:#94a3b8; margin:0;">
+            The model has a lower MAE than the 3-month average on {{ number_format($split['wins']['mean_last_3']) }}
+            of {{ number_format($split['scored']) }} products, and lower than repeating last month on
+            {{ number_format($split['wins']['repeat_last']) }}.
+            @if ($sb && $sm['mae'] > $sb['mae'])
+                Over this long a horizon the simple average does better overall: the test months follow a period of
+                fast growth, and the model carries that growth forward while sales levelled off.
+            @endif
+            An evaluation only &mdash; the live forecasts still train on every month.
+        </p>
+    </div>
+    @endif
+
     {{-- Two "top 5" charts, side by side conceptually but stacked here since
          each needs its own width: demand (units to buy, DemandForecastService)
          and sales forecast (revenue to expect, SalesForecastService). They
