@@ -149,7 +149,8 @@
             </span>
             <span style="font-size:12px; color:#6b7280;">
                 @if (($accuracy['scorable'] ?? 0) > $accuracy['scored'])
-                    {{ number_format($accuracy['scored']) }} of {{ number_format($accuracy['scorable']) }} products scored &middot;
+                    {{ number_format($accuracy['scored']) }} of {{ number_format($accuracy['scorable']) }} products scored
+                    ({{ number_format($accuracy['scorable'] - $accuracy['scored']) }} have too little sales history to test) &middot;
                 @else
                     {{ number_format($accuracy['scored']) }} products &middot;
                 @endif
@@ -176,8 +177,16 @@
                 <p style="font-size:20px; font-weight:600; margin:0;">
                     {{ $accuracy['mape'] !== null ? number_format($accuracy['mape'], 1).'%' : '—' }}
                 </p>
+                {{-- Plain words (2026-10-15, at the user's request): "undefined"
+                     read as "unidentified". MAPE divides by units sold, so a
+                     product that sold 0 in every test month has none. --}}
                 <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">
-                    undefined for {{ number_format($accuracy['mape_undefined']) }} {{ Str::plural('product', $accuracy['mape_undefined']) }} that sold nothing
+                    @if ($accuracy['mape_undefined'] > 0)
+                        average of {{ number_format($accuracy['scored'] - $accuracy['mape_undefined']) }} products &middot;
+                        can't be calculated for {{ number_format($accuracy['mape_undefined']) }} that sold nothing in the test months
+                    @else
+                        average of all {{ number_format($accuracy['scored']) }} products
+                    @endif
                 </p>
             </div>
             @if (($accuracy['mape_median'] ?? null) !== null)
@@ -192,7 +201,7 @@
                 <p style="font-size:20px; font-weight:600; margin:0;">
                     {{ $accuracy['smape'] !== null ? number_format($accuracy['smape'], 1).'%' : '—' }}
                 </p>
-                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">stays defined at zero sales</p>
+                <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">still works when a product sold nothing</p>
             </div>
             @if ($accuracy['wape'] !== null)
             <div style="background:#f8fafc; border-radius:8px; padding:12px 14px;">
