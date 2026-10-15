@@ -6,6 +6,7 @@ use App\Models\DemandForecast;
 use App\Models\ForecastAccuracy;
 use App\Models\Product;
 use App\Models\SalesHistory;
+use App\Models\Setting;
 use App\Support\ForecastGrade;
 use App\Support\ForecastHorizon;
 use Carbon\Carbon;
@@ -235,6 +236,24 @@ class DemandForecastService
      * those is returned alongside it. Treating an undefined MAPE as 0 would
      * quietly flatter the model with every product that sold nothing.
      */
+    /** "May – Jul 2026" (or "Nov 2025 – Jan 2026"); null with no forecast rows. */
+    private function holdoutLabel(int $months): ?string
+    {
+        $first = DemandForecast::min('forecast_date');
+        if (! $first || $months < 1) {
+            return null;
+        }
+
+        $end = Carbon::parse($first)->startOfMonth()->subMonthNoOverflow();
+        $start = $end->copy()->subMonthsNoOverflow($months - 1);
+
+        if ($months === 1) {
+            return $end->format('M Y');
+        }
+
+        return $start->format($start->year === $end->year ? 'M' : 'M Y').' – '.$end->format('M Y');
+    }
+
     public function accuracySummary(): ?array
     {
         $overall = ForecastAccuracy::selectRaw(
@@ -270,6 +289,12 @@ class DemandForecastService
             'smape' => $overall->smape === null ? null : (float) $overall->smape,
             'mape_undefined' => (int) $overall->mape_undefined,
             'holdout_months' => (int) $overall->holdout_months,
+            // The months hidden and forecast, named on the card (2026-10-15, at
+            // the user's request: "test months" said nothing). Taken from the
+            // run itself, not the sales record: a run trains through the month
+            // before its first forecast row, so the holdout is the N months
+            // ending there -- right even between an import and the next run.
+            'holdout_label' => $this->holdoutLabel((int) $overall->holdout_months),
             // Products too new for the full holdout were tested on fewer months
             // (backtest_product); counted so the card can say so.
             'short_holdout' => ForecastAccuracy::where('holdout_months', '<', (int) $overall->holdout_months)->count(),
@@ -323,7 +348,7 @@ class DemandForecastService
      */
     public function storewideAccuracy(): ?array
     {
-        $data = json_decode((string) \App\Models\Setting::get(\App\Models\Setting::STOREWIDE_ACCURACY_KEY), true);
+        $data = json_decode((string) Setting::get(Setting::STOREWIDE_ACCURACY_KEY), true);
 
         return is_array($data) && isset($data['mape'], $data['months']) ? $data : null;
     }

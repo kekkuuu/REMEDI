@@ -154,9 +154,13 @@
                 @else
                     {{ number_format($accuracy['scored']) }} products &middot;
                 @endif
-                {{ $accuracy['holdout_months'] }}-month holdout
+                @if ($accuracy['holdout_label'] ?? null)
+                    checked on {{ $accuracy['holdout_label'] }}, hidden from the model and then forecast
+                @else
+                    {{ $accuracy['holdout_months'] }}-month holdout
+                @endif
                 @if (($accuracy['short_holdout'] ?? 0) > 0)
-                    ({{ number_format($accuracy['short_holdout']) }} newer {{ Str::plural('product', $accuracy['short_holdout']) }} on a shorter one)
+                    ({{ number_format($accuracy['short_holdout']) }} newer {{ Str::plural('product', $accuracy['short_holdout']) }} on fewer of those months)
                 @endif
             </span>
         </div>
@@ -183,7 +187,8 @@
                 <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">
                     @if ($accuracy['mape_undefined'] > 0)
                         average of {{ number_format($accuracy['scored'] - $accuracy['mape_undefined']) }} products &middot;
-                        can't be calculated for {{ number_format($accuracy['mape_undefined']) }} that sold nothing in the test months
+                        can't be calculated for {{ number_format($accuracy['mape_undefined']) }} that sold nothing in
+                        {{ ($accuracy['holdout_label'] ?? null) ? 'the months checked ('.$accuracy['holdout_label'].')' : 'the months checked' }}
                     @else
                         average of all {{ number_format($accuracy['scored']) }} products
                     @endif

@@ -57,9 +57,10 @@ class DemandForecastController extends Controller
         // writes -- see App\Support\ForecastCache. The Model accuracy card was
         // removed 2026-10-06 and put back 2026-10-13, both at the user's request
         // (the store-wide, 80/20 and rolling cards stay off the page).
-        // 'index_v3': each earlier bundle key holds a different shape, and
-        // destructuring one of those would put the wrong value in each slot.
-        [$topDemand, $topSales, $accuracy] = ForecastCache::remember('index_v3', fn () => [
+        // 'index_v4': each earlier bundle key holds a different shape, and
+        // destructuring one of those would put the wrong value in each slot
+        // (v4: the accuracy summary gained holdout_label).
+        [$topDemand, $topSales, $accuracy] = ForecastCache::remember('index_v4', fn () => [
             $this->forecasts->topDemandSeries(5),
             $this->salesForecasts->topSalesForecastSeries(5),
             $this->forecasts->accuracySummary(),
