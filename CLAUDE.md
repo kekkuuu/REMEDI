@@ -1848,6 +1848,27 @@ only where a per-product seasonality test passed (Kruskal–Wallis or lag-12 ACF
 holdout 8.21 / 50.7% / 29.5%, 80/20 8.12 / 53.1% / 29.6% (ahead of both baselines), store-wide 4.56% / 7.41%; ARIMA on
 every product measured 8.15 / 49.9% and 8.09 / 52.4%. To go back, restore `is_seasonal()` and the two candidate lists
 from commit 5ba5140 in both scripts and regenerate both pipelines.
+**THE SETUP IS NOW SARIMA(0,1,1)(0,1,1,12), THE "AIRLINE" MODEL (2026-10-19, at the user's request, on the synthetic
+"seasonal low-error" set `REMEDI_seasonal_lowerror_Jul2022-Jun2026.zip`, imported LOCALLY only as
+`database/data/sales_history_daily_SEASONAL12_lowerror_2022-2026.csv`) — supersedes (0,1,1)(0,0,1,12) below.** On that
+record the ACF/PACF read every parameter of it (D = 1 on 99.5% of products, a lag-12 ACF spike on 46.3%, average −0.31),
+and on Apr–Jun 2026 hidden it scored MAE 1.79 / MAPE 3.73% / WAPE 3.71% (all 2,634 products Normal; store-wide 1.19%)
+against 3.12 / 6.66% / 6.47% for (0,1,1)(0,0,1,12). `acf_pacf_identification.py` now reads P / Q from the lag-12 spike
+share (> 5% = seasonal term) instead of assuming none. **Seasonal differencing is record-dependent**: on a record with a
+growth spurt D = 1 read MAPE ~100% (2026-10-04) — re-measure before keeping it on other data.
+**SARIMA(0,1,1)(0,0,1,12), CHOSEN FROM ACF / PACF (2026-10-18, at the user's request, on synthetic
+sales data set #6) — supersedes (0,1,1)(1,0,0,12) in the next paragraph.** `docs/forecast-study/acf_pacf_identification.py`
+(run in WSL with `/root/study-venv`, which adds matplotlib to the pinned packages) reads every product's log(1 + units):
+ADF + KPSS give d = 1 (89.7% of products); STL seasonal strength is under 0.64 (store 0.11) so D = 0; the AVERAGE
+correlogram over 2,414 products has the ACF cutting off after lag 1 (−0.42, then ~0) while the PACF tails off (−0.42,
+−0.21, −0.10) — an MA(1), so p = 0, q = 1 (PACF lag 1 always equals ACF lag 1, which is why a plain count of significant
+lags reads every MA(1) as (1,1,1); the script's `shape_rule()` checks which plot tails off). Lag-12 spikes on 2.7% (ACF)
+/ 1.2% (PACF) of products, under the 5% chance level, so the plots support no seasonal term; the MA one is kept so the
+model stays SARIMA. Same 3 hidden months, same 2,358 products: (0,1,1)(0,0,1,12) MAE 5.6887 / MAPE 19.31% / WAPE 17.92%
+against (0,1,1)(1,0,0,12) 5.7349 / 19.53% / 18.06% (plain (0,1,1) with no seasonal term 5.5896 / 18.92% — ARIMA, not
+used). Regenerated locally (WSL, pickles → `storage/app/forecasts` CSVs → the commands' own importers): holdout 2,617
+scored, MAE 5.1987 / MAPE 19.56% (was 5.2407 / 19.73%), store-wide 5.02%; 80/20 re-run, MAE 9.46 / MAPE 32.3% / WAPE
+33.8% (was 10.44 / 34.4% / 37.5%), store-wide 10.07% (was 11.42%) — still behind mean-of-last-3 (4.81 / 18.2%).
 **ONE SARIMA SETUP, SARIMA(0,1,1)(1,0,0,12), for every product (2026-10-13, at the user's request: "remove the 4
 configurations, only the SARIMA") — supersedes the four-candidate contest described below.** Each of the four was
 measured alone on all 2,617 products (May–Jul 2026 holdout, WSL): (0,1,1)(1,0,0,12) MAE 8.313 / MAPE 51.70% / median

@@ -1,53 +1,53 @@
 {
-  "generated_at": "2026-10-16 00:29",
+  "generated_at": "2026-10-19 00:45",
   "train_pct": 80,
   "test_pct": 20,
-  "products": 2637,
-  "scored": 2600,
-  "mape_defined": 2595,
+  "products": 2634,
+  "scored": 2634,
+  "mape_defined": 2634,
   "typical": {
-    "count": 696,
-    "train_period": "2022-07 to 2025-09",
-    "train_months": 39,
-    "test_period": "2025-10 to 2026-07",
+    "count": 2634,
+    "train_period": "2022-07 to 2025-08",
+    "train_months": 38,
+    "test_period": "2025-09 to 2026-06",
     "test_months": 10
   },
   "metrics": {
     "model": {
-      "mae": 10.4398,
-      "rmse": 12.1507,
-      "mape": 34.4121,
-      "smape": 31.5447,
-      "wape": 37.4869
+      "mae": 1.9387,
+      "rmse": 2.4095,
+      "mape": 3.9857,
+      "smape": 3.9224,
+      "wape": 3.9185
     },
     "mean_last_3": {
-      "mae": 4.7993,
-      "rmse": 5.8644,
-      "mape": 18.1759,
-      "smape": 20.971,
-      "wape": 16.9475
+      "mae": 5.3099,
+      "rmse": 6.5175,
+      "mape": 12.0537,
+      "smape": 11.0733,
+      "wape": 10.7321
     },
     "repeat_last": {
-      "mae": 5.5809,
-      "rmse": 6.6472,
-      "mape": 21.7334,
-      "smape": 24.4918,
-      "wape": 19.687
+      "mae": 8.4725,
+      "rmse": 9.4841,
+      "mape": 19.5845,
+      "smape": 16.9886,
+      "wape": 17.1243
     }
   },
   "wins": {
-    "mean_last_3": 545,
-    "repeat_last": 664
+    "mean_last_3": 2489,
+    "repeat_last": 2550
   },
   "grades": {
-    "Normal": 780,
-    "Acceptable": 1283,
-    "Not acceptable": 537
+    "Normal": 2634,
+    "Acceptable": 0,
+    "Not acceptable": 0
   },
   "storewide": {
-    "train_period": "2022-07 to 2025-09",
-    "test_period": "2025-10 to 2026-07",
-    "mape": 11.42,
-    "wape": 11.2
+    "train_period": "2022-07 to 2025-08",
+    "test_period": "2025-09 to 2026-06",
+    "mape": 1.86,
+    "wape": 1.81
   }
 }

@@ -4,7 +4,7 @@ REMEDI forecasting accuracy metrics -- one file, readable top to bottom.
 What it does
 ------------
 For every product it hides the last 3 complete months of sales, forecasts
-those months with the SAME model the app uses (SARIMA(0,1,1)(1,0,0,12) on
+those months with the SAME model the app uses (SARIMA(0,1,1)(0,1,1,12) on
 log(1 + units), from resources/python/generate_forecasts.py), and compares the
 forecast with what actually sold. It then reports:
 
@@ -190,7 +190,8 @@ def main():
     t0 = time.time()
     print(LINE)
     print("REMEDI FORECASTING ACCURACY METRICS")
-    print("Model: SARIMA(0,1,1)(1,0,0,12) on log(1 + units) -- the app's own model")
+    (o, so) = gf.SARIMA_CANDIDATES[0]
+    print(f"Model: SARIMA{o}{tuple(so)} on log(1 + units) -- the app's own model".replace(", ", ","))
     print(LINE)
 
     print("\n[1/3] Loading sales history...")

@@ -115,12 +115,44 @@ warnings.filterwarnings("ignore")
 #   (0,1,1)(0,0,1,12)     MAE 8.391 / MAPE 51.79% / median 38.33% / WAPE 30.15%
 #   (1,1,1)(1,0,0,12)     MAE 8.415 / MAPE 52.75% / median 38.89% / WAPE 30.24%
 #   (1,1,1)(0,0,1,12)     MAE 8.438 / MAPE 52.85% / median 38.89% / WAPE 30.32%
-# SARIMA(0,1,1)(1,0,0,12): first differences, one MA term, one seasonal AR term
-# at lag 12 (estimated per product, near zero where there is no yearly pattern).
 # With one setup there is nothing to choose, so _sarima_attempt() fits it
 # directly; _pick_sarima_order() remains for a caller that passes several.
+#
+# SARIMA(0,1,1)(0,0,1,12), CHOSEN FROM ACF / PACF (2026-10-18, at the user's
+# request, on synthetic sales data set #6 -- docs/forecast-study/
+# acf_pacf_identification.py). Box-Jenkins reading of every product's
+# log(1 + units), averaged over the 2,414 with >= 27 months:
+#   d = 1  ADF + KPSS agree one difference makes the series stationary (89.7%)
+#   q = 1  the ACF cuts off after lag 1 (-0.42, then ~0)
+#   p = 0  the PACF tails off (-0.42, -0.21, -0.10): its lag-1 value always
+#          equals the ACF's, so it is the MA term showing, not an AR term
+#   D = 0  STL seasonal strength under 0.64 (store 0.11; 95.9% of products)
+#   seasonal: lag-12 spikes on 2.7% (ACF) / 1.2% (PACF) of products, under the
+#   5% chance level -- the seasonal term kept so the model stays SARIMA is the
+#   MA one, which is closest to "no seasonal term" and scored better than AR:
+#   same 3 hidden months (May-Jul 2026), same 2,358 products:
+#     (0,1,1)(0,0,1,12)  MAE 5.6887 / MAPE 19.31% / median 17.46% / WAPE 17.92%  <- used
+#     (0,1,1)(1,0,0,12)  MAE 5.7349 / MAPE 19.53% / median 17.64% / WAPE 18.06%  (before)
+#     (0,1,1) no season  MAE 5.5896 / MAPE 18.92% / median 16.77% / WAPE 17.61%  (ARIMA, not used)
+#
+# SARIMA(0,1,1)(0,1,1,12) -- THE "AIRLINE" MODEL (2026-10-19, at the user's
+# request, on the synthetic "seasonal low-error" set, Jul 2022 - Jun 2026). On
+# that record the yearly pattern is strong in every product, and the ACF/PACF
+# read (docs/forecast-study/acf_pacf_identification.py, 2,634 products):
+#   d = 1  ADF + KPSS, 96.6% of products;   D = 1  STL seasonal strength above
+#   0.64 on 99.5% (store 0.996);   q = 1  ACF cuts off after lag 1 (-0.47);
+#   p = 0  PACF tails off;   Q = 1  ACF spike at lag 12 on 46.3% of products
+#   (average -0.31);   P = 0  PACF spike at lag 12 on 4.1% (under chance).
+# Same 3 hidden months (Apr-Jun 2026), all 2,634 products:
+#   (0,1,1)(0,1,1,12)  MAE 1.7876 / MAPE 3.73% / WAPE 3.71%  <- used
+#   (1,1,1)(0,1,1,12)  MAE 1.8187 / MAPE 3.81% / WAPE 3.78%
+#   (0,1,1)(1,1,0,12)  MAE 1.8883 / MAPE 3.96% / WAPE 3.92%
+#   (0,1,1)(0,0,1,12)  MAE 3.1157 / MAPE 6.66% / WAPE 6.47%  (before)
+# CAUTION: seasonal differencing copies last year's change into this year; on a
+# record with a growth spurt (the 2026-10-04 measurement above) D = 1 read
+# MAPE ~100%. Re-measure before keeping it on a different record.
 SARIMA_CANDIDATES = [
-    ((0, 1, 1), (1, 0, 0, 12)),
+    ((0, 1, 1), (0, 1, 1, 12)),
 ]
 SEASONAL_CANDIDATES = SARIMA_CANDIDATES
 SARIMA_ORDER, SARIMA_SEASONAL_ORDER = SARIMA_CANDIDATES[0]
