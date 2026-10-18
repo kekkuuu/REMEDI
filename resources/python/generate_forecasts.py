@@ -151,8 +151,19 @@ warnings.filterwarnings("ignore")
 # CAUTION: seasonal differencing copies last year's change into this year; on a
 # record with a growth spurt (the 2026-10-04 measurement above) D = 1 read
 # MAPE ~100%. Re-measure before keeping it on a different record.
+#
+# SARIMA(0,1,1)(1,1,0,12) -- SEASONAL AR INSTEAD OF SEASONAL MA (2026-10-19, at
+# the user's request, on the synthetic "seasonal opening 2022" set: the store
+# opens in Jul 2022 and grows fast, then slower). ACF/PACF over 2,634 products:
+# d = 1, D = 1 (seasonal strength above 0.64 on 94.9%), q = 1 (ACF -0.47 then
+# ~0), p = 0 (PACF tails off), lag 12: ACF spike on 45.7% of products, PACF
+# spike on 5.4% -- both seasonal terms suggested, (0,1,1)(1,1,1,12). Same 3
+# hidden months (Apr-Jun 2026), all 2,634 products:
+#   (0,1,1)(1,1,0,12)  MAE 2.6749 / MAPE 5.61% / WAPE 5.57%  <- used (simpler, most accurate)
+#   (0,1,1)(1,1,1,12)  MAE 2.9036 / MAPE 6.12% / WAPE 6.05%  (both seasonal terms)
+#   (0,1,1)(0,1,1,12)  MAE 2.9387 / MAPE 6.16% / WAPE 6.12%  (before)
 SARIMA_CANDIDATES = [
-    ((0, 1, 1), (0, 1, 1, 12)),
+    ((0, 1, 1), (1, 1, 0, 12)),
 ]
 SEASONAL_CANDIDATES = SARIMA_CANDIDATES
 SARIMA_ORDER, SARIMA_SEASONAL_ORDER = SARIMA_CANDIDATES[0]

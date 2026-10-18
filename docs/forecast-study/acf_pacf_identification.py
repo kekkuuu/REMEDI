@@ -524,8 +524,17 @@ def main():
 
         # Is the app's model the one the plots point to? Checked part by part.
         (ap, ad, aq), (aP, aD, aQ, a_s) = CURRENT
-        if P_c or Q_c or D_c:
-            seasonal_check = ((aP, aQ) == (P_c, Q_c), f"ACF/PACF give (P, Q) = ({P_c}, {Q_c})")
+        if (aP, aQ) == (P_c, Q_c):
+            seasonal_check = (True, f"ACF/PACF give (P, Q) = ({P_c}, {Q_c})")
+        elif P_c and Q_c and aP <= P_c and aQ <= Q_c and aP + aQ == 1:
+            # The plots suggest both seasonal terms; keeping only one of them is the
+            # simpler model (parsimony), acceptable only if it forecasts at least as well.
+            simpler_ok = val["current"]["mae"] <= val["reading"]["mae"]
+            seasonal_check = (simpler_ok,
+                              f"ACF/PACF suggest (1, 1); the simpler one-term model scores MAE "
+                              f"{val['current']['mae']:.4f} vs {val['reading']['mae']:.4f} for both terms")
+        elif P_c or Q_c or D_c:
+            seasonal_check = (False, f"ACF/PACF give (P, Q) = ({P_c}, {Q_c})")
         else:
             seasonal_ok = val["current"]["mae"] <= val["seasonal_ar"]["mae"]
             seasonal_check = (seasonal_ok and aP + aQ == 1,

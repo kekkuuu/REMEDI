@@ -1848,7 +1848,16 @@ only where a per-product seasonality test passed (Kruskal–Wallis or lag-12 ACF
 holdout 8.21 / 50.7% / 29.5%, 80/20 8.12 / 53.1% / 29.6% (ahead of both baselines), store-wide 4.56% / 7.41%; ARIMA on
 every product measured 8.15 / 49.9% and 8.09 / 52.4%. To go back, restore `is_seasonal()` and the two candidate lists
 from commit 5ba5140 in both scripts and regenerate both pipelines.
-**THE SETUP IS NOW SARIMA(0,1,1)(0,1,1,12), THE "AIRLINE" MODEL (2026-10-19, at the user's request, on the synthetic
+**THE SETUP IS NOW SARIMA(0,1,1)(1,1,0,12) (2026-10-19, later the same day, at the user's request, on the synthetic
+"seasonal opening 2022" set `REMEDI_seasonal_opening2022_Jul2022-Jun2026.zip` → `database/data/sales_history_daily_
+SEASONAL13_opening_2022-2026.csv`, imported locally AND on live) — supersedes the airline model below.** That record is
+the low-error one with the store opening in Jul 2022 and growing fast, then slower. ACF/PACF over 2,634 products: d = 1,
+D = 1 (94.9%), q = 1, p = 0, and lag-12 spikes in the ACF (45.7%) AND the PACF (5.4%, just over chance), so the plots
+suggest (0,1,1)(1,1,1,12); keeping only the seasonal AR term is simpler and more accurate on Apr–Jun 2026 hidden — MAE
+2.67 / MAPE 5.61% / WAPE 5.57% against 2.90 / 6.12% for both terms and 2.94 / 6.16% for (0,1,1)(0,1,1,12). 80/20 MAE
+3.78 / MAPE 8.1% (mean-of-last-3 4.87 / 10.7%), store-wide 4.55%. `acf_pacf_identification.py`'s check passes a model
+that drops one of two suggested seasonal terms only when it scores at least as well as both.
+**SARIMA(0,1,1)(0,1,1,12), THE "AIRLINE" MODEL (2026-10-19, at the user's request, on the synthetic
 "seasonal low-error" set `REMEDI_seasonal_lowerror_Jul2022-Jun2026.zip`, imported LOCALLY only as
 `database/data/sales_history_daily_SEASONAL12_lowerror_2022-2026.csv`) — supersedes (0,1,1)(0,0,1,12) below.** On that
 record the ACF/PACF read every parameter of it (D = 1 on 99.5% of products, a lag-12 ACF spike on 46.3%, average −0.31),
