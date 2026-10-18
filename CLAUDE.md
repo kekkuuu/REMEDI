@@ -2795,7 +2795,8 @@ suggestion called `runProductSearch()`, which does not exist on this page. Cover
 `Feature\Inventory\InventoryMonitoringFilterTest`; `SearchInputTest` sends both new params as arrays.
 
 **Print Barcodes (2026-09-30, at the user's request) — `/barcodes`, `BarcodeController`, `role:admin`.**
-Sidebar "Print barcodes" under Products, and a "Print Barcode" button on the product edit page
+**The sidebar link is HIDDEN as of 2026-10-18, at the user's request** (commented out in `layouts/app.blade.php`, not
+deleted; the page and the edit-page button still work). Originally: sidebar "Print barcodes" under Products, and a "Print Barcode" button on the product edit page
 (`?product=ID` preselects it). Pick products (the `/suggest/products` search; a scanner gun's SKU +
 Enter adds the exact match) or "Add all" for a category (`/barcodes/products?category_id=`, active
 products only, capped at `MAX_PRODUCTS` 300, skipping ones already on the sheet), set copies (1–100),

@@ -145,9 +145,13 @@
                 <a href="{{ route('products.index') }}" class="{{ request()->routeIs('products.*') ? 'active' : '' }}">
                     <i class="ti ti-pill" aria-hidden="true"></i> Products
                 </a>
+                {{-- "Print barcodes" is HIDDEN from the sidebar (2026-10-18, at the
+                     user's request), not deleted: /barcodes still works and the
+                     product edit page's "Print Barcode" button still opens it.
+                     Restore the link below to bring the menu item back.
                 <a href="{{ route('barcodes.index') }}" class="{{ request()->routeIs('barcodes.*') ? 'active' : '' }}">
                     <i class="ti ti-barcode" aria-hidden="true"></i> Print barcodes
-                </a>
+                </a> --}}
                 <a href="{{ route('reports.index') }}" class="{{ request()->routeIs('reports.*') ? 'active' : '' }}">
                     <i class="ti ti-chart-bar" aria-hidden="true"></i> Reports
                 </a>
