@@ -1855,8 +1855,13 @@ the low-error one with the store opening in Jul 2022 and growing fast, then slow
 D = 1 (94.9%), q = 1, p = 0, and lag-12 spikes in the ACF (45.7%) AND the PACF (5.4%, just over chance), so the plots
 suggest (0,1,1)(1,1,1,12); keeping only the seasonal AR term is simpler and more accurate on Apr–Jun 2026 hidden — MAE
 2.67 / MAPE 5.61% / WAPE 5.57% against 2.90 / 6.12% for both terms and 2.94 / 6.16% for (0,1,1)(0,1,1,12). 80/20 MAE
-3.78 / MAPE 8.1% (mean-of-last-3 4.87 / 10.7%), store-wide 4.55%. `acf_pacf_identification.py`'s check passes a model
-that drops one of two suggested seasonal terms only when it scores at least as well as both.
+3.78 / MAPE 8.1% (mean-of-last-3 4.87 / 10.7%), store-wide 4.55%. **`acf_pacf_identification.py` assumes NO model
+(2026-10-19, at the user's request: "choose no one from default, only choose when you test it")**: its candidates are
+the ACF/PACF reading, each seasonal term alone when it reads both (or each added when it reads none) and the plain
+lag-count order; all are scored on the same hidden months and the most accurate is printed as "CHOSEN BY THE TEST"
+(a tie goes to fewer terms), and only then does it say whether `generate_forecasts.py` holds that model. On this
+record it chose (0,1,1)(1,1,0,12) — the model in use. `--no-ljung-box` skips the residual test in the store-wide AIC
+check; without matplotlib (the live venv) it skips the charts and prints the same figures.
 **SARIMA(0,1,1)(0,1,1,12), THE "AIRLINE" MODEL (2026-10-19, at the user's request, on the synthetic
 "seasonal low-error" set `REMEDI_seasonal_lowerror_Jul2022-Jun2026.zip`, imported LOCALLY only as
 `database/data/sales_history_daily_SEASONAL12_lowerror_2022-2026.csv`) — supersedes (0,1,1)(0,0,1,12) below.** On that

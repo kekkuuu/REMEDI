@@ -1,5 +1,5 @@
 """
-REMEDI -- choosing the SARIMA parameters from ACF and PACF (Box-Jenkins).
+REMEDI -- choosing the SARIMA parameters from ACF and PACF.
 
 What it does
 ------------
@@ -29,9 +29,11 @@ What it does
    Ljung-Box test of the residuals) and for EVERY PRODUCT (the model the app
    fits is per product, on log(1 + units)), with the per-product readings
    counted to find the order most products point to.
-4. Validation: the orders the plots suggest are scored against the app's
-   app's current SARIMA (CURRENT) on the same 3 hidden months per product,
-   with the app's own fitting code (resources/python/generate_forecasts.py).
+4. Choice by test -- no model is assumed. The candidates are the ACF/PACF
+   reading and its simpler (or SARIMA) variants; each is scored on the same 3
+   hidden months per product with the app's own fitting code
+   (resources/python/generate_forecasts.py), and the most accurate is CHOSEN.
+   Only then does the script say whether the app's code holds that model.
 
 How to run
 ----------
@@ -162,7 +164,7 @@ def tail_mass(values, k):
 
 def shape_rule(r, phi, band):
     """
-    Box-Jenkins: which plot CUTS OFF and which TAILS OFF -> (p, q, pattern).
+    Which plot CUTS OFF and which TAILS OFF -> (p, q, pattern).
 
     Counting the significant lags alone is not enough: the PACF at lag 1 always
     equals the ACF at lag 1 (nothing lies between them to remove), so a
@@ -189,7 +191,7 @@ def shape_rule(r, phi, band):
 
 
 def identify(y_units, log=True):
-    """Full Box-Jenkins reading of one monthly series -> dict with the suggested order."""
+    """Full ACF/PACF reading of one monthly series -> dict with the suggested order."""
     y = np.log1p(np.clip(y_units, 0, None)) if log else np.asarray(y_units, float)
     d, tests = choose_d(y)
     fs = seasonal_strength(y)
@@ -266,11 +268,14 @@ def validate_task(task):
         train, actual = s.iloc[:-h], s.iloc[-h:]
         if len(train) < gf.MIN_MONTHS_FOR_SARIMA:
             continue
-        cur = score(train, actual, [CURRENT])
-        if cur is None:
+        # The first candidate decides whether this product can be scored at this
+        # holdout length; every candidate is then scored on the same months.
+        first = score(train, actual, [candidates[0][2]])
+        if first is None:
             continue
-        for key, _, order in candidates:
-            out[key] = cur if key == "current" else score(train, actual, [order])
+        out[candidates[0][0]] = first
+        for key, _, order in candidates[1:]:
+            out[key] = score(train, actual, [order])
         # The product's OWN reading, taken on the training months only (no peeking).
         own = identify(train.to_numpy(float)) if len(train) >= MIN_MONTHS_FOR_READING else None
         if own:
@@ -292,6 +297,22 @@ def summarise(results, key):
             "wape": float(sum(x["abs_error"] for x in rows) / sum(x["actual"] for x in rows) * 100)}
 
 
+class _NoPlot:
+    """Stands in for matplotlib where it is not installed: every chart call does nothing."""
+
+    def __getattr__(self, _name):
+        return self
+
+    def __call__(self, *a, **k):
+        return self
+
+    def __getitem__(self, _key):
+        return self
+
+    def __iter__(self):
+        return iter((self, self))
+
+
 # ------------------------------------------------------------------------- main
 def main():
     ap = argparse.ArgumentParser(description="ACF/PACF identification of the SARIMA orders")
@@ -299,15 +320,20 @@ def main():
     ap.add_argument("--mysql", action="store_true")
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     ap.add_argument("--no-validation", action="store_true")
+    ap.add_argument("--no-ljung-box", action="store_true", help="skip the Ljung-Box residual test in the AIC check")
     args = ap.parse_args()
     os.makedirs(OUT, exist_ok=True)
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
+    try:
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+    except ImportError:  # e.g. the live server's pinned venv: same numbers, no charts
+        print("(matplotlib not installed: charts skipped, every figure below is unchanged)")
+        plt = _NoPlot()
 
     t0 = time.time()
-    print(LINE + "\nREMEDI — SARIMA PARAMETERS FROM ACF / PACF (Box-Jenkins)\n" + LINE)
-    print(f"App's model (resources/python/generate_forecasts.py): SARIMA{label(*CURRENT)}")
+    print(LINE + "\nREMEDI — SARIMA PARAMETERS FROM ACF / PACF\n" + LINE)
+    print("No model is assumed: the candidates come from the ACF/PACF reading and the test chooses.")
     print("\n[1/4] Loading sales history...")
     daily = load_daily(args)
     series = product_series(daily)
@@ -356,14 +382,19 @@ def main():
                         with warnings.catch_warnings():
                             warnings.simplefilter("ignore")
                             fit = SARIMAX(y, order=o, seasonal_order=so).fit(disp=False)
-                        lb = acorr_ljungbox(fit.resid[st["d"] + S * st["D"] + 1:], lags=[12], return_df=True)["lb_pvalue"].iloc[0]
-                        grid.append({"order": label(o, so), "aic": float(fit.aic), "bic": float(fit.bic), "ljung_box_p": float(lb)})
+                        lb = None if args.no_ljung_box else float(acorr_ljungbox(
+                            fit.resid[st["d"] + S * st["D"] + 1:], lags=[12], return_df=True)["lb_pvalue"].iloc[0])
+                        grid.append({"order": label(o, so), "aic": float(fit.aic), "bic": float(fit.bic), "ljung_box_p": lb})
                     except Exception:  # noqa: BLE001
                         pass
     grid.sort(key=lambda g: g["aic"])
-    print("      AIC check around it (lowest first; Ljung-Box p > 0.05 = residuals are white noise):")
+    if args.no_ljung_box:
+        print("      AIC check around it (lowest first; Ljung-Box residual test skipped):")
+    else:
+        print("      AIC check around it (lowest first; Ljung-Box p > 0.05 = residuals are white noise):")
     for g in grid[:5]:
-        print(f"        SARIMA{g['order']:<18} AIC {g['aic']:8.2f}  BIC {g['bic']:8.2f}  Ljung-Box p {g['ljung_box_p']:.3f}")
+        lb_text = "" if g["ljung_box_p"] is None else f"  Ljung-Box p {g['ljung_box_p']:.3f}"
+        print(f"        SARIMA{g['order']:<18} AIC {g['aic']:8.2f}  BIC {g['bic']:8.2f}{lb_text}")
 
     # ---------------- every product
     print("\n[3/4] Every product, on log(1 + units) (the series the app fits)...")
@@ -434,18 +465,25 @@ def main():
     seasonal_read = (P_c, D_c, Q_c, S if (P_c or D_c or Q_c) else 0)
     plain = (reading, seasonal_read)
     print(f"      => ACF/PACF give p = {p_c}, d = {d_c}, q = {q_c}, P = {P_c}, D = {D_c}, Q = {Q_c}:  SARIMA{label(*plain)}")
-    # The other single seasonal term, for comparison (AR if the reading's is MA, and the reverse).
-    alt_seasonal = (1, D_c, 0, S) if (Q_c or not P_c) else (0, D_c, 1, S)
-
-    # What a plain count of significant lags would have said (no shape check).
+    # CANDIDATES, all built from the reading -- no model is taken as a default:
+    #   the full reading;
+    #   if it has both seasonal terms, each one alone (the simpler models);
+    #   if it has one, the same without it;
+    #   if it has none, each single seasonal term added (so a SARIMA form is tested too);
+    #   and the order a plain count of significant lags gives (no cut-off / tail-off check).
+    seas = [("reading", "ACF/PACF reading", seasonal_read)]
+    if P_c and Q_c:
+        seas += [("sar_only", "seasonal AR only", (1, D_c, 0, S)), ("sma_only", "seasonal MA only", (0, D_c, 1, S))]
+    elif P_c or Q_c:
+        seas += [("no_seasonal_term", "without its seasonal term", (0, D_c, 0, S if D_c else 0))]
+    else:
+        seas += [("plus_sar", "+ seasonal AR", (1, D_c, 0, S)), ("plus_sma", "+ seasonal MA", (0, D_c, 1, S))]
+    candidates = [(k, f"{nm:<26}SARIMA{label(reading, so)}", (reading, so)) for k, nm, so in seas]
     count_p = Counter(r["count_p"] for r in readings.values()).most_common(1)[0][0]
     count_q = Counter(r["count_q"] for r in readings.values()).most_common(1)[0][0]
-    candidates = [
-        ("current", f"app's model     SARIMA{label(*CURRENT)}", CURRENT),
-        ("seasonal_ar", f"other seasonal  SARIMA{label(reading, alt_seasonal)}", (reading, alt_seasonal)),
-        ("reading", f"ACF/PACF reading SARIMA{label(*plain)}", plain),
-        ("count", f"count only      SARIMA{label((count_p, d_c, count_q), (0, D_c, 1, S))}", ((count_p, d_c, count_q), (0, D_c, 1, S))),
-    ]
+    if (count_p, d_c, count_q) != reading:
+        cnt_order = ((count_p, d_c, count_q), seasonal_read)
+        candidates.append(("count", f"{'count of lags only':<26}SARIMA{label(*cnt_order)}", cnt_order))
 
     fig, axes = plt.subplots(2, 2, figsize=(13, 7.2))
     plot_pair(axes[0, 0], axes[0, 1], avg_acf, avg_pacf, mb, f"average over {n:,} products (after their own d, D)")
@@ -482,7 +520,7 @@ def main():
                "store": {k: st[k] for k in ("d", "D", "p", "q", "P", "Q", "seasonal_strength")} | {
                    "tests": st["tests"], "suggested": label(st["order"], st["seasonal_order"]), "aic_top5": grid[:5]},
                "products_read": n, "counts": {k: {str(v): c for v, c in cnt(k).items()} for k in "dDpqPQ"},
-               "orders_top": orders.most_common(10), "reading": label(*plain), "current": label(*CURRENT),
+               "orders_top": orders.most_common(10), "reading": label(*plain),
                "average_acf": [round(float(v), 4) for v in avg_acf[:L + 1]],
                "average_pacf": [round(float(v), 4) for v in avg_pacf[:L + 1]]}
     if not args.no_validation:
@@ -505,7 +543,12 @@ def main():
             val[key] = m
             print(f"        {names[key]:<40} MAE {m['mae']:.4f}  RMSE {m['rmse']:.4f}  MAPE {m['mape']:.2f}%  "
                   f"median {m['median_mape']:.2f}%  WAPE {m['wape']:.2f}%")
-        best = min(val, key=lambda k: val[k]["mae"])
+        # The CHOICE: the most accurate single model on the hidden months (each
+        # product's own order is shown for reference only -- it is not one model).
+        # A tie goes to the model with fewer terms.
+        orders_by_key = {k: o for k, _, o in candidates}
+        n_terms = lambda o: o[0][0] + o[0][2] + o[1][0] + o[1][2]  # noqa: E731
+        chosen = min(orders_by_key, key=lambda k: (round(val[k]["mae"], 4), n_terms(orders_by_key[k])))
         print(LINE)
         print(f"PARAMETERS FROM ACF / PACF:   p = {p_c}   d = {d_c}   q = {q_c}   |   P = {P_c}   D = {D_c}   Q = {Q_c}   s = 12")
         print(f"  d = {d_c}  " + ("already stationary (ADF + KPSS agree)" if d_c == 0 else
@@ -519,44 +562,26 @@ def main():
               f"({'above' if Q_c else 'under'} the 5% chance level)")
         print(f"  P = {P_c}  PACF spike at lag 12 on {share_pacf[S] * 100:.1f}% of products "
               f"({'above' if P_c else 'under'} the 5% chance level)")
-        print(f"  Most accurate on the hidden months: {names[best].split(maxsplit=2)[-1]}"
-              f"  (MAE {val[best]['mae']:.4f}, MAPE {val[best]['mape']:.2f}%)")
-
-        # Is the app's model the one the plots point to? Checked part by part.
-        (ap, ad, aq), (aP, aD, aQ, a_s) = CURRENT
-        if (aP, aQ) == (P_c, Q_c):
-            seasonal_check = (True, f"ACF/PACF give (P, Q) = ({P_c}, {Q_c})")
-        elif P_c and Q_c and aP <= P_c and aQ <= Q_c and aP + aQ == 1:
-            # The plots suggest both seasonal terms; keeping only one of them is the
-            # simpler model (parsimony), acceptable only if it forecasts at least as well.
-            simpler_ok = val["current"]["mae"] <= val["reading"]["mae"]
-            seasonal_check = (simpler_ok,
-                              f"ACF/PACF suggest (1, 1); the simpler one-term model scores MAE "
-                              f"{val['current']['mae']:.4f} vs {val['reading']['mae']:.4f} for both terms")
-        elif P_c or Q_c or D_c:
-            seasonal_check = (False, f"ACF/PACF give (P, Q) = ({P_c}, {Q_c})")
-        else:
-            seasonal_ok = val["current"]["mae"] <= val["seasonal_ar"]["mae"]
-            seasonal_check = (seasonal_ok and aP + aQ == 1,
-                              f"plots show none; one seasonal term kept to stay SARIMA, scoring MAE "
-                              f"{val['current']['mae']:.4f} vs {val['seasonal_ar']['mae']:.4f} for the other")
-        checks = [
-            (f"p = {ap}", ap == p_c, f"ACF/PACF give p = {p_c}"),
-            (f"d = {ad}", ad == d_c, f"ADF + KPSS give d = {d_c}"),
-            (f"q = {aq}", aq == q_c, f"ACF/PACF give q = {q_c}"),
-            (f"D = {aD}", aD == D_c, f"seasonal strength gives D = {D_c}"),
-            (f"s = {a_s}", a_s == S, "monthly data, yearly cycle"),
-            (f"(P, Q) = ({aP}, {aQ})", *seasonal_check),
-        ]
+        c_order = orders_by_key[chosen]
+        (cp, cd, cq), (cP, cD, cQ, cs) = c_order
         print(LINE)
-        print(f"CHECK: is the app's model correct?   SARIMA{label(*CURRENT)}   (resources/python/generate_forecasts.py)")
-        for part, ok, why in checks:
-            print(f"  {'PASS' if ok else 'FAIL'}  {part:<16} {why}")
-        verdict = all(ok for _, ok, _ in checks)
-        print(f"  => {'CORRECT' if verdict else 'NOT CORRECT'}: the app's SARIMA parameters "
-              f"{'match' if verdict else 'do not match'} the ACF/PACF reading")
-        summary["app_model_check"] = {"model": label(*CURRENT), "correct": bool(verdict),
-                                      "checks": [{"part": p, "pass": bool(o), "why": w} for p, o, w in checks]}
+        print(f"CHOSEN BY THE TEST:   SARIMA{label(*c_order)}")
+        print(f"  the most accurate of the {len(candidates)} candidates on the hidden months: "
+              f"MAE {val[chosen]['mae']:.4f}, MAPE {val[chosen]['mape']:.2f}%, WAPE {val[chosen]['wape']:.2f}%")
+        ranked = sorted(orders_by_key, key=lambda k: val[k]["mae"])
+        for k in ranked:
+            print(f"    {'->' if k == chosen else '  '} SARIMA{label(*orders_by_key[k]):<18} MAE {val[k]['mae']:.4f}  "
+                  f"MAPE {val[k]['mape']:.2f}%")
+        print(f"  p = {cp}  d = {cd}  q = {cq}   (from the ACF/PACF and ADF + KPSS above)")
+        same = (cP, cD, cQ) == (P_c, D_c, Q_c)
+        print(f"  P = {cP}  D = {cD}  Q = {cQ}  s = {cs or 12}   "
+              + ("(as the plots read)" if same else
+                 f"(the plots read P = {P_c}, D = {D_c}, Q = {Q_c}; this simpler/other form forecast better)"))
+        app = tuple(CURRENT)
+        print(f"  The app's code (resources/python/generate_forecasts.py) holds SARIMA{label(*app)}: "
+              + ("the same model." if app == tuple(c_order) else "different -- update it to the chosen model to use it."))
+        summary["chosen"] = {"model": label(*c_order), "mae": val[chosen]["mae"], "mape": val[chosen]["mape"],
+                             "app_code": label(*app), "app_matches": app == tuple(c_order)}
         summary["validation"] = val | {"products_compared": len(both)}
         pd.DataFrame([{"sku": r["sku"], "own_order": r.get("own_order"),
                        **{f"{k}_mae": round(r[k]["mae"], 4) for k in keys if r.get(k)},
