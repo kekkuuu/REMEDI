@@ -1848,7 +1848,19 @@ only where a per-product seasonality test passed (Kruskal–Wallis or lag-12 ACF
 holdout 8.21 / 50.7% / 29.5%, 80/20 8.12 / 53.1% / 29.6% (ahead of both baselines), store-wide 4.56% / 7.41%; ARIMA on
 every product measured 8.15 / 49.9% and 8.09 / 52.4%. To go back, restore `is_seasonal()` and the two candidate lists
 from commit 5ba5140 in both scripts and regenerate both pipelines.
-**THE SETUP IS NOW SARIMA(0,1,1)(1,1,0,12) (2026-10-19, later the same day, at the user's request, on the synthetic
+**THE SETUP IS NOW SARIMA(0,1,0)(0,1,0,12) (2026-10-19, evening, at the user's request: "use the chosen model"), on the
+synthetic "pharmacy 2634 items" set `REMEDI_pharmacy_2634items_Jul2022-Jun2026.zip` → `database/data/sales_history_daily_
+PHARMACY14_2634items_2022-2026.csv` (353,120 daily rows, 792,318 units, ~6 units a product a month), imported locally AND on
+live — supersedes the (0,1,1)(1,1,0,12) paragraph below.** `acf_pacf_identification.py` read d = 1, D = 1 (store seasonal
+strength 0.953), p = q = 0 (average lag-1 ACF −0.315 inside ±0.373; white noise on 56.1% of products), Q = 1 (ACF lag-12
+spike on 15.5%), P = 0, and CHOSE (0,1,0)(0,1,0,12) over the reading itself, (0,1,0)(0,1,1,12), on Apr–Jun 2026
+hidden: MAE 0.7036 / MAPE 7.50% vs 0.7391 / 8.30%. No AR or MA term: next month = this month + last year's change
+between the same two months. Measured locally against (0,1,1)(1,1,0,12) on the same data: 3-month holdout MAE 0.69 /
+MAPE 7.56% / WAPE 6.96% (was 0.70 / 8.04% / 7.0%); 80/20 MAE 0.77 / RMSE 1.01 / MAPE 8.3% / WAPE 7.7% (was 0.97 / 1.21 /
+11.3% / 9.4%), Normal 2,532 / Acceptable 102 / Not acceptable 0, ahead of mean-of-last-3 (1.10 / 11.5%) — but STORE-WIDE
+it is worse (80/20 5.0% vs 1.15%, holdout 1.71% vs 1.13%): small per-product misses no longer cancel, and the 80% band
+is wider. Re-measure before keeping it on another record.
+**SARIMA(0,1,1)(1,1,0,12) (2026-10-19, later the same day, at the user's request, on the synthetic
 "seasonal opening 2022" set `REMEDI_seasonal_opening2022_Jul2022-Jun2026.zip` → `database/data/sales_history_daily_
 SEASONAL13_opening_2022-2026.csv`, imported locally AND on live) — supersedes the airline model below.** That record is
 the low-error one with the store opening in Jul 2022 and growing fast, then slower. ACF/PACF over 2,634 products: d = 1,

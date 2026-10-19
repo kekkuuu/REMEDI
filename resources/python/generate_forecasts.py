@@ -162,8 +162,20 @@ warnings.filterwarnings("ignore")
 #   (0,1,1)(1,1,0,12)  MAE 2.6749 / MAPE 5.61% / WAPE 5.57%  <- used (simpler, most accurate)
 #   (0,1,1)(1,1,1,12)  MAE 2.9036 / MAPE 6.12% / WAPE 6.05%  (both seasonal terms)
 #   (0,1,1)(0,1,1,12)  MAE 2.9387 / MAPE 6.16% / WAPE 6.12%  (before)
+#
+# SARIMA(0,1,0)(0,1,0,12) -- CHOSEN BY THE ACF/PACF TEST (2026-10-19, at the
+# user's request, on the synthetic "pharmacy 2634 items" set, about 6 units a
+# product a month). ACF/PACF over 2,634 products: d = 1 (92.8%), D = 1 (seasonal
+# strength above 0.64 on 72.7%, store 0.953), p = 0 and q = 0 (average lag-1
+# ACF -0.315 inside the +/-0.373 band; white noise on 56.1% of products), lag 12:
+# ACF spike on 15.5% (Q = 1), PACF on 3.5% (P = 0). Same 3 hidden months
+# (Apr-Jun 2026), the 2,456 products both forecast:
+#   (0,1,0)(0,1,0,12)  MAE 0.7036 / MAPE 7.50% / WAPE 6.89%  <- used (chosen by the test)
+#   (0,1,0)(0,1,1,12)  MAE 0.7391 / MAPE 8.30% / WAPE 7.24%  (what the plots suggest)
+# It has no AR or MA term: next month = this month + last year's change between
+# the same two months.
 SARIMA_CANDIDATES = [
-    ((0, 1, 1), (1, 1, 0, 12)),
+    ((0, 1, 0), (0, 1, 0, 12)),
 ]
 SEASONAL_CANDIDATES = SARIMA_CANDIDATES
 SARIMA_ORDER, SARIMA_SEASONAL_ORDER = SARIMA_CANDIDATES[0]
