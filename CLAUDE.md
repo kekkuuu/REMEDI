@@ -1848,7 +1848,16 @@ only where a per-product seasonality test passed (Kruskal–Wallis or lag-12 ACF
 holdout 8.21 / 50.7% / 29.5%, 80/20 8.12 / 53.1% / 29.6% (ahead of both baselines), store-wide 4.56% / 7.41%; ARIMA on
 every product measured 8.15 / 49.9% and 8.09 / 52.4%. To go back, restore `is_seasonal()` and the two candidate lists
 from commit 5ba5140 in both scripts and regenerate both pipelines.
-**THE SETUP IS NOW SARIMA(0,1,0)(0,1,0,12) (2026-10-19, evening, at the user's request: "use the chosen model"), on the
+**THE SETUP IS NOW SARIMA(0,1,0)(1,0,0,12) (2026-10-20, set by hand at the user's request: "change the parameters and
+test the accuracy", then "apply it to the live site too"), same pharmacy record, local and live — supersedes the
+(0,1,0)(0,1,0,12) paragraph below.** No yearly difference (D = 0); one seasonal AR term at lag 12 decides how much of last
+year's month to carry forward. Measured locally against (0,1,0)(0,1,0,12) on the same data: 3-month holdout MAE 0.6729 /
+RMSE 0.8603 / MAPE 7.33% / WAPE 6.75% (was 0.6937 / 0.8622 / 7.56% / 6.96%); 80/20 MAE 0.7675 / RMSE 0.9939 / MAPE 8.42% /
+WAPE 7.59% (was 0.773 / 1.005 / 8.35% / 7.67%), Normal 2,558 / Acceptable 76 / Not acceptable 0 (was 2,532 / 102 / 0) —
+slightly better per product on every measure but 80/20 MAPE, yet it beats mean-of-last-3 on fewer products (1,826 vs
+1,952), and STORE-WIDE it is worse again (holdout 2.20% vs 1.71%, 80/20 5.45% vs 5.0%). Nov–Dec 2026 65,517 units
+(was 70,318): D = 0 carries only part of last year's pattern.
+**SARIMA(0,1,0)(0,1,0,12) (2026-10-19, evening, at the user's request: "use the chosen model"), on the
 synthetic "pharmacy 2634 items" set `REMEDI_pharmacy_2634items_Jul2022-Jun2026.zip` → `database/data/sales_history_daily_
 PHARMACY14_2634items_2022-2026.csv` (353,120 daily rows, 792,318 units, ~6 units a product a month), imported locally AND on
 live — supersedes the (0,1,1)(1,1,0,12) paragraph below.** `acf_pacf_identification.py` read d = 1, D = 1 (store seasonal

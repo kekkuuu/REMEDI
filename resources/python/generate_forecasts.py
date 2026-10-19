@@ -170,12 +170,17 @@ warnings.filterwarnings("ignore")
 # ACF -0.315 inside the +/-0.373 band; white noise on 56.1% of products), lag 12:
 # ACF spike on 15.5% (Q = 1), PACF on 3.5% (P = 0). Same 3 hidden months
 # (Apr-Jun 2026), the 2,456 products both forecast:
-#   (0,1,0)(0,1,0,12)  MAE 0.7036 / MAPE 7.50% / WAPE 6.89%  <- used (chosen by the test)
+#   (0,1,0)(0,1,0,12)  MAE 0.7036 / MAPE 7.50% / WAPE 6.89%  (chosen by the test)
 #   (0,1,0)(0,1,1,12)  MAE 0.7391 / MAPE 8.30% / WAPE 7.24%  (what the plots suggest)
 # It has no AR or MA term: next month = this month + last year's change between
 # the same two months.
+#
+# SARIMA(0,1,0)(1,0,0,12) -- SET BY HAND (2026-10-20, at the user's request:
+# "change the parameters and test the accuracy"), same pharmacy record. No yearly
+# difference (D = 0): one seasonal AR term at lag 12 learns from the data how much
+# of last year's same month to carry forward, instead of copying all of it.
 SARIMA_CANDIDATES = [
-    ((0, 1, 0), (0, 1, 0, 12)),
+    ((0, 1, 0), (1, 0, 0, 12)),
 ]
 SEASONAL_CANDIDATES = SARIMA_CANDIDATES
 SARIMA_ORDER, SARIMA_SEASONAL_ORDER = SARIMA_CANDIDATES[0]
