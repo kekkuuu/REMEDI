@@ -213,14 +213,16 @@
         <div class="report-field">
             <label for="product_sku">Product</label>
             {{-- <datalist>: the option VALUE is the SKU the server filters on,
-                 with the product name as its label. Lists only products that
-                 have sold (ReportController::salesFilterOptions). --}}
+                 with the product name as its label. Filled on the field's first
+                 focus from ReportController::salesProducts() (products that have
+                 sold) -- it was 262 KB of every Sales Report. Only the product
+                 already chosen is rendered here. --}}
             <input type="text" name="product_sku" id="product_sku" class="report-select" list="productSkuOptions"
                    value="{{ $scopeProduct->sku ?? '' }}" placeholder="Search by name or SKU…" autocomplete="off">
-            <datalist id="productSkuOptions">
-                @foreach($productOptions as $p)
-                    <option value="{{ $p->sku }}">{{ $p->name }}</option>
-                @endforeach
+            <datalist id="productSkuOptions" data-src="{{ route('reports.sales.products', [], false) }}">
+                @if($scopeProduct)
+                    <option value="{{ $scopeProduct->sku }}">{{ $scopeProduct->name }}</option>
+                @endif
             </datalist>
         </div>
 
@@ -585,6 +587,38 @@ renderSalesCharts();
         var sku = f.product_sku.value.trim();
         if (skus.has(sku)) f.product_sku.dispatchEvent(new Event('change', { bubbles: true }));
     });
+
+    /* The product suggestions arrive on demand (ReportController::salesProducts):
+       fetched when the pointer reaches the field or it takes focus, then added
+       to the <datalist> and to `skus`, the set every check above reads. A SKU
+       typed before they arrived is applied the moment they do. */
+    var productList = document.getElementById('productSkuOptions');
+    var productsState = 'idle';
+    function loadProductOptions() {
+        if (productsState !== 'idle' || !productList || !productList.dataset.src) return;
+        productsState = 'loading';
+        fetch(productList.dataset.src, { headers: { 'Accept': 'application/json' }, credentials: 'same-origin' })
+            .then(function (res) { return res.ok ? res.json() : null; })
+            .then(function (rows) {
+                if (!Array.isArray(rows)) { productsState = 'idle'; return; }
+                var frag = document.createDocumentFragment();
+                rows.forEach(function (row) {
+                    if (skus.has(row[0])) return;
+                    var option = document.createElement('option');
+                    option.value = row[0];
+                    option.textContent = row[1];
+                    frag.appendChild(option);
+                    skus.add(row[0]);
+                });
+                productList.appendChild(frag);
+                productsState = 'loaded';
+                var sku = f.product_sku.value.trim();
+                if (sku !== '' && skus.has(sku)) f.product_sku.dispatchEvent(new Event('change', { bubbles: true }));
+            })
+            .catch(function () { productsState = 'idle'; });
+    }
+    f.product_sku.addEventListener('pointerenter', loadProductOptions);
+    f.product_sku.addEventListener('focus', loadProductOptions);
 
     // Enter in any field applies the form as it stands, instead of reloading.
     form.addEventListener('submit', function (e) {

@@ -247,34 +247,48 @@ class ReportController extends Controller
      * an in-place refresh or an export, which is why they are not part of
      * buildSalesReportData().
      */
+    /**
+     * The Sales Report product filter's suggestions, as [[sku, name], ...].
+     *
+     * Only products that have SOLD, from either record -- listing all 2,638
+     * catalogue lines offered products whose report can only ever be empty.
+     * Archived products with sales stay listed: this reads HISTORY.
+     *
+     * Its own request since 2026-10-22: rendered into every Sales Report it was
+     * 262 KB of the page's 457 KB (2,634 <option>s), sent whether or not anyone
+     * touched the filter. The page now fetches it on the field's first focus.
+     *
+     * Cached (2026-10-14): the query scans every sales_history row (~200 ms).
+     * The list changes only when a product first sells (an import or a
+     * checkout, both of which bump a version stamp in the key) or a product is
+     * renamed (AppServiceProvider bumps the POS stamp for that).
+     */
+    public function salesProducts()
+    {
+        $rows = SalesHistory::rememberWithStamps(
+            'sales_report_products',
+            fn () => Product::withTrashed()
+                ->where(fn ($q) => $q
+                    ->whereIn('sku', DB::table('sales_history')->select('product_sku')->distinct())
+                    ->orWhereIn('id', DB::table('sale_items')->select('product_id')->distinct()))
+                ->orderBy('name')
+                ->get(['sku', 'name'])
+                ->map(fn ($p) => (object) ['sku' => $p->sku, 'name' => $p->name])
+                ->all()
+        );
+
+        return response()
+            ->json(array_map(fn ($p) => [(string) $p->sku, $p->name], $rows))
+            ->header('Cache-Control', 'private, max-age=300');
+    }
+
     private function salesFilterOptions(): array
     {
         return [
             'categories' => Category::orderBy('name')->get(['id', 'name']),
 
-            // Only products that have SOLD, from either record. This feeds a
-            // <datalist>, and listing all 2,638 catalogue lines put ~180 KB of
-            // options on the page for products whose report can only ever be
-            // empty. Archived products with sales stay listed: this reads
-            // HISTORY, and a product discontinued last month still has sales
-            // to look back on.
-            //
-            // Cached (2026-10-14): the query scans every sales_history row and
-            // took ~200 ms on its own, on every Sales Report load. The list
-            // changes only when a product first sells (an import or a checkout,
-            // both of which bump a version stamp in the key) or a product is
-            // renamed (AppServiceProvider bumps the POS stamp for that).
-            'productOptions' => SalesHistory::rememberWithStamps(
-                'sales_report_products',
-                fn () => Product::withTrashed()
-                    ->where(fn ($q) => $q
-                        ->whereIn('sku', DB::table('sales_history')->select('product_sku')->distinct())
-                        ->orWhereIn('id', DB::table('sale_items')->select('product_id')->distinct()))
-                    ->orderBy('name')
-                    ->get(['sku', 'name'])
-                    ->map(fn ($p) => (object) ['sku' => $p->sku, 'name' => $p->name])
-                    ->all()
-            ),
+            // The product filter's options are NOT here any more: see
+            // salesProducts(), fetched by the page when the field is first used.
 
             // Plain <select>: dozens of staff accounts at most. withTrashed():
             // an archived/deactivated account still has real sales to filter to.

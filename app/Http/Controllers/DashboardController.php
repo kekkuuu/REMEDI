@@ -8,7 +8,9 @@ use App\Models\ProductBatch;
 use App\Models\Sale;
 use App\Models\SalesHistory;
 use App\Models\User;
+use App\Services\AlertService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class DashboardController extends Controller
@@ -107,7 +109,11 @@ class DashboardController extends Controller
         // `full=1` is the escape hatch: <noscript> redirects to it, and the
         // loader's failure panel offers it. It renders the old way, in one
         // synchronous pass, so the dashboard is never unreachable without JS.
-        $wantsBody = $request->wantsJson() || $request->ajax() || $request->boolean('full');
+        $wantsBody = $request->wantsJson() || $request->ajax() || $request->boolean('full')
+            // On the live site the body is cheap and every request is a long
+            // trip, so render it inline (config/dashboard.php) -- except on the
+            // arrival from sign-in, which keeps the shell and its loader card.
+            || (config('dashboard.inline_body') && ! session('remedi.just_signed_in'));
 
         if (! $wantsBody) {
             return view('dashboard.index', [
@@ -386,8 +392,8 @@ class DashboardController extends Controller
      */
     private static function stockSnapshot(): array
     {
-        return \Illuminate\Support\Facades\Cache::memo()->remember(
-            \App\Services\AlertService::dashboardStockKey(),
+        return Cache::memo()->remember(
+            AlertService::dashboardStockKey(),
             now()->addMinutes(10),
             fn () => self::computeStockSnapshot()
         );
@@ -654,7 +660,7 @@ class DashboardController extends Controller
      */
     private function dashboardResponse(Request $request, string $role, array $data)
     {
-        if ($request->boolean('full')) {
+        if ($request->boolean('full') || ! ($request->wantsJson() || $request->ajax())) {
             return view($role.'.dashboard', $data);
         }
 

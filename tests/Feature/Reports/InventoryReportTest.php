@@ -78,22 +78,21 @@ class InventoryReportTest extends TestCase
      */
     private function rows(string $html): array
     {
-        $dom = new \DOMDocument;
-        libxml_use_internal_errors(true);
-        $dom->loadHTML('<?xml encoding="utf-8" ?>'.$html);
-        libxml_clear_errors();
+        return array_values(array_unique(array_column($this->rowData($html), 0)));
+    }
 
-        $names = [];
+    /**
+     * The table's rows as the page carries them since 2026-10-22: a JSON block
+     * (#invRowsData) the browser builds the <tr>s from, one array per product --
+     * [name, category, sku, total stock, unit, price, value, badge, stock colour,
+     * expired batches, running out]. Same rows, same order, same badge as the
+     * server-rendered table had; reading the data asserts what the table shows.
+     */
+    private function rowData(string $html): array
+    {
+        $this->assertSame(1, preg_match('/id="invRowsData">(.*?)<\/script>/s', $html, $m), 'no #invRowsData on the page');
 
-        foreach ((new \DOMXPath($dom))->query('//table[contains(concat(" ", normalize-space(@class), " "), " inv-rep ")]/tbody/tr/td[2]/div[1]') as $cell) {
-            $name = trim($cell->textContent);
-
-            if ($name !== '') {
-                $names[] = $name;
-            }
-        }
-
-        return array_values(array_unique($names));
+        return json_decode($m[1], true);
     }
 
     private function kpi(string $html, string $label): ?string
@@ -131,7 +130,13 @@ class InventoryReportTest extends TestCase
     {
         $this->product('Expired Item', 25, now()->subDays(30)->toDateString());
 
-        $this->report()->assertSee('1 expired batch', false);
+        $html = $this->report()->content();
+
+        // The count rides in the row data; the page's builder words it.
+        $row = collect($this->rowData($html))->firstWhere(0, 'Expired Item');
+        $this->assertSame(1, $row[9]);
+        $this->assertSame('expired', $row[7]);
+        $this->assertStringContainsString("' expired batch'", $html);
     }
 
     public function test_the_expired_filter_narrows_to_expired_stock(): void
@@ -399,7 +404,10 @@ class InventoryReportTest extends TestCase
         $this->product('Running Low', 3, now()->addDays(300)->toDateString(), 10);
 
         $html = $this->report()->content();
+        $badges = collect($this->rowData($html))->mapWithKeys(fn ($r) => [$r[0] => $r[7]]);
 
+        $this->assertSame('out', $badges['Sold Out']);
+        $this->assertSame('low', $badges['Running Low']);
         $this->assertStringContainsString('Out of Stock', $html);
         $this->assertStringContainsString('Low Stock', $html);
         // Graphite, the same colour the bell and toasts use for out of stock.

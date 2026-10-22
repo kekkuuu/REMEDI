@@ -782,5 +782,36 @@
      The three values it needs from the server ride in REMEDI_BOOT. --}}
 <script>window.REMEDI_BOOT = @json(['userId' => auth()->id() ?? 0, 'alertsUrl' => route('alerts.index'), 'loginUrl' => route('login')], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT);</script>
 <script src="{{ \App\Support\StaticAsset::url('assets/remedi.js') }}"></script>
+
+{{-- Prefetch on hover (2026-10-22). On the live site a page costs 1-2.5 s and
+     only 0.15-0.5 s of it is the server; the rest is the trip to the hosting in
+     Europe. With "moderate" eagerness Chrome fetches a same-site link once the
+     pointer has rested on it (~200 ms) or on pointerdown, so most of that trip is
+     over by the time the click lands; the prefetched page is used once, within
+     minutes. Browsers without the Speculation Rules API ignore this block.
+     NOT prefetched -- anything a GET does something on: the reports (each open
+     writes a "Viewed" audit row, and they are the heaviest pages), every export
+     (a download), the database backup, Safeguard (behind a password prompt),
+     and any link marked data-no-prefetch or download. --}}
+<script type="speculationrules">
+{
+    "prefetch": [{
+        "where": {
+            "and": [
+                { "href_matches": "/*" },
+                { "not": { "href_matches": "/reports/*" } },
+                { "not": { "href_matches": "/reports" } },
+                { "not": { "href_matches": "/*export*" } },
+                { "not": { "href_matches": "/admin/*" } },
+                { "not": { "href_matches": "/safeguard*" } },
+                { "not": { "href_matches": "/settings*" } },
+                { "not": { "href_matches": "/logout*" } },
+                { "not": { "selector_matches": "[data-no-prefetch], [download], [target=_blank]" } }
+            ]
+        },
+        "eagerness": "moderate"
+    }]
+}
+</script>
 </body>
 </html>

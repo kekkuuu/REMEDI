@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (416 passed, 11 skipped, 1513 assertions — measured 2026-10-22) and is a usable regression gate.** The 11 skipped are `Feature\Reports\ReportExportTest`, which only runs against MySQL (below). It was 22 failed / 3 passed, for
+**The suite is green (421 passed, 11 skipped, 1541 assertions — measured 2026-10-22) and is a usable regression gate.** The 11 skipped are `Feature\Reports\ReportExportTest`, which only runs against MySQL (below). It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -570,6 +570,31 @@ list and `SalesHistory::dateBounds()` are cached under both sales stamps (`remem
 audit row no longer clears the bell's `topbar_activity`. **Cookie sessions were tried on Vercel and reverted the
 same day**: a sign-in lasted one page there (it works locally; cause not found), so `SESSION_DRIVER` stays `database`.
 
+**Fifth pass, 2026-10-22 -- fewer TRIPS and fewer BYTES, at the user's request ("optimize the loading of
+each feature").** Measured on the live site first (`Server-Timing`, two loads per page): every page took
+**1-2.5 s while the server's own share was 0.15-0.5 s** -- the rest is the trip from the Philippines to the
+hosting in Europe, and pages are already Brotli-compressed (a 112 KB page is ~20 KB on the wire). So:
+(1) **Prefetch on hover** -- a `<script type="speculationrules">` block at the end of `layouts/app` with
+`eagerness: moderate`: Chrome fetches a same-site link once the pointer rests on it, so the click reuses
+it (verified: `deliveryType: navigational-prefetch`, response 4 ms after the click). **Excluded: every GET
+that DOES something** -- `/reports*` (each open writes a "Viewed" audit row; verified no row on hover),
+`*export*` (downloads), `/admin/*` (backup), `/safeguard*`, `/settings*`, `/logout*`, and links marked
+`data-no-prefetch`, `download` or `target=_blank`. **A new GET page with a side effect must be added to
+that list.** (2) **The dashboard renders in ONE request on the live site** (`config/dashboard.php`
+`inline_body`, default on when `APP_ENV=production`): the shell + AJAX body cost two trips while the body
+is ~0.36 s of server work there. The visit straight after sign-in still gets the shell and its loader card
+(`remedi.just_signed_in`), so signing in never waits on a cold dashboard; locally the shell stays (the body
+is slow under `artisan serve`). (3) **The Inventory report's table is built in the browser** from
+`#invRowsData` (one array per product, figures and badge still decided in Blade): the 2,637 server-rendered
+rows were 1.75 MB of a 1.86 MB page; now **411 KB**, the rows built in ~42 ms, and identical row for row in
+all five filter views (compared against the old HTML). `InventoryReportTest` reads the row data. (4) **The
+Sales Report's product suggestions load on demand** (`reports.sales.products`, on the field's first hover
+or focus): the 2,634-option `<datalist>` was 262 KB of a 457 KB page; now **193 KB**. A SKU typed before the
+list arrives is applied when it does. (5) **One Chart.js** (`chart.js@4.4.4` on jsdelivr) on every page --
+the forecast pages loaded 4.4.0 from cdnjs, a second ~200 KB download. Covered by `Feature\LoadingTest`.
+Not done and worth knowing: the biggest remaining cost is DISTANCE -- moving the database and the app to a
+Singapore region would cut every trip from ~0.3-1 s to tens of ms, but that is a production migration.
+
 Migration `2026_09_02_000001_create_sessions_and_cache_tables` exists for this deploy and no-ops
 locally. **A container filesystem is rebuilt on every deploy and is not shared between instances**,
 so `CACHE_DRIVER=file` there means every deploy signs everyone out and two instances disagree about
@@ -955,7 +980,8 @@ A USB/bluetooth gun never needed code — it types into `barcode-input` and send
 hands its result to **`window.handleScannedCode(code)`, the one definition of what a scan MEANS**; the
 partial owns no lookup logic, so the two cannot drift. Rules in the partial: one `detect()` in flight
 at a time (the next is scheduled after it settles); **a code is ONE scan for as long as it stays in
-view** — every sighting pushes `REPEAT_GAP_MS` (1.5 s) on, and it scans again only after leaving view
+view** — every sighting pushes `REPEAT_GAP_MS` (0.8 s since 2026-10-22, was 1.5 s; each cart row also has a
+**+1** button, `addOneMore()`, for several of one item) on, and it scans again only after leaving view
 that long (a fixed 2.5 s window from the first read added an item twice when held for 3 s; verified
 held 5 s = 1 add, away and back = 2); the stream asks for 1080p and continuous focus where offered;
 formats are the retail 1D set plus QR; and the camera is released on `visibilitychange` / `pagehide`
@@ -2692,7 +2718,7 @@ the query *between* the two: `SaleController::index` takes `$scopedToday` after 
 before search/date filters. Cloning after the filters made cards labelled "Total sales today" read
 ₱0.00 whenever the list was narrowed to a past range.
 
-**The dashboard is the one page whose whole body is AJAX.** `/dashboard` is the slowest route in the
+**The dashboard is the one page whose whole body is AJAX -- locally. On the live site it renders in one request since 2026-10-22 (`config/dashboard.php`, see the fifth performance pass), except right after sign-in.** `/dashboard` is the slowest route in the
 app — ~5s warm, 10–12s cold — so `DashboardController::index` answers a plain GET with
 `dashboard/index.blade.php`, a shell that runs **no queries at all**, and the page fetches its own
 body. The `$wantsBody` test therefore sits above every query in the method: move a query above it and

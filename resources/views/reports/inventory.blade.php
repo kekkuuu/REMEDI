@@ -272,6 +272,88 @@
        suggestion dropdown (REMEDI.md "Search: live filtering, no dropdown").
        It lives in the report body, so it is wired again after every swap --
        keeping whatever was typed. */
+    /* The table's rows, built from #invRowsData (see reports/_inventory-body).
+       Writes exactly the markup the server used to: the same classes, the same
+       data-search / data-low the search box and the print copy read. Text goes
+       in through textContent only, so a product name can never become markup. */
+    var INV_BADGES = {
+        out: ['is-out', 'ti-alert-circle', 'Out of Stock'],
+        expired: ['is-expired', 'ti-alert-octagon', 'Expired Stock'],
+        low: ['is-low', 'ti-alert-circle', 'Low Stock'],
+        ok: ['is-ok', 'ti-circle-check', 'OK']
+    };
+
+    function renderInventoryRows() {
+        var tbody = document.getElementById('invRows');
+        var data = document.getElementById('invRowsData');
+        if (!tbody || !data) return;
+        var rows = [];
+        try { rows = JSON.parse(data.textContent || '[]'); } catch (e) { rows = []; }
+
+        function el(tag, cls, text) {
+            var node = document.createElement(tag);
+            if (cls) node.className = cls;
+            if (text !== undefined) node.textContent = text;
+            return node;
+        }
+
+        var frag = document.createDocumentFragment();
+        if (!rows.length) {
+            var none = el('tr');
+            var td = el('td', 'empty');
+            td.colSpan = 7;
+            var icon = el('i', 'ti ti-package-off');
+            td.appendChild(icon);
+            td.appendChild(document.createTextNode(' No products found.'));
+            none.appendChild(td);
+            frag.appendChild(none);
+        }
+
+        rows.forEach(function (r, i) {
+            var tr = el('tr');
+            tr.dataset.search = (r[0] + ' ' + r[1] + ' ' + r[2]).toLowerCase();
+            if (r[10]) tr.dataset.low = '1';
+
+            tr.appendChild(el('td', 'idx', String(i + 1)));
+
+            var nameTd = el('td');
+            nameTd.appendChild(el('div', 'strong', r[0]));
+            if (r[9]) {
+                var note = el('div', 'expired-note');
+                note.appendChild(el('i', 'ti ti-alert-triangle'));
+                note.appendChild(document.createTextNode(' ' + r[9] + ' expired batch' + (r[9] > 1 ? 'es' : '')));
+                nameTd.appendChild(note);
+            }
+            tr.appendChild(nameTd);
+
+            tr.appendChild(el('td', 'muted', r[1]));
+
+            var stockTd = el('td');
+            stockTd.appendChild(el('span', r[8] ? 'stock is-' + r[8] : 'stock', String(r[3])));
+            stockTd.appendChild(el('span', 'unit', ' ' + r[4]));
+            tr.appendChild(stockTd);
+
+            tr.appendChild(el('td', 'num muted', '\u20B1' + r[5]));
+            tr.appendChild(el('td', 'num strong', '\u20B1' + r[6]));
+
+            var b = INV_BADGES[r[7]] || INV_BADGES.ok;
+            var badgeTd = el('td', 'mid');
+            var badge = el('span', 'inv-badge ' + b[0]);
+            badge.appendChild(el('i', 'ti ' + b[1]));
+            badge.appendChild(document.createTextNode(' ' + b[2]));
+            badgeTd.appendChild(badge);
+            tr.appendChild(badgeTd);
+
+            frag.appendChild(tr);
+        });
+
+        tbody.textContent = '';
+        tbody.appendChild(frag);
+        // A rebuilt table needs a rebuilt print copy.
+        var print = document.getElementById('invPrintRows');
+        if (print) { print.textContent = ''; delete print.dataset.built; }
+    }
+
     function initInventorySearch(keep) {
         var input = document.getElementById('report-search');
         var count = document.getElementById('report-count');
@@ -311,6 +393,7 @@
             apply();
         }
     }
+    renderInventoryRows();
     initInventorySearch('');
 </script>
 <script>
@@ -441,6 +524,7 @@ window.addEventListener('beforeprint', buildInventoryPrintRows);
             document.getElementById('invExportXlsx').href = s.export_xlsx;
             document.getElementById('invExportPdf').href = s.export_pdf;
             renderInventoryCharts();
+            renderInventoryRows();
             initInventorySearch(typed);
             if (window.history.replaceState) window.history.replaceState(null, '', formUrl());
             setStatus('');

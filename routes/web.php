@@ -190,6 +190,8 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
         Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
         Route::get('/reports/sales', [ReportController::class, 'sales'])->name('reports.sales');
         Route::get('/reports/sales/export', [ReportController::class, 'exportSales'])->name('reports.sales.export');
+        // The product filter's suggestions, fetched when the field is first used.
+        Route::get('/reports/sales/products', [ReportController::class, 'salesProducts'])->name('reports.sales.products');
         Route::get('/reports/inventory', [ReportController::class, 'inventory'])->name('reports.inventory');
         Route::get('/reports/inventory/export', [ReportController::class, 'exportInventory'])->name('reports.inventory.export');
         Route::get('/reports/analytics', [ReportController::class, 'analytics'])->name('reports.analytics');

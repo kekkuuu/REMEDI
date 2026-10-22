@@ -116,56 +116,15 @@
                     <th class="mid">Status</th>
                 </tr>
             </thead>
-            <tbody>
-                @forelse($products as $p)
-                    @php
-                        // Ordered so the badge says the same thing the Low Stock
-                        // filter decided.
-                        //
-                        // Out of stock first, in the same graphite the bell and the
-                        // toasts use: at zero a product is also "low", and "Low
-                        // Stock" on an empty shelf understates it.
-                        //
-                        // Then stock that exists but cannot be sold -- every unit
-                        // expired. That row is excluded from the Low Stock filter
-                        // (see ReportController), so calling it "Low Stock" here
-                        // would contradict the list it is missing from.
-                        //
-                        // Resolved once per row into a class + icon + label rather
-                        // than four branches of markup, because every byte here is
-                        // paid for 2,638 times.
-                        $badge = $p->total_stock <= 0
-                            ? ['is-out', 'ti-alert-circle', 'Out of Stock']
-                            : ($p->sellable_stock <= 0
-                                ? ['is-expired', 'ti-alert-octagon', 'Expired Stock']
-                                : ($p->total_stock <= $p->reorder_level
-                                    ? ['is-low', 'ti-alert-circle', 'Low Stock']
-                                    : ['is-ok', 'ti-circle-check', 'OK']));
-
-                        $stockCls = $p->total_stock <= 0
-                            ? 'stock is-out'
-                            : ($p->total_stock <= $p->reorder_level ? 'stock is-low' : 'stock');
-
-                        $expired = $p->expiredBatches ? $p->expiredBatches->count() : 0;
-                    @endphp
-                <tr data-search="{{ Str::lower($p->name.' '.($p->category->name ?? '').' '.$p->sku) }}"@if($p->is_running_out) data-low="1"@endif>
-                    <td class="idx">{{ $loop->iteration }}</td>
-                    <td><div class="strong">{{ $p->name }}</div>@if($expired)<div class="expired-note"><i class="ti ti-alert-triangle"></i> {{ $expired }} expired batch{{ $expired > 1 ? 'es' : '' }}</div>@endif</td>
-                    <td class="muted">{{ $p->category->name ?? '—' }}</td>
-                    <td><span class="{{ $stockCls }}">{{ $p->total_stock }}</span><span class="unit"> {{ $p->unit }}</span></td>
-                    <td class="num muted">₱{{ number_format($p->selling_price, 2) }}</td>
-                    <td class="num strong">₱{{ number_format($p->total_stock * $p->selling_price, 2) }}</td>
-                    <td class="mid"><span class="inv-badge {{ $badge[0] }}"><i class="ti {{ $badge[1] }}"></i> {{ $badge[2] }}</span></td>
-                </tr>
-                @empty
-                <tr>
-                    <td colspan="7" class="empty">
-                        <i class="ti ti-package-off"></i>
-                        No products found.
-                    </td>
-                </tr>
-                @endforelse
-            </tbody>
+            {{-- The rows are BUILT IN THE BROWSER from #invRowsData below
+                 (renderInventoryRows() in reports/inventory.blade.php), 2026-10-22.
+                 As server HTML they were 1.75 MB of the page's 1.86 MB -- ~620
+                 bytes x 2,637 rows -- and most of its 0.9-1.3 s of server time on
+                 the live site was Blade writing them. The figures and the badge
+                 are still decided HERE, row by row, exactly as before; only the
+                 markup moved. The browser writes the same <tr data-search ...
+                 data-low> the search box and the print copy have always read. --}}
+            <tbody id="invRows"></tbody>
         </table></div>
 
         {{-- Table Footer --}}
@@ -300,4 +259,38 @@
         'health' => [$okCount, $lowStockCount, $expiredCount],
     ];
 @endphp
+@php
+    // One row per product: [name, category, sku, total stock, unit, unit price,
+    // stock value, badge, stock colour, expired batches, running out]. Money is
+    // formatted here (number_format), so the browser shows exactly what the
+    // server rendered before. Badge order, decided once per row:
+    //
+    // Out of stock first, in the same graphite the bell and the toasts use: at
+    // zero a product is also "low", and "Low Stock" on an empty shelf
+    // understates it. Then stock that exists but cannot be sold -- every unit
+    // expired. That row is excluded from the Low Stock filter (see
+    // ReportController), so calling it "Low Stock" here would contradict the
+    // list it is missing from.
+    $invRows = $products->map(function ($p) {
+        $badge = $p->total_stock <= 0 ? 'out'
+            : ($p->sellable_stock <= 0 ? 'expired'
+                : ($p->total_stock <= $p->reorder_level ? 'low' : 'ok'));
+        $stock = $p->total_stock <= 0 ? 'out' : ($p->total_stock <= $p->reorder_level ? 'low' : '');
+
+        return [
+            $p->name,
+            $p->category->name ?? '—',
+            (string) $p->sku,
+            (int) $p->total_stock,
+            (string) $p->unit,
+            number_format($p->selling_price, 2),
+            number_format($p->total_stock * $p->selling_price, 2),
+            $badge,
+            $stock,
+            $p->expiredBatches ? $p->expiredBatches->count() : 0,
+            $p->is_running_out ? 1 : 0,
+        ];
+    })->values();
+@endphp
+<script type="application/json" id="invRowsData">{!! json_encode($invRows, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) !!}</script>
 <script type="application/json" id="inventoryChartData">{!! json_encode($inventoryChartData, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) !!}</script>
