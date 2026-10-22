@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\ProductBatch;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -521,7 +522,7 @@ class ProductFormTest extends TestCase
 
         $errors = session('errors')->getBag('default');
         $this->assertSame('Enter the product name.', $errors->first('name'));
-        $this->assertSame('Enter the SKU.', $errors->first('sku'));
+        $this->assertSame('Enter the SKU / barcode.', $errors->first('sku'));
         $this->assertSame('Choose a category.', $errors->first('category_id'));
         $this->assertSame('Choose a unit.', $errors->first('unit'));
         $this->assertSame('Enter the selling price.', $errors->first('selling_price'));
@@ -529,7 +530,7 @@ class ProductFormTest extends TestCase
 
         // The redisplay puts each message under its own field.
         $html = $this->get('/products/create')->getContent();
-        $this->assertMatchesRegularExpression('/data-error-for="sku"[^>]*>Enter the SKU\./', $html);
+        $this->assertMatchesRegularExpression('/data-error-for="sku"[^>]*>Enter the SKU \/ barcode\./', $html);
     }
 
     /** The dialog's fetch gets the same messages, keyed by field, to paint inline. */
@@ -581,102 +582,119 @@ class ProductFormTest extends TestCase
             ->assertDontSee('Add the first batch now');
     }
 
-    // ── The barcode printed on the box ───────────────────────────────────
+    // ── One code: the SKU is the barcode (2026-10-22) ────────────────────
     //
-    // Most catalogue SKUs are not real retail barcodes (271 of 2,637 carried a
-    // valid EAN-13 check digit, 2026-10-22), so a camera or gun reading the
-    // package found nothing. The forms now take the PRINTED code separately,
-    // and PosController::lookupBySku matches it before the SKU.
+    // For one day the forms took the printed barcode separately from the SKU;
+    // at the user's request there is now ONE "SKU / Barcode" field, saved to
+    // both columns, so whatever is typed or scanned there is what the till finds.
 
-    public function test_both_forms_offer_a_barcode_field_a_scanner_can_type_into(): void
+    public function test_both_forms_have_one_sku_barcode_field_a_scanner_can_type_into(): void
     {
         $admin = User::factory()->admin()->create();
 
         foreach (['/products/create', '/products/'.$this->product()->id.'/edit'] as $url) {
             $html = $this->actingAs($admin)->get($url)->assertOk()->getContent();
-            $this->assertStringContainsString('Barcode (printed on the box)', $html, $url);
-            $this->assertMatchesRegularExpression('/<input[^>]*id="barcode"[^>]*data-scan-field/', $html, $url);
-            $this->assertStringContainsString('data-error-for="barcode"', $html, $url);
+            $this->assertStringContainsString('SKU / Barcode', $html, $url);
+            $this->assertMatchesRegularExpression('/<input[^>]*id="sku"[^>]*data-scan-field/', $html, $url);
+            $this->assertStringNotContainsString('id="barcode"', $html, $url);
         }
     }
 
-    public function test_a_saved_barcode_rings_the_product_up_and_the_sku_still_does(): void
-    {
-        $admin = User::factory()->admin()->create();
-        $product = $this->product();
-
-        $this->actingAs($admin)
-            ->put('/products/'.$product->id, $this->payload(['sku' => $product->sku, 'barcode' => '4801812140443']))
-            ->assertSessionHasNoErrors();
-
-        $this->assertSame('4801812140443', $product->fresh()->barcode);
-        $this->actingAs($admin)->getJson('/pos/lookup?sku=4801812140443')->assertOk()->assertJsonPath('id', $product->id);
-        $this->actingAs($admin)->getJson('/pos/lookup?sku='.$product->sku)->assertOk()->assertJsonPath('id', $product->id);
-    }
-
-    public function test_a_new_product_can_be_added_with_its_barcode(): void
+    public function test_a_new_product_saves_its_sku_as_its_barcode(): void
     {
         $this->actingAs(User::factory()->admin()->create())
-            ->post('/products', $this->payload(['barcode' => '4800016644207']))
+            // A posted barcode is ignored: the one field decides both.
+            ->post('/products', $this->payload(['sku' => '4800016644207', 'barcode' => 'SOMETHING-ELSE']))
             ->assertSessionHasNoErrors();
 
-        $this->assertSame('4800016644207', Product::where('sku', 'SKU-UNIT-1')->value('barcode'));
+        $product = Product::where('sku', '4800016644207')->firstOrFail();
+        $this->assertSame('4800016644207', $product->barcode);
+        $this->actingAs(User::factory()->admin()->create())
+            ->getJson('/pos/lookup?sku=4800016644207')->assertOk()->assertJsonPath('id', $product->id);
     }
 
-    /** One scan, one product: a code may not be one product's barcode and another's SKU. */
-    public function test_a_barcode_that_is_another_products_sku_is_refused(): void
+    public function test_changing_the_sku_moves_the_barcode_and_the_history_with_it(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $product = $this->product();
+        $product->update(['barcode' => '4801812140441']);
+        DB::table('sales_history')->insert(['product_sku' => $product->sku, 'sale_date' => '2026-01-05', 'quantity_sold' => 3]);
+
+        $this->actingAs($admin)
+            ->put('/products/'.$product->id, $this->payload(['sku' => '4801812140443']))
+            ->assertSessionHasNoErrors();
+
+        $product->refresh();
+        $this->assertSame('4801812140443', $product->sku);
+        $this->assertSame('4801812140443', $product->barcode);
+        $this->assertSame(1, DB::table('sales_history')->where('product_sku', '4801812140443')->count());
+        $this->actingAs($admin)->getJson('/pos/lookup?sku=4801812140441')->assertNotFound();
+    }
+
+    /** One scan, one product: a code may not be another product's SKU or barcode. */
+    public function test_a_code_another_product_uses_is_refused(): void
     {
         $admin = User::factory()->admin()->create();
         $other = $this->product();
         $product = $this->product();
 
         $this->actingAs($admin)
-            ->putJson('/products/'.$product->id, $this->payload(['sku' => $product->sku, 'barcode' => $other->sku]))
+            ->putJson('/products/'.$product->id, $this->payload(['sku' => $other->sku]))
             ->assertStatus(422)
-            ->assertJsonPath('errors.barcode.0', 'Another product already uses this code as its barcode or SKU.');
+            ->assertJsonPath('errors.sku.0', 'Another product already uses this code as its SKU or barcode (archived products keep theirs).');
 
-        $this->actingAs($admin)
-            ->postJson('/products', $this->payload(['barcode' => $other->sku]))
-            ->assertStatus(422)
-            ->assertJsonValidationErrors('barcode');
-    }
-
-    public function test_a_sku_that_is_another_products_barcode_is_refused(): void
-    {
-        $admin = User::factory()->admin()->create();
-        $other = $this->product();
         $other->update(['barcode' => '4800016644207']);
-
         $this->actingAs($admin)
             ->postJson('/products', $this->payload(['sku' => '4800016644207']))
             ->assertStatus(422)
             ->assertJsonValidationErrors('sku');
     }
 
-    /** A product whose barcode is its own SKU -- every seeded row -- stays editable. */
-    public function test_a_barcode_equal_to_its_own_sku_is_fine(): void
+    /**
+     * The migration that brought saved rows into line: a printed barcode that
+     * differs wins (the SKU takes it, history and forecasts following), a
+     * product with none gets its SKU, and a printed code that is ANOTHER
+     * product's SKU is left alone rather than merged into it.
+     */
+    public function test_the_one_code_migration_renames_to_the_printed_barcode(): void
     {
-        $product = $this->product();
-        $product->update(['barcode' => $product->sku]);
+        $printed = $this->product();
+        $oldSku = $printed->sku;
+        DB::table('products')->where('id', $printed->id)->update(['barcode' => '4806523434980']);
+        DB::table('sales_history')->insert(['product_sku' => $oldSku, 'sale_date' => '2026-02-01', 'quantity_sold' => 4]);
+        DB::table('demand_forecasts')->insert(['product_sku' => $oldSku, 'forecast_date' => '2026-11-01', 'forecast_value' => 2,
+            'lower_ci' => 1, 'upper_ci' => 3, 'generated_at' => now(), 'created_at' => now(), 'updated_at' => now()]);
 
-        $this->actingAs(User::factory()->admin()->create())
-            ->putJson('/products/'.$product->id, $this->payload(['sku' => $product->sku, 'barcode' => $product->sku]))
-            ->assertOk();
-    }
+        $none = $this->product();
+        DB::table('products')->where('id', $none->id)->update(['barcode' => null]);
 
-    /** The barcode decides what a scan rings up, so a change to it is on the record. */
-    public function test_a_barcode_change_is_named_in_the_audit_trail(): void
-    {
-        $product = $this->product();
-        $product->update(['barcode' => '4801812140441']);
+        $clash = $this->product();
+        $taken = $this->product();
+        DB::table('products')->where('id', $clash->id)->update(['barcode' => $taken->sku.'-X']);
+        DB::table('products')->where('id', $taken->id)->update(['sku' => $taken->sku.'-X', 'barcode' => null]);
 
-        $this->actingAs(User::factory()->admin()->create())
-            ->put('/products/'.$product->id, $this->payload(['sku' => $product->sku, 'barcode' => '4801812140443']));
+        (require database_path('migrations/2026_10_22_000001_make_sku_and_barcode_one_code.php'))->up();
 
-        $this->assertStringContainsString(
-            'barcode 4801812140441 to 4801812140443',
-            AuditTrail::latest('id')->value('details')
-        );
+        $printed->refresh();
+        $this->assertSame('4806523434980', $printed->sku);
+        $this->assertSame('4806523434980', $printed->barcode);
+        $this->assertSame(1, DB::table('sales_history')->where('product_sku', '4806523434980')->count());
+        $this->assertSame(1, DB::table('demand_forecasts')->where('product_sku', '4806523434980')->count());
+        $this->assertSame(0, DB::table('sales_history')->where('product_sku', $oldSku)->count());
+        $this->assertTrue(AuditTrail::where('details', 'like', "%SKU {$oldSku} to 4806523434980")->exists());
+
+        $this->assertSame($none->sku, $none->fresh()->barcode);
+
+        // The clash keeps its own SKU (the printed code is another product's),
+        // its barcode follows that SKU, and the skip is on the record.
+        $this->assertSame($clash->sku, $clash->fresh()->sku);
+        $this->assertSame($clash->sku, $clash->fresh()->barcode);
+        $this->assertTrue(AuditTrail::where('details', 'like', 'Printed barcode not used as SKU: '.$clash->name.'%')->exists());
+
+        // Re-runnable: a second pass changes nothing.
+        $before = DB::table('products')->orderBy('id')->get(['id', 'sku', 'barcode'])->toJson();
+        (require database_path('migrations/2026_10_22_000001_make_sku_and_barcode_one_code.php'))->up();
+        $this->assertSame($before, DB::table('products')->orderBy('id')->get(['id', 'sku', 'barcode'])->toJson());
     }
 
     /**
@@ -690,7 +708,7 @@ class ProductFormTest extends TestCase
         $long = str_repeat('LONG PRODUCT NAME ', 14);   // 252 characters
 
         $this->actingAs(User::factory()->admin()->create())
-            ->put('/products/'.$product->id, $this->payload(['name' => $long, 'sku' => $product->sku, 'barcode' => '4801812140443']))
+            ->put('/products/'.$product->id, $this->payload(['name' => $long, 'sku' => '4801812140443']))
             ->assertSessionHasNoErrors();
 
         $details = AuditTrail::latest('id')->value('details');

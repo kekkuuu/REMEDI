@@ -113,10 +113,11 @@ cost a false "security bug" during a QA pass; `DeactivationTest` carries the war
   list (a canonical unit accepted, free text and the wrong case refused, the one legacy `"20"` row
   still editable, the form rendering a `<select>`), and the numeric ceilings on `selling_price`,
   `cost_price`, `reorder_level` and batch `quantity` — plus that `cost_price` is genuinely optional
-  (a product saves fine with none set, and the value round-trips when one is). Also the Barcode field
-  (2026-10-22): both forms render it, a saved barcode is found by the till ahead of the SKU, a code
-  that is another product's SKU (or a SKU that is another's barcode) is refused, a change is named in
-  the audit trail, and an audit line past 255 characters is cut rather than failing the save.
+  (a product saves fine with none set, and the value round-trips when one is). Also the ONE
+  "SKU / Barcode" field (2026-10-22): both forms render it with no separate barcode box, a save writes
+  the code to both columns (a posted `barcode` is ignored), a rename moves the barcode and the history
+  together, a code another product uses is refused, the migration that made saved rows match (below),
+  and an audit line past 255 characters is cut rather than failing the save.
 
 - `Feature\Auth\RegistrationEmailTest` — the Add User address: stored as typed, another domain
   accepted, capitals and stray spaces folded rather than refused (the `lowercase` rule REJECTS them),
@@ -993,11 +994,16 @@ DISPOSABLE X10".
 **Why real packages did not scan, and what changed (2026-10-22, at the user's request).** Two separate
 causes. (1) **The stored codes are not the printed ones**: only 271 of 2,637 SKUs carry a valid EAN-13
 check digit, and `barcode` was a copy of the SKU with no field to edit it -- so a box read perfectly still
-answered "Product not found". Both product forms now have **"Barcode (printed on the box)"**, separate
-from the SKU (a SKU change re-points five tables; a barcode change touches none). `PosController::
-lookupBySku` already matched `barcode` before `sku`; `ProductController` now refuses a barcode that is
-another product's SKU and a SKU that is another's barcode, so one scan can only mean one product. The
-field carries `data-scan-field`, and `remedi.js` turns Enter there into "next field", because a gun ends
+answered "Product not found". For one day the forms had a separate "Barcode (printed on the box)"
+field; **since later on 2026-10-22, at the user's request, the SKU IS the barcode**: one **"SKU / Barcode"**
+field, saved to both columns by `ProductController::store()` / `update()`, so the code to type or scan
+there is the one printed on the box (a rename re-points the five SKU-keyed tables as before).
+Migration `2026_10_22_000001_make_sku_and_barcode_one_code` brought saved rows into line: where a
+printed barcode differed from the SKU the PRINTED code won (the user's choice -- the SKU was renamed to
+it, history and forecasts re-pointed, an audit row naming the old SKU), a printed code already used as
+another product's SKU was skipped and logged, and every other row got barcode = SKU. `PosController::
+lookupBySku` still matches `barcode` or `sku`, and the SKU rule still refuses a code that is another
+product's barcode, so one scan can only mean one product. The field carries `data-scan-field`, and `remedi.js` turns Enter there into "next field", because a gun ends
 every scan with Enter and would otherwise submit a half-filled form. (2) **Laptop webcams are fixed-focus
 (~50 cm)**, so a box held close is soft, and ZXing stops reading once blur passes about half a bar's
 width. The partial now decodes every third frame plain and the other two as a SHARPENED strip around the

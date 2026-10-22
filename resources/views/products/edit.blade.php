@@ -62,25 +62,16 @@
             <div class="form-field">
                 <div class="form-field-head">
                     <span class="form-chip" aria-hidden="true"><i class="ti ti-barcode"></i></span>
-                    <label for="sku">SKU (Product Code)</label>
+                    <label for="sku">SKU / Barcode</label>
                 </div>
-                <input type="text" id="sku" name="sku" value="{{ old('sku', $product->sku) }}" required data-label="SKU" maxlength="50" aria-describedby="sku-error" @error('sku') aria-invalid="true" @enderror>
+                {{-- One code per product (2026-10-22): the SKU IS the barcode the
+                     till scans, saved to both columns. Changing it re-points every
+                     table keyed on the SKU (ProductController::update). --}}
+                <input type="text" id="sku" name="sku" value="{{ old('sku', $product->sku) }}" required data-label="SKU / barcode" maxlength="50" autocomplete="off" data-scan-field aria-describedby="sku-error" @error('sku') aria-invalid="true" @enderror>
                 @include('products._field-error', ['field' => 'sku'])
-            </div>
-
-            {{-- The code PRINTED on the package, which a scan reads. Separate
-                 from the SKU: most catalogue SKUs are not real retail
-                 barcodes, and changing a SKU re-points every table keyed on it. --}}
-            <div class="form-field">
-                <div class="form-field-head">
-                    <span class="form-chip" aria-hidden="true"><i class="ti ti-scan"></i></span>
-                    <label for="barcode">Barcode (printed on the box)</label>
-                </div>
-                <input type="text" id="barcode" name="barcode" value="{{ old('barcode', $product->barcode) }}" data-label="barcode" maxlength="100" inputmode="numeric" autocomplete="off" data-scan-field aria-describedby="barcode-error" @error('barcode') aria-invalid="true" @enderror>
-                @include('products._field-error', ['field' => 'barcode'])
                 <span class="form-field-note">
                     <i class="ti ti-info-circle" aria-hidden="true"></i>
-                    Scan or type the code on the package. The till finds the product by this code, or by its SKU.
+                    The barcode printed on the box. Changing it keeps the product's sales history and forecasts.
                 </span>
             </div>
 

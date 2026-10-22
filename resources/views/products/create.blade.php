@@ -47,26 +47,17 @@
             <div class="form-field">
                 <div class="form-field-head">
                     <span class="form-chip"><i class="ti ti-barcode" aria-hidden="true"></i></span>
-                    <label for="sku">SKU (Product Code)</label>
+                    <label for="sku">SKU / Barcode</label>
                 </div>
+                {{-- One code per product (2026-10-22): the SKU IS the barcode the
+                     till scans, saved to both columns. data-scan-field: a scanner
+                     gun ends with Enter, which moves on instead of submitting. --}}
                 <input type="text" id="sku" name="sku" value="{{ old('sku') }}"
-                       placeholder="Enter SKU or product code" required data-label="SKU" maxlength="50" aria-describedby="sku-error" @error('sku') aria-invalid="true" @enderror>
+                       placeholder="Scan the box's barcode or type the product code" required data-label="SKU / barcode" maxlength="50" autocomplete="off" data-scan-field aria-describedby="sku-error" @error('sku') aria-invalid="true" @enderror>
                 @include('products._field-error', ['field' => 'sku'])
-            </div>
-
-            {{-- The code PRINTED on the package, which a scan reads -- see the
-                 same field on the edit page. --}}
-            <div class="form-field">
-                <div class="form-field-head">
-                    <span class="form-chip"><i class="ti ti-scan" aria-hidden="true"></i></span>
-                    <label for="barcode">Barcode (printed on the box)</label>
-                </div>
-                <input type="text" id="barcode" name="barcode" value="{{ old('barcode') }}"
-                       placeholder="Scan or type the package barcode" data-label="barcode" maxlength="100" inputmode="numeric" autocomplete="off" data-scan-field aria-describedby="barcode-error" @error('barcode') aria-invalid="true" @enderror>
-                @include('products._field-error', ['field' => 'barcode'])
                 <span class="form-field-note">
                     <i class="ti ti-info-circle" aria-hidden="true"></i>
-                    Optional. The till finds the product by this code, or by its SKU.
+                    Use the barcode printed on the box, so a scan finds this product.
                 </span>
             </div>
 
