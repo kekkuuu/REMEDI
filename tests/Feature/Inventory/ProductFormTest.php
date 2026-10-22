@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Inventory;
 
+use App\Models\AuditTrail;
 use App\Models\Category;
 use App\Models\Product;
 use App\Models\ProductBatch;
@@ -539,7 +540,7 @@ class ProductFormTest extends TestCase
         $this->actingAs(User::factory()->admin()->create())
             ->postJson('/products', $this->payload(['sku' => $existing->sku]))
             ->assertStatus(422)
-            ->assertJsonPath('errors.sku.0', 'Another product already uses this SKU (archived products keep theirs).');
+            ->assertJsonPath('errors.sku.0', 'Another product already uses this code as its SKU or barcode (archived products keep theirs).');
     }
 
     /**
@@ -578,5 +579,122 @@ class ProductFormTest extends TestCase
             ->get('/products/'.$product->id.'/edit?added=1')
             ->assertOk()
             ->assertDontSee('Add the first batch now');
+    }
+
+    // ── The barcode printed on the box ───────────────────────────────────
+    //
+    // Most catalogue SKUs are not real retail barcodes (271 of 2,637 carried a
+    // valid EAN-13 check digit, 2026-10-22), so a camera or gun reading the
+    // package found nothing. The forms now take the PRINTED code separately,
+    // and PosController::lookupBySku matches it before the SKU.
+
+    public function test_both_forms_offer_a_barcode_field_a_scanner_can_type_into(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        foreach (['/products/create', '/products/'.$this->product()->id.'/edit'] as $url) {
+            $html = $this->actingAs($admin)->get($url)->assertOk()->getContent();
+            $this->assertStringContainsString('Barcode (printed on the box)', $html, $url);
+            $this->assertMatchesRegularExpression('/<input[^>]*id="barcode"[^>]*data-scan-field/', $html, $url);
+            $this->assertStringContainsString('data-error-for="barcode"', $html, $url);
+        }
+    }
+
+    public function test_a_saved_barcode_rings_the_product_up_and_the_sku_still_does(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $product = $this->product();
+
+        $this->actingAs($admin)
+            ->put('/products/'.$product->id, $this->payload(['sku' => $product->sku, 'barcode' => '4801812140443']))
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('4801812140443', $product->fresh()->barcode);
+        $this->actingAs($admin)->getJson('/pos/lookup?sku=4801812140443')->assertOk()->assertJsonPath('id', $product->id);
+        $this->actingAs($admin)->getJson('/pos/lookup?sku='.$product->sku)->assertOk()->assertJsonPath('id', $product->id);
+    }
+
+    public function test_a_new_product_can_be_added_with_its_barcode(): void
+    {
+        $this->actingAs(User::factory()->admin()->create())
+            ->post('/products', $this->payload(['barcode' => '4800016644207']))
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('4800016644207', Product::where('sku', 'SKU-UNIT-1')->value('barcode'));
+    }
+
+    /** One scan, one product: a code may not be one product's barcode and another's SKU. */
+    public function test_a_barcode_that_is_another_products_sku_is_refused(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $other = $this->product();
+        $product = $this->product();
+
+        $this->actingAs($admin)
+            ->putJson('/products/'.$product->id, $this->payload(['sku' => $product->sku, 'barcode' => $other->sku]))
+            ->assertStatus(422)
+            ->assertJsonPath('errors.barcode.0', 'Another product already uses this code as its barcode or SKU.');
+
+        $this->actingAs($admin)
+            ->postJson('/products', $this->payload(['barcode' => $other->sku]))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('barcode');
+    }
+
+    public function test_a_sku_that_is_another_products_barcode_is_refused(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $other = $this->product();
+        $other->update(['barcode' => '4800016644207']);
+
+        $this->actingAs($admin)
+            ->postJson('/products', $this->payload(['sku' => '4800016644207']))
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('sku');
+    }
+
+    /** A product whose barcode is its own SKU -- every seeded row -- stays editable. */
+    public function test_a_barcode_equal_to_its_own_sku_is_fine(): void
+    {
+        $product = $this->product();
+        $product->update(['barcode' => $product->sku]);
+
+        $this->actingAs(User::factory()->admin()->create())
+            ->putJson('/products/'.$product->id, $this->payload(['sku' => $product->sku, 'barcode' => $product->sku]))
+            ->assertOk();
+    }
+
+    /** The barcode decides what a scan rings up, so a change to it is on the record. */
+    public function test_a_barcode_change_is_named_in_the_audit_trail(): void
+    {
+        $product = $this->product();
+        $product->update(['barcode' => '4801812140441']);
+
+        $this->actingAs(User::factory()->admin()->create())
+            ->put('/products/'.$product->id, $this->payload(['sku' => $product->sku, 'barcode' => '4801812140443']));
+
+        $this->assertStringContainsString(
+            'barcode 4801812140441 to 4801812140443',
+            AuditTrail::latest('id')->value('details')
+        );
+    }
+
+    /**
+     * audit_trails.details is varchar(255) and MySQL runs strict, so an over-long
+     * line used to be REFUSED and the save it described answered 500. A product
+     * name may itself be 255 characters long.
+     */
+    public function test_an_audit_line_longer_than_its_column_is_cut_not_refused(): void
+    {
+        $product = $this->product();
+        $long = str_repeat('LONG PRODUCT NAME ', 14);   // 252 characters
+
+        $this->actingAs(User::factory()->admin()->create())
+            ->put('/products/'.$product->id, $this->payload(['name' => $long, 'sku' => $product->sku, 'barcode' => '4801812140443']))
+            ->assertSessionHasNoErrors();
+
+        $details = AuditTrail::latest('id')->value('details');
+        $this->assertSame(255, mb_strlen($details));
+        $this->assertStringStartsWith('Updated product: LONG PRODUCT NAME', $details);
     }
 }

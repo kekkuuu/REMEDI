@@ -20,6 +20,19 @@
      the camera is running. Mirrored for a webcam facing the person (moving
      the box left moves it left on screen), not for a phone's rear camera.
 
+     SHARPENING (2026-10-22): every third frame is decoded plain; the other two
+     decode the strip around the red line after an unsharp mask (greyscale,
+     box-blur radius 4 or 8 px, amount 2). A laptop webcam is focused for a
+     face ~50 cm away, so a box held close is soft, and ZXing stops reading
+     once the blur reaches about half a bar's width. Measured on a drawn
+     EAN-13: plain frames read up to ~0.5 bar-widths of blur, sharpened ones
+     up to ~0.7. It helps a slightly soft picture; it cannot rescue a badly
+     blurred one -- a scanner gun or a phone camera is the real fix there.
+
+     THE NUDGE: "Can't read it yet..." shows only while something is MOVING
+     in front of the camera (a 32x18 frame difference) and nothing has been
+     read for NUDGE_AFTER_MS -- never for an idle camera facing the counter.
+
      Camera access needs a SECURE CONTEXT: https, or localhost. When the
      camera cannot start, one quiet amber line says WHY: blocked permission,
      no camera, camera busy, an http address, or the scanner not loading.
@@ -46,6 +59,8 @@
     .cam-preview__box.is-hit .cam-preview__aim { background: #22c55e; box-shadow: 0 0 4px #22c55e; }
     .cam-preview__hint { font-size: .8rem; color: #64748b; line-height: 1.35; }
     .cam-preview__hint strong { color: #334155; font-weight: 600; }
+    .cam-preview__nudge { display: block; margin-top: 3px; color: #b45309; }
+    .cam-preview__nudge[hidden] { display: none; }
     .cam-status { display: flex; align-items: flex-start; gap: 6px; margin-top: 8px; padding: 6px 10px; border-radius: 6px; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; font-size: .8rem; line-height: 1.35; }
     .cam-status[hidden] { display: none; }
     .cam-status i { font-size: 1rem; line-height: 1.1; flex: none; }
@@ -62,7 +77,11 @@
     </div>
     <div class="cam-preview__hint">
         <strong><i class="ti ti-camera" aria-hidden="true"></i> Camera scanner on</strong><br>
-        Hold the barcode across the red line, about 15&ndash;25&nbsp;cm away.
+        Hold the barcode across the red line, steady and in good light.
+        <span class="cam-preview__nudge" id="camNudge" role="status" hidden>
+            <i class="ti ti-focus-2" aria-hidden="true"></i>
+            Can&rsquo;t read it yet. Try more light, keep it still, or move it back a little until the bars look sharp.
+        </span>
     </div>
 </div>
 
@@ -78,6 +97,7 @@
     const statusBox = document.getElementById('camStatus');
     const statusText = document.getElementById('camStatusText');
     const statusRetry = document.getElementById('camStatusRetry');
+    const nudge = document.getElementById('camNudge');
 
     // The 1D retail symbologies a pharmacy shelf carries, plus QR. Fewer
     // formats is less work per frame.
@@ -93,6 +113,101 @@
     let lastCode = '';
     let lastAt = 0;
     let hitTimer = null;
+
+    /* Sharpening -- see the note at the top. 0 = the raw frame (the whole
+       picture, so a barcode held sideways still reads); otherwise the box-blur
+       radius, in pixels, the unsharp mask subtracts. */
+    const PASSES = [0, 4, 8];
+    const SHARPEN_AMOUNT = 2;
+    let pass = 0;
+    const band = document.createElement('canvas');
+    const bandCtx = band.getContext('2d', { willReadFrequently: true });
+    let grey = null, scratch = null, soft = null;
+
+    /* Box blur, horizontal then vertical, by running sums: O(pixels) whatever
+       the radius. Edges repeat the border pixel. */
+    function boxBlur(src, tmp, dst, w, h, r) {
+        const k = 1 / (2 * r + 1);
+        for (let y = 0; y < h; y++) {
+            const row = y * w;
+            let sum = 0;
+            for (let x = -r; x <= r; x++) sum += src[row + Math.min(w - 1, Math.max(0, x))];
+            for (let x = 0; x < w; x++) {
+                tmp[row + x] = sum * k;
+                sum += src[row + Math.min(w - 1, x + r + 1)] - src[row + Math.max(0, x - r)];
+            }
+        }
+        for (let x = 0; x < w; x++) {
+            let sum = 0;
+            for (let y = -r; y <= r; y++) sum += tmp[Math.min(h - 1, Math.max(0, y)) * w + x];
+            for (let y = 0; y < h; y++) {
+                dst[y * w + x] = sum * k;
+                sum += tmp[Math.min(h - 1, y + r + 1) * w + x] - tmp[Math.max(0, y - r) * w + x];
+            }
+        }
+    }
+
+    /* The middle half of the frame -- where the red line is -- in grey,
+       sharpened: grey + amount * (grey - blurred). Returned as ImageData,
+       which BarcodeDetector.detect() takes directly. Buffers are reused, since
+       this runs several times a second on ~1M pixels. */
+    function sharpenedBand(source, radius) {
+        const vw = source.videoWidth || source.width, vh = source.videoHeight || source.height;
+        const bh = Math.max(1, Math.round(vh * 0.5)), y0 = Math.round((vh - bh) / 2);
+        if (band.width !== vw || band.height !== bh) { band.width = vw; band.height = bh; }
+        bandCtx.drawImage(source, 0, y0, vw, bh, 0, 0, vw, bh);
+        const img = bandCtx.getImageData(0, 0, vw, bh);
+        const d = img.data, n = vw * bh;
+        if (!grey || grey.length !== n) { grey = new Float32Array(n); scratch = new Float32Array(n); soft = new Float32Array(n); }
+        for (let i = 0, j = 0; i < n; i++, j += 4) grey[i] = 0.299 * d[j] + 0.587 * d[j + 1] + 0.114 * d[j + 2];
+        boxBlur(grey, scratch, soft, vw, bh, radius);
+        for (let i = 0, j = 0; i < n; i++, j += 4) {
+            const v = grey[i] + SHARPEN_AMOUNT * (grey[i] - soft[i]);
+            d[j] = d[j + 1] = d[j + 2] = v;   // Uint8ClampedArray clamps and rounds
+        }
+        return img;
+    }
+
+    /* The nudge -- see the note at the top. A "session" starts when the
+       picture changes (someone holds something up) and ends after
+       SESSION_IDLE_MS of stillness; a read ends it at once, and the movement
+       of taking the scanned box away does not start a new one. */
+    const NUDGE_AFTER_MS = 4000;
+    const SESSION_IDLE_MS = 8000;
+    const AFTER_READ_QUIET_MS = 3000;
+    // Mean grey-level change per pixel (0-255) at 32x18. A still camera reads
+    // ~0 -- the downscale averages its noise away -- while a box moved across
+    // the frame read 4.8 on a test picture, so 8 never fired.
+    const MOTION_LEVEL = 3;
+    const tiny = document.createElement('canvas');
+    tiny.width = 32;
+    tiny.height = 18;
+    const tinyCtx = tiny.getContext('2d', { willReadFrequently: true });
+    let prevTiny = null, sessionStart = 0, lastMotion = 0;
+
+    function noteMotion() {
+        tinyCtx.drawImage(preview, 0, 0, 32, 18);
+        const d = tinyCtx.getImageData(0, 0, 32, 18).data;
+        const cur = new Float32Array(576);
+        let diff = 0;
+        for (let i = 0, j = 0; i < 576; i++, j += 4) {
+            cur[i] = (d[j] + d[j + 1] + d[j + 2]) / 3;
+            if (prevTiny) diff += Math.abs(cur[i] - prevTiny[i]);
+        }
+        const now = Date.now();
+        if (prevTiny && diff / 576 > MOTION_LEVEL && now - lastAt > AFTER_READ_QUIET_MS) {
+            if (!sessionStart || now - lastMotion > SESSION_IDLE_MS) sessionStart = now;
+            lastMotion = now;
+        }
+        prevTiny = cur;
+    }
+
+    function updateNudge() {
+        if (!nudge) return;
+        const now = Date.now();
+        const active = sessionStart && now - lastMotion < SESSION_IDLE_MS;
+        nudge.hidden = !(active && now - sessionStart > NUDGE_AFTER_MS);
+    }
 
     /* Native where the browser has it and reads EAN-13 (Chrome's Windows
        build ships no BarcodeDetector at all), else the ZXing C++ ponyfill. */
@@ -150,6 +265,8 @@
            has been out of view for REPEAT_GAP_MS. A fixed window from the
            first read added an item twice when it was held for 3 seconds. */
         const now = Date.now();
+        sessionStart = 0;
+        if (nudge) nudge.hidden = true;
         const sameScan = code === lastCode && (now - lastAt) < REPEAT_GAP_MS;
         lastCode = code;
         lastAt = now;
@@ -166,11 +283,22 @@
     function scanLoop() {
         if (!running) return;
         const ready = preview.readyState >= 2 && preview.videoWidth > 0;
-        const work = ready ? detector.detect(preview) : Promise.resolve([]);
+        let work = Promise.resolve([]);
+        if (ready) {
+            const radius = PASSES[pass];
+            pass = (pass + 1) % PASSES.length;
+            try {
+                noteMotion();
+                work = detector.detect(radius ? sharpenedBand(preview, radius) : preview);
+            } catch (e) {
+                work = Promise.reject(e);
+            }
+        }
         work.then(function (codes) {
             if (running && codes && codes.length) onDecoded(codes[0].rawValue);
         }).catch(function () { /* a frame that could not be read */ })
           .then(function () {
+              updateNudge();
               if (running) loopTimer = setTimeout(scanLoop, SCAN_EVERY_MS);
           });
     }
@@ -233,6 +361,9 @@
         running = false;
         clearTimeout(loopTimer);
         previewWrap.hidden = true;
+        sessionStart = 0;
+        prevTiny = null;
+        if (nudge) nudge.hidden = true;
         releaseStream();
         return Promise.resolve();
     }
@@ -263,7 +394,12 @@
 
     start();
 
-    window.REMEDI_CAMERA_SCAN = { start: start, stop: stop };
+    window.REMEDI_CAMERA_SCAN = {
+        start: start,
+        stop: stop,
+        // For checking the sharpening against a drawn barcode where no camera exists.
+        sharpenedBand: sharpenedBand,
+    };
 })();
 </script>
 @endif

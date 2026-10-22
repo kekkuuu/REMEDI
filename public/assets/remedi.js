@@ -2743,3 +2743,19 @@
             });
         }
     })();
+
+    /* A field a scanner gun types into ([data-scan-field], the product forms'
+       Barcode box). A gun types the code and then presses Enter, and Enter in
+       a text box submits its form -- so scanning a barcode into a half-filled
+       product form would try to save it. Here Enter moves on to the next field
+       instead. Delegated, so a field added later is covered too. */
+    document.addEventListener('keydown', function (e) {
+        var field = e.target;
+        if (e.key !== 'Enter' || !field || !field.matches || !field.matches('[data-scan-field]')) return;
+        e.preventDefault();
+        var form = field.form;
+        if (!form) return;
+        var fields = [].slice.call(form.querySelectorAll('input:not([type=hidden]):not([disabled]), select:not([disabled]), textarea:not([disabled])'));
+        var next = fields[fields.indexOf(field) + 1];
+        if (next) next.focus();
+    });

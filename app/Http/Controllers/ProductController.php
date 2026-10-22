@@ -56,8 +56,8 @@ class ProductController extends Controller
         'max.string' => 'The :attribute can be at most :max characters.',
         // An archived product keeps its SKU reserved (see ArchiveTest), so
         // "taken" can name a product the list does not show by default.
-        'sku.unique' => 'Another product already uses this SKU (archived products keep theirs).',
-        'barcode.unique' => 'Another product already uses this barcode.',
+        'sku.unique' => 'Another product already uses this code as its SKU or barcode (archived products keep theirs).',
+        'barcode.unique' => 'Another product already uses this code as its barcode or SKU.',
         'category_id.exists' => 'Choose a category from the list.',
         'unit.in' => 'Choose a unit from the list.',
     ];
@@ -122,8 +122,10 @@ class ProductController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'sku' => 'required|string|max:50|unique:products,sku',
-            'barcode' => 'nullable|string|max:100|unique:products,barcode',
+            // A scan matches EITHER column (PosController::lookupBySku), so a
+            // code may not be one product's barcode and another product's SKU.
+            'sku' => ['required', 'string', 'max:50', 'unique:products,sku', Rule::unique('products', 'barcode')],
+            'barcode' => ['nullable', 'string', 'max:100', 'unique:products,barcode', Rule::unique('products', 'sku')],
             // An archived category is not offered by the pickers; refuse a
             // hand-posted id for one just the same.
             'category_id' => ['required', Rule::exists('categories', 'id')->whereNull('archived_at')],
@@ -255,8 +257,8 @@ class ProductController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'sku' => 'required|string|max:50|unique:products,sku,'.$product->id,
-            'barcode' => 'nullable|string|max:100|unique:products,barcode,'.$product->id,
+            'sku' => ['required', 'string', 'max:50', 'unique:products,sku,'.$product->id, Rule::unique('products', 'barcode')->ignore($product->id)],
+            'barcode' => ['nullable', 'string', 'max:100', 'unique:products,barcode,'.$product->id, Rule::unique('products', 'sku')->ignore($product->id)],
             'category_id' => ['required', Rule::exists('categories', 'id')->whereNull('archived_at')],
             // unitOptions($product->unit) rather than the bare list: one legacy
             // row has a unit of "20", and rejecting it here would make that
@@ -269,6 +271,7 @@ class ProductController extends Controller
 
         $oldSku = $product->sku;
         $skuChanged = $validated['sku'] !== $oldSku;
+        $oldBarcode = $product->barcode;
 
         // A SKU rename has to carry the product's history with it.
         //
@@ -317,6 +320,11 @@ class ProductController extends Controller
                 $moved
             ))
             : '';
+
+        // The barcode decides what a scan rings up, so say when it moved.
+        if (array_key_exists('barcode', $validated) && $validated['barcode'] !== $oldBarcode) {
+            $note .= ' — barcode '.($oldBarcode ?? 'none').' to '.($validated['barcode'] ?? 'none');
+        }
 
         AuditTrail::log('Updated', "Updated product: {$product->name}{$note}");
 

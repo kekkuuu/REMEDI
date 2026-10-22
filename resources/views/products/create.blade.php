@@ -54,6 +54,22 @@
                 @include('products._field-error', ['field' => 'sku'])
             </div>
 
+            {{-- The code PRINTED on the package, which a scan reads -- see the
+                 same field on the edit page. --}}
+            <div class="form-field">
+                <div class="form-field-head">
+                    <span class="form-chip"><i class="ti ti-scan" aria-hidden="true"></i></span>
+                    <label for="barcode">Barcode (printed on the box)</label>
+                </div>
+                <input type="text" id="barcode" name="barcode" value="{{ old('barcode') }}"
+                       placeholder="Scan or type the package barcode" data-label="barcode" maxlength="100" inputmode="numeric" autocomplete="off" data-scan-field aria-describedby="barcode-error" @error('barcode') aria-invalid="true" @enderror>
+                @include('products._field-error', ['field' => 'barcode'])
+                <span class="form-field-note">
+                    <i class="ti ti-info-circle" aria-hidden="true"></i>
+                    Optional. The till finds the product by this code, or by its SKU.
+                </span>
+            </div>
+
             <div class="form-field">
                 <div class="form-field-head">
                     <span class="form-chip"><i class="ti ti-category" aria-hidden="true"></i></span>

@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (403 passed, 11 skipped, 1461 assertions — measured 2026-10-15) and is a usable regression gate.** The 11 skipped are `Feature\Reports\ReportExportTest`, which only runs against MySQL (below). It was 22 failed / 3 passed, for
+**The suite is green (411 passed, 11 skipped, 1490 assertions — measured 2026-10-22) and is a usable regression gate.** The 11 skipped are `Feature\Reports\ReportExportTest`, which only runs against MySQL (below). It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -113,7 +113,10 @@ cost a false "security bug" during a QA pass; `DeactivationTest` carries the war
   list (a canonical unit accepted, free text and the wrong case refused, the one legacy `"20"` row
   still editable, the form rendering a `<select>`), and the numeric ceilings on `selling_price`,
   `cost_price`, `reorder_level` and batch `quantity` — plus that `cost_price` is genuinely optional
-  (a product saves fine with none set, and the value round-trips when one is).
+  (a product saves fine with none set, and the value round-trips when one is). Also the Barcode field
+  (2026-10-22): both forms render it, a saved barcode is found by the till ahead of the SKU, a code
+  that is another product's SKU (or a SKU that is another's barcode) is refused, a change is named in
+  the audit trail, and an audit line past 255 characters is cut rather than failing the save.
 
 - `Feature\Auth\RegistrationEmailTest` — the Add User address: stored as typed, another domain
   accepted, capitals and stray spaces folded rather than refused (the `lowercase` rule REJECTS them),
@@ -960,6 +963,27 @@ and re-acquired on return. `$cameraScannerEnabled` turns the whole thing off —
 `getUserMedia` all absent. Verified in the browser pane (which blocks the real camera: the blocked
 line shows) with a synthetic `captureStream()` camera: preview, green flash, "Added: 3D MASK
 DISPOSABLE X10".
+
+**Why real packages did not scan, and what changed (2026-10-22, at the user's request).** Two separate
+causes. (1) **The stored codes are not the printed ones**: only 271 of 2,637 SKUs carry a valid EAN-13
+check digit, and `barcode` was a copy of the SKU with no field to edit it -- so a box read perfectly still
+answered "Product not found". Both product forms now have **"Barcode (printed on the box)"**, separate
+from the SKU (a SKU change re-points five tables; a barcode change touches none). `PosController::
+lookupBySku` already matched `barcode` before `sku`; `ProductController` now refuses a barcode that is
+another product's SKU and a SKU that is another's barcode, so one scan can only mean one product. The
+field carries `data-scan-field`, and `remedi.js` turns Enter there into "next field", because a gun ends
+every scan with Enter and would otherwise submit a half-filled form. (2) **Laptop webcams are fixed-focus
+(~50 cm)**, so a box held close is soft, and ZXing stops reading once blur passes about half a bar's
+width. The partial now decodes every third frame plain and the other two as a SHARPENED strip around the
+red line (`sharpenedBand()`: greyscale unsharp mask, box-blur radius 4 or 8 px, amount 2, 10–22 ms on
+1280x360). Measured on drawn EAN-13s at 3/5/7 px per bar: plain reads up to 0.5–0.7 bar-widths of blur,
+sharpened up to 0.8–0.9; end to end, a fake camera showing a code at 0.75 bar-widths that a plain frame
+could not read rang the item up. It helps a slightly soft picture; a badly blurred one still needs a
+scanner gun or a phone camera. The "about 15–25 cm" instruction (wrong for a webcam) became "steady and
+in good light", and an amber **"Can't read it yet…"** line appears only while the picture is MOVING (a
+32x18 frame difference above `MOTION_LEVEL` 3 -- 8 never fired on a box moved across the frame, which
+read 4.8) with no read for 4 s, and goes after 8 s of stillness or on any read. Testing trap: clearing
+"all intervals" by id in the console also kills the scanner's `setTimeout` loop (one id pool).
 
 **Every scan answers with a sound (2026-10-01, at the user's request): `REMEDI.scanBeep(found)`** in
 `public/assets/remedi.js`, called from each page's `handleScannedCode()` once the lookup answers — so a

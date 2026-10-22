@@ -80,7 +80,11 @@ class AuditTrail extends Model
             'username' => $user?->name ?? 'System',
             'role' => $user?->role ?? 'system',
             'action' => $action,
-            'details' => $details,
+            // details is varchar(255) and MySQL runs strict, so a longer line is
+            // not cut but REFUSED -- and the action it records answers 500. A
+            // product edit's line carries a name of up to 255 characters plus
+            // any SKU and barcode change; the record is worth less than the save.
+            'details' => mb_substr($details, 0, 255),
             // Null for anything the scheduler or an artisan command logs --
             // there is no request behind those, so there is no address.
             'ip_address' => request()?->ip(),
