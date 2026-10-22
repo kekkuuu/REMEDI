@@ -28,7 +28,7 @@ class DemandForecastService
     public const CHART_HISTORY_MONTHS = 12;
 
     /**
-     * One row per product: next month's forecast + 6-month total,
+     * One row per product: next month's forecast + horizon total,
      * for a product-list / inventory dashboard view.
      *
      * $search matches against product name OR SKU. $categoryId, when

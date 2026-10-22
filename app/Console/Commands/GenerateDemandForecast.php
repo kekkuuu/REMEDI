@@ -25,7 +25,7 @@ class GenerateDemandForecast extends Command
         {--source=mysql : "mysql" to read live sales_history data, "csv" to bootstrap from receiving-report exports}
         {--csv-path= : Path to a receiving-report CSV (only used with --source=csv)}
         {--xls-path= : Path to a receiving-report XLS (only used with --source=csv)}
-        {--horizon=6 : Months ahead to forecast}
+        {--horizon=12 : Months ahead to forecast (12 since 2026-10-22: six ran out on the 1st of December, since the record ends in June)}
         {--workers=1 : Parallel worker processes for model fitting (1 = sequential, the safe default -- see the note above handle(). 0 = auto, all cores but one; only pass that on a machine you know has the RAM for it.)}
         {--python=python3 : Python executable to use}';
 
