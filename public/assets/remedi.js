@@ -2759,3 +2759,52 @@
         var next = fields[fields.indexOf(field) + 1];
         if (next) next.focus();
     });
+
+    /* One scan's product lookup, shared by the POS and Inventory scanners --
+       a gun and the camera both arrive here through the page's
+       handleScannedCode(). Resolves {found: true, data} or {found: false}
+       (the server's own 404). Anything else REJECTS with err.reason set:
+         'timeout'    -- no answer in LOOKUP_TIMEOUT_MS (a stalled connection
+                         used to leave "Looking up..." on screen for good)
+         'network'    -- the request never reached the server
+         'signed-out' -- 401/419/423: the session ended or is locked
+         'server'     -- any other failure
+       so a page never reports a dropped connection or an expired sign-in as
+       "Product not found" for a product that exists (2026-10-22). Accept:
+       JSON matters: without it an expired session answers the login PAGE,
+       which then failed to parse and read as "not found". */
+    window.REMEDI = window.REMEDI || {};
+    window.REMEDI.lookupScan = function (url, code) {
+        var LOOKUP_TIMEOUT_MS = 10000;
+        var ctrl = window.AbortController ? new AbortController() : null;
+        var timer = ctrl ? setTimeout(function () { ctrl.abort(); }, LOOKUP_TIMEOUT_MS) : null;
+        function fail(reason) { var e = new Error(reason); e.reason = reason; throw e; }
+
+        return fetch(url + (url.indexOf('?') === -1 ? '?' : '&') + 'sku=' + encodeURIComponent(code), {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin',
+            cache: 'no-store',
+            signal: ctrl ? ctrl.signal : undefined,
+        }).then(function (response) {
+            if (response.status === 404) return { found: false };
+            if ([401, 419, 423].indexOf(response.status) !== -1) fail('signed-out');
+            if (!response.ok) fail('server');
+            return response.json().then(function (data) {
+                return data && data.found ? { found: true, data: data } : { found: false };
+            }, function () { fail('server'); });
+        }, function (err) {
+            fail(err && err.name === 'AbortError' ? 'timeout' : 'network');
+        }).finally(function () {
+            if (timer) clearTimeout(timer);
+        });
+    };
+
+    /* What to tell the person at the till when a lookup could not be answered. */
+    window.REMEDI.lookupScanFailure = function (err) {
+        switch (err && err.reason) {
+            case 'timeout': return 'The server took too long to answer. Scan again.';
+            case 'network': return 'Could not reach the server. Check the connection, then scan again.';
+            case 'signed-out': return 'Your session ended. Reload the page and sign in again.';
+            default: return 'Something went wrong looking that up. Scan again.';
+        }
+    };

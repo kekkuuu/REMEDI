@@ -1384,13 +1384,10 @@
             barcodeStatus.textContent = 'Looking up ' + code + '...';
             barcodeStatus.style.color = '#6b7280';
 
-            fetch(`{{ route('pos.lookup') }}?sku=${encodeURIComponent(code)}`)
-                .then(function (response) {
-                    if (!response.ok) throw new Error('not_found');
-                    return response.json();
-                })
-                .then(function (data) {
-                    if (data.found) {
+            REMEDI.lookupScan(@json(route('pos.lookup', [], false)), code)
+                .then(function (result) {
+                    const data = result.data;
+                    if (result.found) {
                         // The till answers out loud: a beep for a product,
                         // a low double tone for a code it does not know.
                         if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(true);
@@ -1403,10 +1400,12 @@
                         barcodeStatus.style.color = '#dc2626';
                     }
                 })
-                .catch(function () {
+                .catch(function (err) {
+                    // Not "not found": the product may well exist -- the
+                    // lookup itself failed (REMEDI.lookupScan in remedi.js).
                     if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(false);
-                    barcodeStatus.textContent = '\u274C Product not found for code: ' + code;
-                    barcodeStatus.style.color = '#dc2626';
+                    barcodeStatus.textContent = '\u26A0\uFE0F ' + REMEDI.lookupScanFailure(err);
+                    barcodeStatus.style.color = '#b45309';
                 });
         }
     };
