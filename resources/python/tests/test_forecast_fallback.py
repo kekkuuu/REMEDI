@@ -274,9 +274,7 @@ class EveryProductLogged(unittest.TestCase):
             out, log = os.path.join(tmp, "forecast.csv"), os.path.join(tmp, "log.csv")
             done = subprocess.run(
                 [sys.executable, os.path.join(SCRIPT_DIR, "generate_forecasts.py"), "--source=csv",
-                 f"--csv-path={source}", f"--output={out}", f"--log={log}", "--workers=1",
-                 # Explicit: the script's default horizon is 12 since 2026-10-22.
-                 f"--horizon={HORIZON}"],
+                 f"--csv-path={source}", f"--output={out}", f"--log={log}", "--workers=1"],
                 capture_output=True, text=True)
             self.assertEqual(done.returncode, 0, done.stderr[-2000:])
 

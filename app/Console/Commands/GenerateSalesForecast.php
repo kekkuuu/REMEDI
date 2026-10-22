@@ -22,7 +22,7 @@ class GenerateSalesForecast extends Command
         {--source=mysql : "mysql" to read live data, "csv" to bootstrap from a sales_history-shaped CSV}
         {--sales-csv= : Path to a sales_history CSV (only used with --source=csv)}
         {--price-csv= : Path to the product master CSV, for unit-price -> revenue conversion (only used with --source=csv)}
-        {--horizon=12 : Months ahead to forecast (12 since 2026-10-22: six ran out on the 1st of December, since the record ends in June)}
+        {--horizon=6 : Months ahead to forecast}
         {--workers=1 : Parallel worker processes for model fitting (1 = sequential, the safe default -- see the note above handle(). 0 = auto, all cores but one; only pass that on a machine you know has the RAM for it.)}
         {--python=python3 : Python executable to use}';
 

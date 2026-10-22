@@ -248,7 +248,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", choices=["csv", "mysql"], required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--horizon", type=int, default=12)
+    parser.add_argument("--horizon", type=int, default=6)
     parser.add_argument("--env-path", default=None)
     parser.add_argument("--include-pos", action="store_true",
                         help="also train on the till's own (non-voided) sales")

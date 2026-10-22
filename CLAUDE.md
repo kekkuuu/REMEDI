@@ -1936,13 +1936,12 @@ only where a per-product seasonality test passed (Kruskal–Wallis or lag-12 ACF
 holdout 8.21 / 50.7% / 29.5%, 80/20 8.12 / 53.1% / 29.6% (ahead of both baselines), store-wide 4.56% / 7.41%; ARIMA on
 every product measured 8.15 / 49.9% and 8.09 / 52.4%. To go back, restore `is_seasonal()` and the two candidate lists
 from commit 5ba5140 in both scripts and regenerate both pipelines.
-**The forecast horizon is 12 months (2026-10-22; it was 6).** The record ends in June 2026 and the till is not fed to the
-model (`forecast.include_pos` off), so every monthly re-run produced the same Jul–Dec 2026 window: from 2026-12-01 the
-"next month" (`ForecastHorizon::firstActionableMonth()`) had NO forecast row -- stale "as of" quantities, empty Top 5 charts,
-no recommended reorder qty. Both commands and both Python scripts now default to `--horizon=12` (Jul 2026 – Jun 2027, 31,656
-rows each); the first six months are byte-identical to the 6-month run and the accuracy figures are unchanged (they come
-from the holdout, not the horizon). It runs out again on **2027-06-01** unless newer sales are imported or the till is
-included. Regenerated locally through WSL (export pickles -> run -> the commands' own importers).
+**The forecast horizon is 6 months ON PURPOSE until the defence (2026-10-22, at the user's request: the manuscript says
+"six-month forecasts").** Known consequence: the record ends in June 2026 and the till is not fed to the model, so every
+monthly run produces Jul–Dec 2026, and from **2026-12-01** "next month" has no forecast row (stale "as of" quantities, empty
+Top 5, no recommended reorder qty). The fix was built, verified and pushed as commit 16fe663 (default `--horizon=12`,
+Jul 2026 – Jun 2027, first six months byte-identical, accuracy unchanged) and then reverted; after the defence, re-apply it
+with `git revert <the revert commit>` and regenerate both pipelines.
 **THE SETUP IS NOW SARIMA(0,1,0)(1,0,0,12) (2026-10-20, set by hand at the user's request: "change the parameters and
 test the accuracy", then "apply it to the live site too"), same pharmacy record, local and live — supersedes the
 (0,1,0)(0,1,0,12) paragraph below.** No yearly difference (D = 0); one seasonal AR term at lag 12 decides how much of last
