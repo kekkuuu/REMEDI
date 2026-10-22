@@ -435,27 +435,36 @@ class ProductFormTest extends TestCase
     }
 
     /**
-     * The number is ASSIGNED, not entered — so a posted one is discarded.
-     *
-     * Both forms render the field readonly, but a readonly input still posts
-     * its value and a request can carry anything at all. This is the same
-     * lesson `markBatchReturned` and `pos.receipt` carry: a gated control is
-     * not a gated endpoint. It also closes the race the readonly field would
-     * otherwise open — two people adding a batch for the same product on the
-     * same day are both SHOWN `-01`, and the second must still be told `-02`.
+     * The number can be TYPED (2026-10-22, at the user's request; it was
+     * readonly and a posted value was discarded): a supplier's lot number is
+     * stored as typed, but not one this product already has.
      */
-    public function test_a_posted_batch_number_is_ignored(): void
+    public function test_a_typed_batch_number_is_kept(): void
     {
         $product = $this->product();
 
         $this->actingAs(User::factory()->admin()->create())
             ->post("/products/{$product->id}/batches", $this->batchPayload([
-                'batch_number' => 'WHATEVER-I-LIKE',
+                'batch_number' => '  LOT-A2291  ',
                 'received_date' => '2026-09-01',
             ]))
-            ->assertRedirect();
+            ->assertRedirect()
+            ->assertSessionHasNoErrors();
 
-        $this->assertSame('BOU-20260901-01', $product->batches()->sole()->batch_number);
+        $this->assertSame('LOT-A2291', $product->batches()->sole()->batch_number);
+    }
+
+    public function test_a_typed_batch_number_the_product_already_has_is_refused(): void
+    {
+        $product = $this->product();
+        $admin = User::factory()->admin()->create();
+        $post = fn () => $this->actingAs($admin)->post("/products/{$product->id}/batches", $this->batchPayload([
+            'batch_number' => 'LOT-A2291', 'received_date' => '2026-09-01',
+        ]));
+
+        $post()->assertSessionHasNoErrors();
+        $post()->assertSessionHasErrors(['batch_number' => 'This product already has a batch numbered LOT-A2291.']);
+        $this->assertSame(1, $product->batches()->count());
     }
 
     public function test_two_submissions_claiming_the_same_number_still_differ(): void
@@ -479,17 +488,18 @@ class ProductFormTest extends TestCase
         );
     }
 
-    public function test_the_field_cannot_be_typed_into(): void
+    public function test_the_batch_number_field_can_be_typed_into(): void
     {
         $product = $this->product();
 
         $html = $this->actingAs(User::factory()->admin()->create())
             ->get("/products/{$product->id}/edit")->content();
 
-        $this->assertMatchesRegularExpression(
+        $this->assertMatchesRegularExpression('/<input[^>]*id="batch_number"/', $html);
+        $this->assertDoesNotMatchRegularExpression(
             '/<input[^>]*id="batch_number"[^>]*\breadonly\b/',
             $html,
-            'the batch number field must be readonly — the number is assigned, not entered'
+            'the batch number field must accept typing'
         );
     }
 

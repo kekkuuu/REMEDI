@@ -12,9 +12,11 @@ use App\Services\AlertService;
 use App\Services\SalesForecastService;
 use App\Support\ForecastCache;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class ProductController extends Controller
 {
@@ -415,11 +417,10 @@ class ProductController extends Controller
     public function addBatch(Request $request, Product $product)
     {
         $validated = $request->validate([
-            // Accepted so a stray field does not 422, and then DISCARDED --
-            // the number is derived below, never taken from the request. Both
-            // forms render it readonly, so there is nothing for a user to type;
-            // what the browser puts in the box is a preview of the rule, and
-            // the server is the only thing that decides.
+            // TYPEABLE since 2026-10-22 (at the user's request): a typed
+            // number -- a supplier's lot number -- is kept, but not one this
+            // product already has, or its two batches could not be told apart.
+            // Blank, or the form's own suggestion, is assigned below.
             'batch_number' => 'nullable|string|max:100',
             'quantity' => 'required|integer|min:1|max:'.self::MAX_COUNT,
             // after:received_date as well as after:today. Without it a batch
@@ -449,20 +450,34 @@ class ProductController extends Controller
 
         $validated['product_id'] = $product->id;
 
-        // ALWAYS derived, never read from the request -- deriving here rather
-        // than trusting the field the browser filled in is what stops a user
-        // from TYPING a colliding number. Closing the race between two
-        // concurrent requests is a separate step: nextBatchNumber() takes a
-        // row lock, and that lock only holds until whatever transaction it
-        // was called inside commits -- hence wrapping the derive-then-create
-        // pair in one transaction here, rather than letting the lock release
-        // the instant the SELECT finishes.
+        // An ASSIGNED number is derived here, never trusted from the browser's
+        // preview. nextBatchNumber() takes a row lock, and that lock only holds
+        // until whatever transaction it was called inside commits -- hence
+        // wrapping the derive-then-create pair in one transaction here.
         //
         // After validation, so `received_date` is known to be a real date that
         // is not in the future -- generating from unvalidated input would stamp
         // a number with a day the same request is about to reject.
-        DB::transaction(function () use (&$validated, $product) {
-            $validated['batch_number'] = ProductBatch::nextBatchNumber($product, $validated['received_date']);
+        //
+        // A blank box, or one still holding the generated pattern for this
+        // product and day (the form's suggestion, maybe stale -- two people
+        // both shown -01), is assigned here under the row lock; anything else
+        // was typed, and is stored as typed.
+        $typed = trim((string) ($validated['batch_number'] ?? ''));
+        $generatedShape = '/^'.preg_quote(ProductBatch::batchNameCode($product), '/')
+            .'-'.Carbon::parse($validated['received_date'])->format('Ymd').'-\d+$/';
+        $assign = $typed === '' || preg_match($generatedShape, $typed);
+
+        if (! $assign && DB::table('product_batches')->where('product_id', $product->id)->where('batch_number', $typed)->exists()) {
+            throw ValidationException::withMessages([
+                'batch_number' => "This product already has a batch numbered {$typed}.",
+            ]);
+        }
+
+        DB::transaction(function () use (&$validated, $product, $assign, $typed) {
+            $validated['batch_number'] = $assign
+                ? ProductBatch::nextBatchNumber($product, $validated['received_date'])
+                : $typed;
 
             // The quantity a batch arrived with, as opposed to what is left of
             // it after FEFO checkouts have eaten into `quantity`. The seeder,
@@ -582,7 +597,7 @@ class ProductController extends Controller
         }
 
         if (($validated['dr_no'] ?? null) !== $oldDrNo) {
-            $changes[] = 'DR# '.($oldDrNo ?? '—').' to '.($validated['dr_no'] ?? '—');
+            $changes[] = 'DRP/FDA Reg. No. '.($oldDrNo ?? '—').' to '.($validated['dr_no'] ?? '—');
         }
 
         if (($validated['supplier'] ?? null) !== $oldSupplier) {

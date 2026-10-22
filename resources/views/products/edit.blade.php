@@ -203,28 +203,26 @@
                     <span class="form-chip" aria-hidden="true"><i class="ti ti-hash"></i></span>
                     <label for="batch_number">Batch Number</label>
                 </div>
-                {{-- READONLY: the number is assigned, not entered. Picking a
-                     received date shows what it will be, and
-                     ProductController::addBatch derives the stored value from
-                     ProductBatch::nextBatchNumber() regardless of what arrives
-                     — so this box is a preview, and with JavaScript off it
-                     simply stays empty and the server still gets it right.
-
-                     `readonly` rather than `disabled`: a disabled field posts
-                     nothing AND is skipped by the tab order, which would make
-                     the form's one derived value invisible to a keyboard user.
-                     Readonly still submits and is still focusable; the value is
-                     discarded server-side either way. --}}
+                {{-- TYPEABLE (2026-10-22, at the user's request; it was
+                     readonly). Picking a received date fills in the generated
+                     number as a suggestion; typing replaces it -- a supplier's
+                     own lot number, say -- and is kept. Left as suggested, or
+                     emptied, the server assigns the number itself
+                     (ProductController::addBatch), so two people adding a batch
+                     the same day still get -01 and -02. --}}
                 <input type="text" id="batch_number" name="batch_number" value="{{ old('batch_number') }}"
-                       readonly aria-readonly="true" tabindex="-1"
-                       placeholder="Assigned when you pick the received date"
+                       maxlength="100" autocomplete="off" aria-describedby="batch_number-error"
+                       placeholder="Type a lot number, or pick the received date"
                        data-batch-auto
                        data-batch-code="{{ \App\Models\ProductBatch::batchNameCode($product) }}"
                        data-batch-pad="{{ \App\Models\ProductBatch::BATCH_SEQUENCE_PAD }}"
                        data-batch-taken="{{ json_encode($batchSequences) }}">
+                @error('batch_number')
+                    <p id="batch_number-error" class="batch-number-hint" style="color:#b91c1c;">{{ $message }}</p>
+                @enderror
                 <p class="batch-number-hint">
-                    Assigned automatically: {{ \App\Models\ProductBatch::batchNameCode($product) }} (from the product name),
-                    the received date, and a number for that day.
+                    Type the supplier's lot number, or leave it blank to get one automatically:
+                    {{ \App\Models\ProductBatch::batchNameCode($product) }} (from the product name), the received date, and a number for that day.
                 </p>
             </div>
 
@@ -263,10 +261,13 @@
 
         </div>
 
-        {{-- Cost, DR number and supplier — all optional, and all filled in
-             through THIS form and no other: ProductController::addBatch is
-             the single write path for a new batch, so there is nowhere else
-             stock-in details can be entered. Leaving these blank is fine;
+        {{-- Cost, DRP / FDA registration number and supplier — all optional,
+             and all filled in through THIS form and no other:
+             ProductController::addBatch is the single write path for a new
+             batch, so there is nowhere else stock-in details can be entered.
+             (The column is still `dr_no`: it was labelled DR Number, a delivery
+             receipt, until 2026-10-22, when the user asked for it to hold the
+             DRP / FDA registration number instead.) Leaving these blank is fine;
              cost-of-goods and traceability reporting simply have nothing to
              show for a batch that skipped them. --}}
         <div class="form-grid cols-3">
@@ -282,10 +283,10 @@
             <div class="form-field">
                 <div class="form-field-head">
                     <span class="form-chip" aria-hidden="true"><i class="ti ti-file-invoice"></i></span>
-                    <label for="dr_no">DR Number <span style="font-weight:400; color:#94a3b8;">(optional)</span></label>
+                    <label for="dr_no">DRP / FDA Reg. No. <span style="font-weight:400; color:#94a3b8;">(optional)</span></label>
                 </div>
                 <input type="text" id="dr_no" name="dr_no" value="{{ old('dr_no') }}"
-                       maxlength="100" placeholder="Delivery receipt #">
+                       maxlength="100" placeholder="e.g. DRP-1234 or FR-4000001234">
             </div>
 
             <div class="form-field">
@@ -325,7 +326,7 @@
         <div>
     <div class="table-scroll"><table class="remedi-table">
         <thead>
-            <tr><th>Batch No.</th><th>Quantity</th><th>Cost / DR / Supplier</th><th>Received</th><th>Expiry</th><th>Status</th><th>Return Status</th><th>Actions</th></tr>
+            <tr><th>Batch No.</th><th>Quantity</th><th>Cost / DRP–FDA Reg. No. / Supplier</th><th>Received</th><th>Expiry</th><th>Status</th><th>Return Status</th><th>Actions</th></tr>
         </thead>
         <tbody>
         @forelse($existingBatches as $batch)
@@ -359,7 +360,7 @@
                         <input type="hidden" name="quantity" value="{{ $batch->quantity }}">
                         <input type="hidden" name="expiry_date" value="{{ $batch->expiry_date?->format('Y-m-d') }}">
                         <input type="number" name="unit_cost" value="{{ $batch->unit_cost }}" min="0" step="0.01" placeholder="Cost" style="width:90px; padding:3px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;">
-                        <input type="text" name="dr_no" value="{{ $batch->dr_no }}" maxlength="100" placeholder="DR #" style="width:90px; padding:3px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;">
+                        <input type="text" name="dr_no" value="{{ $batch->dr_no }}" maxlength="100" placeholder="DRP / FDA Reg." aria-label="DRP / FDA Reg. No." style="width:110px; padding:3px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;">
                         <input type="text" name="supplier" value="{{ $batch->supplier }}" maxlength="150" placeholder="Supplier" style="width:110px; padding:3px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;">
                         <button type="submit" class="btn btn-info" style="padding:3px 8px; font-size:12px;">Save</button>
                     </form>
@@ -474,14 +475,6 @@
 <style>
     .batch-number-hint { margin: 6px 0 0; font-size: 12px; color: var(--ink-soft); }
 
-    /* Readable, not disabled-looking: this value is real and is what gets
-       stored, it just isn't yours to type. A greyed-out field would read as
-       "not applicable". cursor is left unset here on purpose -- the layout's
-       `input[readonly] { cursor: not-allowed }` already covers it, and an ID
-       selector here would silently outrank that bare-element rule and win,
-       the same specificity trap `.actions-cell` hit earlier this session. */
-    #batch_number[readonly] { background: #f8fafc; color: var(--ink); }
-    #batch_number[readonly]:focus { outline: none; border-color: var(--line); box-shadow: none; }
 </style>
 
 <script>
@@ -544,12 +537,15 @@
         return code + '-' + day + '-' + next;
     }
 
+    // Only while the box still holds our own suggestion (or nothing): a
+    // number the user typed is theirs and is never overwritten.
+    var lastSuggested = field.value;
     function sync() {
-        field.value = suggestion();
+        if (field.value !== '' && field.value !== lastSuggested) return;
+        lastSuggested = suggestion();
+        field.value = lastSuggested;
     }
 
-    // Unconditional: the field is readonly, so nothing in it is ever the user's
-    // and there is no typed value to protect.
     form.addEventListener('change', function (e) { if (e.target === date) sync(); });
     form.addEventListener('input', function (e) { if (e.target === date) sync(); });
 

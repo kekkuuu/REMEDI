@@ -1279,7 +1279,9 @@ poisons the shelf-life suggestion `edit()` derives for the next batch. REMEDI.md
 has the detail.
 
 **A batch may carry its own cost, DR number and supplier — all three optional, all three filled in
-only through `addBatch`/`updateBatch`.** `unit_cost` and `dr_no` existed as real columns
+only through `addBatch`/`updateBatch`.** (Since 2026-10-22, at the user's request, the `dr_no` field is labelled
+**"DRP / FDA Reg. No."** -- the product's drug / FDA registration number, not a delivery receipt; the column name is
+unchanged.) `unit_cost` and `dr_no` existed as real columns
 (`2026_08_02_023329`) with no form writing them; `supplier` (migration `2026_09_22_114535`) never
 existed at all. Optional rather than required: a delivery note isn't always in hand when stock is
 keyed in, and the alternative — blocking the form on data nobody has yet — would stop a legitimate
@@ -1312,15 +1314,15 @@ told apart. The date is the received date, not today, because a delivery entered
 the day it arrived, and a number stamped with the day someone got round to typing it would contradict
 the `received_date` beside it.
 
-**The number is ASSIGNED, not entered.** Both forms render the field `readonly`, and `addBatch`
-**discards whatever is posted** and re-derives — a gated control is not a gated endpoint, the same
-lesson `markBatchReturned` and `pos.receipt` carry. Deriving server-side is also what closes the race
-the readonly field opens: two people adding a batch for the same product on the same day are both
-SHOWN `-01`, and the second must still be told `-02`. **The form's auto-fill is a PREVIEW of the rule,
-not a second copy** — it reads the same prefix and padding plus `ProductBatch::takenSequences()`, and
-with JavaScript off the box simply stays empty and the server still gets it right. `readonly` rather
-than `disabled`: a disabled field posts nothing and leaves the tab order, hiding the form's one
-derived value from a keyboard user.
+**The number can be TYPED (2026-10-22, at the user's request -- it was readonly and a posted value was
+discarded).** The Add New Batch field is an ordinary input: picking a received date fills in the generated number
+as a suggestion (the browser preview reads the same prefix and padding plus `ProductBatch::takenSequences()`), and
+the script only writes while the box still holds its own suggestion, so a typed lot number survives a date change.
+`addBatch` then decides: a BLANK box, or one still matching the generated pattern for this product and day
+(`<code>-<Ymd>-<n>`, i.e. the suggestion, possibly stale), is assigned by `nextBatchNumber()` under its row lock,
+so two people both shown `-01` still get `-01` and `-02`; anything else is stored as typed (trimmed), and refused
+with "This product already has a batch numbered X." if this product (archived batches included) already has it.
+Covered by `ProductFormTest` (typed kept, duplicate refused, field not readonly, the race).
 
 `takenSequences()` skips anything not in the generated format, so the 2,641 seeded `OPENING-*` rows
 and the importer's `HIST-*` / DR numbers can never be parsed as a sequence — and note the importer and
