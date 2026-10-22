@@ -4,8 +4,9 @@ REMEDI forecasting accuracy metrics -- one file, readable top to bottom.
 What it does
 ------------
 For every product it hides the last 3 complete months of sales, forecasts
-those months with the SAME model the app uses (SARIMA(0,1,1)(0,1,1,12) on
-log(1 + units), from resources/python/generate_forecasts.py), and compares the
+those months with the SAME model the app uses (SARIMA_CANDIDATES in
+resources/python/generate_forecasts.py, on log(1 + units) -- the "Model:" line
+printed at the top is read from that file when the script runs), and compares the
 forecast with what actually sold. It then reports:
 
     MAE    mean absolute error          mean(|actual - forecast|)            in units
