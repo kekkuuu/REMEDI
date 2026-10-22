@@ -980,8 +980,8 @@ A USB/bluetooth gun never needed code — it types into `barcode-input` and send
 hands its result to **`window.handleScannedCode(code)`, the one definition of what a scan MEANS**; the
 partial owns no lookup logic, so the two cannot drift. Rules in the partial: one `detect()` in flight
 at a time (the next is scheduled after it settles); **a code is ONE scan for as long as it stays in
-view** — every sighting pushes `REPEAT_GAP_MS` (0.8 s since 2026-10-22, was 1.5 s; each cart row also has a
-**+1** button, `addOneMore()`, for several of one item) on, and it scans again only after leaving view
+view** — every sighting pushes `REPEAT_GAP_MS` (0.8 s since 2026-10-22, was 1.5 s; a +1 button on each cart row was added and removed the same
+day at the user's request -- several of one item go in the row's Qty box) on, and it scans again only after leaving view
 that long (a fixed 2.5 s window from the first read added an item twice when held for 3 s; verified
 held 5 s = 1 add, away and back = 2); the stream asks for 1080p and continuous focus where offered;
 formats are the retail 1D set plus QR; and the camera is released on `visibilitychange` / `pagehide`

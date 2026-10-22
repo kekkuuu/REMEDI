@@ -265,16 +265,6 @@
     table.remedi-table.pos-cart-table th:last-child,
     table.remedi-table.pos-cart-table td:last-child { width: 1%; padding-left: 4px; }
     .pos-cart-remove { padding: 4px 7px; line-height: 1; }
-    .pos-qty { display: inline-flex; align-items: center; gap: 4px; }
-    table.remedi-table.pos-cart-table .cart-qty-input { width: 52px; }
-    .pos-qty-plus {
-        min-width: 34px; height: 32px; padding: 0 6px;
-        border: 1px solid #c7d2fe; border-radius: 5px; background: #eef2ff; color: #4338ca;
-        font: 600 13px/1 inherit; cursor: pointer;
-        transition: background .15s ease, border-color .15s ease;
-    }
-    .pos-qty-plus:hover { background: #e0e7ff; border-color: #a5b4fc; }
-    .pos-qty-plus:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(99, 102, 241, .25); }
     .pos-cart-remove i { font-size: 15px; }
 
     .cart-qty-input:focus {
@@ -578,17 +568,6 @@
         barcodeStatus.style.color = added ? '#16a34a' : '#b45309';
     }
 
-    /* The cart row's +1: one more of a line already in the cart, through
-       addToCart() so the stock cap and its refusal message are the same as a
-       scan's. Hands focus back to the scan field, so a gun scan right after
-       still lands there. */
-    function addOneMore(id) {
-        const item = cart[id];
-        if (!item) return;
-        addToCart(id, item.name, item.price, item.maxStock, item.sku);
-        if (typeof focusEntryField === 'function') focusEntryField();
-    }
-
     function removeFromCart(id) {
         delete cart[id];
         clearCartError();
@@ -674,7 +653,7 @@
             body.innerHTML += `
                 <tr>
                     <td>${escapeHtml(item.name)}</td>
-                    <td><span class="pos-qty"><input type="number" min="1" max="${item.maxStock}" value="${item.qty}" class="cart-qty-input" onchange="updateQty(${id}, this.value)" aria-label="Quantity of ${escapeHtml(item.name)}"><button type="button" class="pos-qty-plus" onclick="addOneMore(${id})" aria-label="Add one more ${escapeHtml(item.name)}" title="Add one more">+1</button></span></td>
+                    <td><input type="number" min="1" max="${item.maxStock}" value="${item.qty}" class="cart-qty-input" onchange="updateQty(${id}, this.value)" aria-label="Quantity of ${escapeHtml(item.name)}"></td>
                     <td>&#8369;${subtotal.toFixed(2)}</td>
                     <td><button type="button" class="btn btn-danger pos-cart-remove" onclick="removeFromCart(${id})" aria-label="Remove ${escapeHtml(item.name)}" title="Remove"><i class="ti ti-x" aria-hidden="true"></i></button></td>
                 </tr>`;
