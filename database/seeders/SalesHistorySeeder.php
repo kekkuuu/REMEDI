@@ -11,29 +11,29 @@ use League\Csv\Reader;
 class SalesHistorySeeder extends Seeder
 {
     /**
-     * Reads the raw Sales_Records_4Year.csv (one row per POS sale line —
-     * Sale ID, Date, Product ID, SKU / Barcode, Product Name, Qty Sold,
-     * Unit Price, Subtotal, Cashier, Payment Method) and aggregates it into
-     * the (product_sku, sale_date, quantity_sold) shape the sales_history
-     * table expects. Aggregation is required because multiple sale lines
-     * can share the same product + date, and sales_history has a unique
-     * constraint on that pair.
+     * Seeds sales_history from the record the system actually runs on:
+     * database/data/all_transac_record.csv,
+     * one row per product per day (product_sku, sale_date, quantity_sold),
+     * July 2022 to June 2026, the same file imported locally and on the live
+     * site. It replaced Sales_Records_4Year.csv (2026-10-22, at the user's
+     * request), an older generated record nothing else read any more, so a
+     * fresh install now starts on the same data the forecasts were measured on.
+     *
+     * The record is SYNTHETIC: generated over the pharmacy's real catalogue
+     * (the source zip carries its generate_dataset.py), not exported from the
+     * till. Rows are still summed per (product_sku, sale_date) before insert,
+     * because sales_history is unique on that pair.
+     *
+     * NOTE: this seeder only INSERTS. Re-running it over a populated table
+     * violates that unique constraint -- truncate sales_history first, or use
+     * `php artisan sales-history:import --file=... --write`, which archives the
+     * old rows and replaces them.
      */
+    public const FILE = 'data/all_transac_record.csv';
+
     public function run(): void
     {
-        // SYNTHETIC DEMO DATA, regenerated to look like a community pharmacy's
-        // till: baskets of ~2 lines, quantities of 1-3 (occasionally a full
-        // course), a Pareto popularity curve so slow movers really are slow, a
-        // real weekday shape and the Philippine payday spike. It keeps the
-        // deliberate 12-month seasonal cycle per product, which the original
-        // 3-year file did not have (month-of-year explained 38% of a product's
-        // variance against a 35% pure-noise baseline — i.e. nothing) and which
-        // seasonal SARIMA needs to be worth running at all.
-        //
-        // NOTE: this seeder only INSERTS. Re-running it over a populated table
-        // violates the (product_sku, sale_date) unique constraint — truncate
-        // sales_history first.
-        $path = database_path('data/Sales_Records_4Year.csv');
+        $path = database_path(self::FILE);
 
         if (! file_exists($path)) {
             $this->command->warn("File not found: {$path} — skipping sales history (not part of this import).");
@@ -51,9 +51,9 @@ class SalesHistorySeeder extends Seeder
         foreach ($csv->getRecords() as $record) {
             $read++;
 
-            $sku = trim($record['SKU / Barcode'] ?? '');
-            $qty = (int) ($record['Qty Sold'] ?? 0);
-            $date = $this->parseDate(trim($record['Date'] ?? ''));
+            $sku = trim($record['product_sku'] ?? '');
+            $qty = (int) ($record['quantity_sold'] ?? 0);
+            $date = $this->parseDate(trim($record['sale_date'] ?? ''));
 
             if ($sku === '' || $qty <= 0 || ! $date) {
                 $skipped++;
@@ -95,7 +95,7 @@ class SalesHistorySeeder extends Seeder
         // reflected immediately instead of after the TTL lapses.
         SalesHistory::forgetCaches();
 
-        $this->command->info("Sales history seeded: {$count} product/date rows, aggregated from {$read} raw sale lines ({$skipped} skipped — missing SKU/date/qty).");
+        $this->command->info("Sales history seeded: {$count} product/date rows from {$read} lines ({$skipped} skipped — missing SKU/date/qty).");
     }
 
     private function parseDate(string $value): ?string
@@ -105,7 +105,7 @@ class SalesHistorySeeder extends Seeder
         }
 
         try {
-            return Carbon::createFromFormat('m/d/Y', $value)->toDateString();
+            return Carbon::createFromFormat('Y-m-d', $value)->toDateString();
         } catch (\Throwable) {
             try {
                 return Carbon::parse($value)->toDateString();

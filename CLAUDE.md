@@ -1947,7 +1947,7 @@ slightly better per product on every measure but 80/20 MAPE, yet it beats mean-o
 (was 70,318): D = 0 carries only part of last year's pattern.
 **SARIMA(0,1,0)(0,1,0,12) (2026-10-19, evening, at the user's request: "use the chosen model"), on the
 synthetic "pharmacy 2634 items" set `REMEDI_pharmacy_2634items_Jul2022-Jun2026.zip` → `database/data/sales_history_daily_
-PHARMACY14_2634items_2022-2026.csv` (353,120 daily rows, 792,318 units, ~6 units a product a month), imported locally AND on
+PHARMACY14_2634items_2022-2026.csv`, now `database/data/all_transac_record.csv` (353,120 daily rows, 792,318 units, ~6 units a product a month), imported locally AND on
 live — supersedes the (0,1,1)(1,1,0,12) paragraph below.** `acf_pacf_identification.py` read d = 1, D = 1 (store seasonal
 strength 0.953), p = q = 0 (average lag-1 ACF −0.315 inside ±0.373; white noise on 56.1% of products), Q = 1 (ACF lag-12
 spike on 15.5%), P = 0, and CHOSE (0,1,0)(0,1,0,12) over the reading itself, (0,1,0)(0,1,1,12), on Apr–Jun 2026
@@ -3062,11 +3062,14 @@ restores a bug, not a schema.
 `DatabaseSeeder` creates the two users inline, then hands off to CSV importers that read by path and
 **skip silently** (printing `File not found: ...`) if a file is missing, leaving that table empty
 while the seed still "succeeds". `database/data/inventory_seeder.csv` feeds categories, products and
-opening batches; `database/data/Sales_Records_4Year.csv` (~15 MB, 147k lines) feeds `sales_history`
-and is itself generated — **`database/data/generate_sales_history.py` is the generator**, last run
-2026-09-02 to re-aim the record at a small non-urban pharmacy (~55 sales and PHP 9,000 a day) rather
-than the urban chain branch it described before. Read its docstring before regenerating: the 12-month
-seasonal cycle per product is deliberate, and without it seasonal SARIMA has nothing to fit.
+opening batches; **`database/data/all_transac_record.csv` (named `sales_history_daily_PHARMACY14_2634items_2022-2026.csv` until 2026-10-22) feeds
+`sales_history`** (since 2026-10-22, at the user's request: the record the system actually runs on, locally
+and live, so a fresh install matches; daily `product_sku, sale_date, quantity_sold`, 353,120 rows, Jul 2022 –
+Jun 2026, verified by a fresh in-memory `migrate:fresh --seed`). It is SYNTHETIC -- generated over the real
+catalogue; its source zip (with `generate_dataset.py`) is kept outside the repo. It replaced
+`Sales_Records_4Year.csv` and its generator `generate_sales_history.py`, both deleted the same day (in git
+history), along with the unused `sales_transactions_2022-2026.csv`, `sales_history_daily_transaction_items_
+2022-2026.csv` and `catalogue_sync_2026-09-30.json`. `master_inventory_list.csv` stays for `products:import-costs`.
 `Transaction_Records_Seed.csv` in the repo root feeds inventory receipts.
 `transaction_history_seed.csv` is absent from this checkout, so the purchase-history pass always
 skips — that is the current state, not a bug to chase.

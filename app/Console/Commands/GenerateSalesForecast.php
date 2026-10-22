@@ -13,7 +13,7 @@ class GenerateSalesForecast extends Command
 {
     /**
      * php artisan sales-forecast:generate --source=mysql
-     * php artisan sales-forecast:generate --source=csv --sales-csv=database/data/Sales_Records_4Year.csv --price-csv=database/data/inventory_seeder.csv
+     * php artisan sales-forecast:generate --source=csv --sales-csv=database/data/all_transac_record.csv --price-csv=database/data/inventory_seeder.csv
      *
      * The --source=csv example used to point at database/seed/, a directory of
      * scratch copies that has been removed; the file it named never existed.
