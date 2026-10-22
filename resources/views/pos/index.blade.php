@@ -20,9 +20,12 @@
        These were inline grid styles, which media queries can't override — on
        a phone the two columns still computed to 474px + 650px, so the cart
        sat ~750px off-screen. They're classes now so the breakpoints work. */
+    /* The cart never gets narrower than 360px: between the docking breakpoint
+       (1024px) and ~1300px a plain third of the row was ~190px of table, and
+       product names broke one letter per line (2026-10-22). */
     .pos-layout {
         display: grid;
-        grid-template-columns: 2fr 1fr;
+        grid-template-columns: minmax(0, 2fr) minmax(360px, 1fr);
         gap: 16px;
         align-items: start;
     }
@@ -38,6 +41,13 @@
         display: grid;
         grid-template-columns: repeat(3, 1fr);
         gap: 10px;
+    }
+
+    /* Just above the docking breakpoint the products column is ~290-370px
+       once the cart takes its 360px, and three tiles there were ~110px wide
+       with names broken mid-word. Two columns until there is room for three. */
+    @media (min-width: 1025px) and (max-width: 1200px) {
+        .pos-grid { grid-template-columns: repeat(2, 1fr); }
     }
 
     /* Desktop keeps the cart inline, so the summary bar is hidden there.
@@ -139,6 +149,9 @@
     .pos-product {
         cursor: pointer;
         border: 1px solid #e2e8f0;
+        /* A long name ("ACEITE ALCAMFORADO") or a 13-digit SKU breaks inside
+           the tile rather than spilling over its neighbour on a narrow column. */
+        overflow-wrap: anywhere;
         transition: transform .13s ease, box-shadow .16s ease,
                     border-color .16s ease, background .16s ease;
     }
@@ -236,6 +249,24 @@
 
     .cart-qty-input:hover { border-color: #a5b4fc; }
 
+    /* The cart fits its card. It used to take the shared 560px floor for
+       tables in .table-scroll (built for wide reports), which is wider than
+       the cart column -- so every cart showed a sideways scrollbar and the
+       remove button sat out of view past it (2026-10-22). is-narrow lifts the
+       floor; these keep four columns inside ~460px: tighter cells, the name
+       wrapping, the numbers on one line. */
+    table.remedi-table.pos-cart-table th,
+    table.remedi-table.pos-cart-table td { padding: 10px 8px; vertical-align: middle; }
+    table.remedi-table.pos-cart-table td:first-child { overflow-wrap: anywhere; }
+    table.remedi-table.pos-cart-table th:nth-child(n+2),
+    table.remedi-table.pos-cart-table td:nth-child(n+2) { white-space: nowrap; }
+    table.remedi-table.pos-cart-table th:nth-child(3),
+    table.remedi-table.pos-cart-table td:nth-child(3) { text-align: right; }
+    table.remedi-table.pos-cart-table th:last-child,
+    table.remedi-table.pos-cart-table td:last-child { width: 1%; padding-left: 4px; }
+    .pos-cart-remove { padding: 4px 7px; line-height: 1; }
+    .pos-cart-remove i { font-size: 15px; }
+
     .cart-qty-input:focus {
         outline: none;
         border-color: #6366f1;
@@ -306,7 +337,7 @@
         </div>
 
         <h4>Cart</h4>
-        <div class="table-scroll"><table class="remedi-table" id="cart-table">
+        <div class="table-scroll"><table class="remedi-table is-narrow pos-cart-table" id="cart-table">
             <thead><tr><th>Item</th><th>Qty</th><th>Subtotal</th><th></th></tr></thead>
             <tbody id="cart-body">
                 <tr id="cart-empty-row"><td colspan="4">Cart is empty</td></tr>
@@ -613,7 +644,7 @@
                     <td>${escapeHtml(item.name)}</td>
                     <td><input type="number" min="1" max="${item.maxStock}" value="${item.qty}" class="cart-qty-input" onchange="updateQty(${id}, this.value)"></td>
                     <td>&#8369;${subtotal.toFixed(2)}</td>
-                    <td><button type="button" class="btn btn-danger" style="padding:2px 6px;" onclick="removeFromCart(${id})">x</button></td>
+                    <td><button type="button" class="btn btn-danger pos-cart-remove" onclick="removeFromCart(${id})" aria-label="Remove ${escapeHtml(item.name)}" title="Remove"><i class="ti ti-x" aria-hidden="true"></i></button></td>
                 </tr>`;
 
             hiddenInputs.innerHTML += `
