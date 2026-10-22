@@ -1017,6 +1017,12 @@ in good light", and an amber **"Can't read it yet…"** line appears only while 
 read 4.8) with no read for 4 s, and goes after 8 s of stillness or on any read. Testing trap: clearing
 "all intervals" by id in the console also kills the scanner's `setTimeout` loop (one id pool).
 
+**Products has the scanner too (2026-10-22, at the user's request: "same with inventory").** The same card
+(gun field + `partials._barcode-camera`, `data-scan-index`) above the list on `products.index`, absent on the
+Archived list. The page is `role:admin`, so a scan opens Manage Product like an admin scan on Inventory; a code no
+product has says so and offers "Add it as a new product" (`/products/create?sku=<code>`, which pre-fills the SKU /
+Barcode field; a non-string `sku` is ignored). Covered by two `ProductFormTest` cases.
+
 **Scans are matched IN THE BROWSER first (2026-10-22, at the user's request).** A lookup is 0.15 s of
 server work but took 1.5–4 s from the till to the European hosting, so "Looking up…" read as broken.
 `GET /pos/scan-index` (`PosController::scanIndex`, shared like the till) returns every active product as

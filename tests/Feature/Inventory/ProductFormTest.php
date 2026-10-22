@@ -650,6 +650,29 @@ class ProductFormTest extends TestCase
             ->assertJsonValidationErrors('sku');
     }
 
+    /** Products has the same scanner as Inventory (2026-10-22); not on the Archived list. */
+    public function test_the_products_list_has_a_barcode_scanner(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $html = $this->actingAs($admin)->get('/products')->assertOk()->getContent();
+        $this->assertMatchesRegularExpression('/<input[^>]*id="barcode-input"[^>]*data-scan-index=/', $html);
+        $this->assertStringContainsString('window.handleScannedCode', $html);
+
+        $this->assertStringNotContainsString('id="barcode-input"', $this->actingAs($admin)->get('/products?archived=1')->getContent());
+    }
+
+    /** A scanned code no product has opens Add Product with it filled in. */
+    public function test_add_product_takes_the_scanned_code(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($admin)->get('/products/create?sku=4800016644207')
+            ->assertOk()->assertSee('value="4800016644207"', false);
+        // An array where a string belongs is ignored, not a 500.
+        $this->actingAs($admin)->get('/products/create?sku[]=x')->assertOk();
+    }
+
     /**
      * The migration that brought saved rows into line: a printed barcode that
      * differs wins (the SKU takes it, history and forecasts following), a

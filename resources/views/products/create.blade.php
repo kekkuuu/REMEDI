@@ -52,7 +52,7 @@
                 {{-- One code per product (2026-10-22): the SKU IS the barcode the
                      till scans, saved to both columns. data-scan-field: a scanner
                      gun ends with Enter, which moves on instead of submitting. --}}
-                <input type="text" id="sku" name="sku" value="{{ old('sku') }}"
+                <input type="text" id="sku" name="sku" value="{{ old('sku', is_string(request('sku')) ? request('sku') : '') }}"
                        placeholder="Scan the box's barcode or type the product code" required data-label="SKU / barcode" maxlength="50" autocomplete="off" data-scan-field aria-describedby="sku-error" @error('sku') aria-invalid="true" @enderror>
                 @include('products._field-error', ['field' => 'sku'])
                 <span class="form-field-note">
