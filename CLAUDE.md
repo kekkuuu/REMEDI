@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (411 passed, 11 skipped, 1490 assertions — measured 2026-10-22) and is a usable regression gate.** The 11 skipped are `Feature\Reports\ReportExportTest`, which only runs against MySQL (below). It was 22 failed / 3 passed, for
+**The suite is green (416 passed, 11 skipped, 1513 assertions — measured 2026-10-22) and is a usable regression gate.** The 11 skipped are `Feature\Reports\ReportExportTest`, which only runs against MySQL (below). It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -984,6 +984,26 @@ in good light", and an amber **"Can't read it yet…"** line appears only while 
 32x18 frame difference above `MOTION_LEVEL` 3 -- 8 never fired on a box moved across the frame, which
 read 4.8) with no read for 4 s, and goes after 8 s of stillness or on any read. Testing trap: clearing
 "all intervals" by id in the console also kills the scanner's `setTimeout` loop (one id pool).
+
+**Scans are matched IN THE BROWSER first (2026-10-22, at the user's request).** A lookup is 0.15 s of
+server work but took 1.5–4 s from the till to the European hosting, so "Looking up…" read as broken.
+`GET /pos/scan-index` (`PosController::scanIndex`, shared like the till) returns every active product as
+`[id, name, price, sellable stock, sku, barcode|null]` -- arrays to halve the download (2,637 products,
+~197 KB raw, 0.39 s locally); stock through the same `sellable()` scope as `lookupBySku()` and checkout
+(25 random products matched the lookup exactly); barcode null when it only repeats the SKU. The POS page
+holds it as a code→product map, refreshes it every 60 s while visible and after each sale, and a scan
+found there is added with **no network call** (measured 71 ms, 0 requests). **A code NOT in the map
+still goes to `/pos/lookup`**, so a product or barcode saved after the page loaded is never refused (tested:
+found through the server, then locally after the refresh). The map's stock only caps the cart -- the
+grid badge (15 s poll) wins where the tile is on screen, and checkout re-checks on the server as always.
+`addToCart()` now RETURNS whether it added; `reportScan()` beeps and says "Added" only then, else "Not
+added: … (not enough stock)" with the low tone -- before, a found-but-empty product beeped success.
+Every network lookup (POS and Inventory) goes through **`REMEDI.lookupScan()`** in `remedi.js`: Accept
+JSON (an expired session used to answer the login PAGE, which parsed as "not found"), a 10 s abort, and
+a rejection reason -- timeout / network / signed-out / server -- that `REMEDI.lookupScanFailure()` words
+for the cashier. "Product not found" now means only the server's own 404. Covered by
+`Feature\Pos\ScanIndexTest` (row shape, sellable-only stock agreeing with the lookup, the SKU-repeat
+null, archived products absent, staff allowed and guests refused).
 
 **Every scan answers with a sound (2026-10-01, at the user's request): `REMEDI.scanBeep(found)`** in
 `public/assets/remedi.js`, called from each page's `handleScannedCode()` once the lookup answers — so a

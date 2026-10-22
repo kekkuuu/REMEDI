@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Services\CheckoutService;
+use App\Services\PayMongo;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -34,7 +35,7 @@ class PosController extends Controller
         }
 
         // Automatic QR payments when PayMongo is configured (QrPaymentController).
-        $paymongoEnabled = \App\Services\PayMongo::enabled();
+        $paymongoEnabled = PayMongo::enabled();
 
         return view('pos.index', compact('products', 'paymongoEnabled'));
     }
@@ -95,6 +96,42 @@ class PosController extends Controller
             'stock' => $product->sellable_stock,
             'suggested_expiry_date' => $suggestedExpiryDate,
         ]);
+    }
+
+    /**
+     * Every active product a scan could name, for matching scans IN THE BROWSER.
+     *
+     * A lookup is a round trip to the server -- 0.15 s of work, but 1.5-4 s
+     * from the till to the hosting in Europe (measured 2026-10-22), long enough
+     * for "Looking up..." to read as broken. The POS page loads this once and
+     * refreshes it, matches a scan against it at once, and asks lookupBySku()
+     * only for a code it does not hold (a product added since it loaded).
+     *
+     * Each row is [id, name, price, stock, sku, barcode|null] -- arrays, not objects,
+     * because 2,600 rows of repeated keys roughly doubled the download. `stock`
+     * is SELLABLE stock through the same scope lookupBySku() and checkout use;
+     * it only caps the cart, and checkout re-checks it either way. Archived
+     * products are absent (the Eloquent scope), as they are from the grid.
+     */
+    public function scanIndex()
+    {
+        $rows = Product::query()
+            ->withSum(['batches as sellable_qty' => fn ($q) => $q->sellable()], 'quantity')
+            ->orderBy('id')
+            ->get(['id', 'name', 'selling_price', 'sku', 'barcode'])
+            ->map(fn (Product $p) => [
+                $p->id,
+                $p->name,
+                (float) $p->selling_price,
+                (int) $p->sellable_qty,
+                (string) $p->sku,
+                // Null when there is none or it repeats the SKU, which the seeded
+                // catalogue does for every row -- the browser matches the SKU anyway.
+                $p->barcode !== null && $p->barcode !== '' && $p->barcode !== $p->sku ? (string) $p->barcode : null,
+            ]);
+
+        return response()->json(['products' => $rows])
+            ->header('Cache-Control', 'no-store');
     }
 
     public function checkout(Request $request)

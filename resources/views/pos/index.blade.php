@@ -536,10 +536,12 @@
         badge.classList.add(stock <= 0 ? 'badge-danger' : (stock <= reorder ? 'badge-warning' : 'badge-success'));
     }
 
+    /* Returns whether the item went into the cart, so a scan can say "Added"
+       only when it was -- a found code on an empty shelf is refused here. */
     function addToCart(id, name, price, maxStock, sku) {
         if (maxStock <= 0) {
             stockMessage('Out of stock', `${name} has no sellable stock.`, sku);
-            return;
+            return false;
         }
 
         if (!cart[id]) {
@@ -551,10 +553,18 @@
                 `${name}: only ${maxStock} available, and the cart already holds ${cart[id].qty}.`,
                 sku
             );
-            return;
+            return false;
         }
         cart[id].qty += 1;
         renderCart();
+        return true;
+    }
+
+    /* What a scan says and sounds like once its product is known. */
+    function reportScan(added, name) {
+        if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(added);
+        barcodeStatus.textContent = added ? '\u2705 Added: ' + name : '\u26A0\uFE0F Not added: ' + name + ' (not enough stock)';
+        barcodeStatus.style.color = added ? '#16a34a' : '#b45309';
     }
 
     function removeFromCart(id) {
@@ -1101,6 +1111,7 @@
         cart = {};
         renderCart();
         fetchProducts(currentProductsUrl, false); // stock just changed
+        loadScanIndex();
 
         // The sale may have pushed a product into low stock or out of
         // it entirely. Checkout already cleared the alert cache, so ask
@@ -1377,9 +1388,64 @@
        the field and pressing Enter, and a camera decode from
        partials/_barcode-camera. A second copy here is how the two would drift
        into meaning different things. */
+    /* ── Instant scan ──
+       Every product's codes, price and sellable stock, held in the page
+       (PosController::scanIndex). A lookup over the network took 1.5-4 s from
+       the till (2026-10-22); a code found here is added at once. A code NOT
+       here -- a product added after the list loaded, or a list that has not
+       loaded yet -- still takes the network lookup, so nothing is ever refused
+       because the list was stale. Refreshed every SCAN_INDEX_REFRESH_MS while
+       the tab is visible, and after every sale. The stock here only caps the
+       cart; checkout re-checks it on the server, as it always has. */
+    const SCAN_INDEX_REFRESH_MS = 60000;
+    let scanIndex = null;          // Map: code (SKU or barcode) -> product
+    let scanIndexLoading = false;
+
+    function loadScanIndex() {
+        if (scanIndexLoading || document.hidden) return;
+        scanIndexLoading = true;
+        fetch(@json(route('pos.scan-index', [], false)), {
+            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+            credentials: 'same-origin',
+            cache: 'no-store',
+        })
+            .then(function (res) { return res.ok ? res.json() : null; })
+            .then(function (data) {
+                if (!data || !Array.isArray(data.products)) return;
+                const map = new Map();
+                data.products.forEach(function (row) {
+                    const product = { id: row[0], name: row[1], price: row[2], stock: row[3] };
+                    map.set(String(row[4]), product);                 // SKU
+                    if (row[5]) map.set(String(row[5]), product);     // the barcode printed on the box
+                });
+                scanIndex = map;
+            })
+            // A failed refresh keeps the last good list; scans not in it still
+            // go to the network.
+            .catch(function () {})
+            .finally(function () { scanIndexLoading = false; });
+    }
+
+    loadScanIndex();
+    setInterval(loadScanIndex, SCAN_INDEX_REFRESH_MS);
+    document.addEventListener('visibilitychange', function () { if (!document.hidden) loadScanIndex(); });
+
+    // For checking from the console: how many codes the till holds, and a reload.
+    window.posScanIndex = { size: function () { return scanIndex ? scanIndex.size : 0; }, reload: loadScanIndex };
+
     window.handleScannedCode = function (code) {
         {
             if (!code) return;
+
+            const known = scanIndex && scanIndex.get(String(code).trim());
+            if (known) {
+                // The grid's badge is refreshed every 15 s, the list every 60 s:
+                // take the fresher figure where the tile is on screen.
+                const badge = document.getElementById('product-stock-' + known.id);
+                const stock = badge ? Number(badge.dataset.trueStock) : known.stock;
+                reportScan(addToCart(known.id, known.name, known.price, stock, code), known.name);
+                return;
+            }
 
             barcodeStatus.textContent = 'Looking up ' + code + '...';
             barcodeStatus.style.color = '#6b7280';
@@ -1388,12 +1454,9 @@
                 .then(function (result) {
                     const data = result.data;
                     if (result.found) {
-                        // The till answers out loud: a beep for a product,
-                        // a low double tone for a code it does not know.
-                        if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(true);
-                        addToCart(data.id, data.name, data.price, data.stock, code);
-                        barcodeStatus.textContent = '\u2705 Added: ' + data.name;
-                        barcodeStatus.style.color = '#16a34a';
+                        // The till answers out loud: a beep for an item added,
+                        // a low double tone for anything else.
+                        reportScan(addToCart(data.id, data.name, data.price, data.stock, code), data.name);
                     } else {
                         if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(false);
                         barcodeStatus.textContent = '\u274C Product not found for code: ' + code;

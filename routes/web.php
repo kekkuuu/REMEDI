@@ -58,6 +58,9 @@ Route::middleware(['auth', 'active', 'must_change_password'])->group(function ()
     // ===== Shared routes (Admin AND Staff) =====
     Route::get('/pos', [PosController::class, 'index'])->name('pos.index');
     Route::get('/pos/lookup', [PosController::class, 'lookupBySku'])->name('pos.lookup');
+    // Every product's codes, price and sellable stock in one download, so a scan
+    // at the till is matched in the browser instead of waiting on the network.
+    Route::get('/pos/scan-index', [PosController::class, 'scanIndex'])->name('pos.scan-index');
     Route::post('/pos/checkout', [PosController::class, 'checkout'])->name('pos.checkout');
     // Automatic QR payments through PayMongo (QrPaymentController).
     Route::post('/pos/qr-payments', [QrPaymentController::class, 'store'])->middleware('throttle:30,1')->name('pos.qr-payments.store');
