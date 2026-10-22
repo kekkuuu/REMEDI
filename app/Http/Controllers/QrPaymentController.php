@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\QrPayment;
 use App\Models\Sale;
+use App\Services\AlertService;
 use App\Services\CheckoutService;
 use App\Services\PayMongo;
 use App\Services\PayMongoException;
@@ -181,6 +182,8 @@ class QrPaymentController extends Controller
                 'transaction_no' => $sale->transaction_no,
                 'receipt_html' => view('pos._receipt', ['sale' => $sale])->render(),
                 'receipt_url' => route('pos.receipt', $sale),
+                // Same as a cash checkout: the low-stock alerts this sale caused.
+                'alerts' => app(AlertService::class)->lowStockItemsFor($sale->items->pluck('product_id')),
             ]);
         }
 

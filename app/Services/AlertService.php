@@ -278,14 +278,7 @@ class AlertService
             // Relative URLs throughout (route(..., false)). This whole payload
             // is CACHED, so an absolute URL freezes whichever host happened to
             // warm the cache — see the note above forget().
-            $itemHref = function ($product, string $fallbackFilter) {
-                if (! $product) {
-                    return route('inventory.index', ['filter' => $fallbackFilter], false);
-                }
-
-                return route('inventory.index', ['search' => $product->sku], false)
-                    .'#product-row-'.$product->id;
-            };
+            $itemHref = fn ($product, string $fallbackFilter) => self::itemHref($product, $fallbackFilter);
 
             $items = collect()
                 ->concat($recentExpired->take($perKind)->map(fn ($b) => [
@@ -336,34 +329,7 @@ class AlertService
                     'href' => $itemHref($b->product, 'need_to_return'),
                     'sort_at' => self::returnWindowOpenedAt($b),
                 ]))
-                ->concat($recentLow->take($perKind)->map(fn ($p) => [
-                    // Low stock is keyed by product, and the id deliberately
-                    // carries the stock level: restocking then dropping below
-                    // the line again is a NEW notification, not one already read.
-                    'id' => 'low_stock:'.$p->id.':'.$p->total_stock,
-                    'group' => 'alerts',
-                    'kind' => 'low_stock',
-                    // Still the low_stock KIND -- the counts, the tabs and the
-                    // Inventory filter all treat it as one. Only the colour
-                    // splits: an empty shelf is not a warning that stock is
-                    // getting low, it is the thing the warning was about.
-                    'cls' => $p->total_stock <= 0 ? 'is-out' : 'is-low',
-                    'icon' => 'ti-alert-triangle',
-                    'title' => $p->name,
-                    // Nothing on the shelf is a different message from running
-                    // low, and it is the one a cashier needs to read at a glance.
-                    'body' => ($p->total_stock <= 0
-                        ? 'Out of stock'
-                        : $p->total_stock.' '.$p->unit.' left')
-                        .' · reorder at '.$p->reorder_level,
-                    'href' => $itemHref($p, 'low_stock'),
-                    // Last time any of this product's batches moved. A checkout
-                    // that pushes a product under its reorder line writes
-                    // updated_at, so the sale you just rang up surfaces at the
-                    // top of the bell rather than wherever severity put it.
-                    'sort_at' => optional($p->batches->max('updated_at'))->toIso8601String()
-                        ?? $today->copy()->startOfDay()->toIso8601String(),
-                ]))
+                ->concat($recentLow->take($perKind)->map(fn ($p) => self::lowStockItem($p)))
                 ->values()
                 // Newest first, across every kind — the list is a feed, not a
                 // set of per-kind buckets. The per-kind cap above still stands,
@@ -422,6 +388,85 @@ class AlertService
      *
      * @return list<array<string,mixed>>
      */
+    /**
+     * One low-stock notification, exactly as the bell lists it -- the ONE
+     * definition, shared by payload() and lowStockItemsFor(), so the item a
+     * checkout hands back carries the same id the next poll will, and the
+     * toast stack (which pops each id once) never shows it twice.
+     */
+    public static function lowStockItem(Product $p): array
+    {
+        return [
+            // Low stock is keyed by product, and the id deliberately carries
+            // the stock level: restocking then dropping below the line again is
+            // a NEW notification, not one already read.
+            'id' => 'low_stock:'.$p->id.':'.$p->total_stock,
+            'group' => 'alerts',
+            'kind' => 'low_stock',
+            // Still the low_stock KIND -- the counts, the tabs and the Inventory
+            // filter all treat it as one. Only the colour splits: an empty shelf
+            // is not a warning that stock is getting low, it is the thing the
+            // warning was about.
+            'cls' => $p->total_stock <= 0 ? 'is-out' : 'is-low',
+            'icon' => 'ti-alert-triangle',
+            'title' => $p->name,
+            // Nothing on the shelf is a different message from running low,
+            // and it is the one a cashier needs to read at a glance.
+            'body' => ($p->total_stock <= 0
+                ? 'Out of stock'
+                : $p->total_stock.' '.$p->unit.' left')
+                .' · reorder at '.$p->reorder_level,
+            'href' => self::itemHref($p, 'low_stock'),
+            // Last time any of this product's batches moved. A checkout that
+            // pushes a product under its reorder line writes updated_at, so the
+            // sale you just rang up surfaces at the top of the bell rather than
+            // wherever severity put it.
+            'sort_at' => optional($p->batches->max('updated_at'))->toIso8601String()
+                ?? today()->startOfDay()->toIso8601String(),
+        ];
+    }
+
+    /**
+     * The low-stock notifications among THESE products, right now -- what a
+     * checkout hands back with its receipt (2026-10-22). After a sale the till
+     * used to learn of a product it had just pushed below its reorder line only
+     * from a second request to /alerts, which also had to rebuild the whole
+     * payload (the sale cleared it): ~2-4 s on the live site. The products a
+     * sale touched are known, so checking those few is cheap and the pop-up
+     * shows with the receipt. Same rule as the bell (Product::is_running_out),
+     * same item (lowStockItem()), with its `when` label.
+     */
+    public function lowStockItemsFor(iterable $productIds): array
+    {
+        $ids = collect($productIds)->filter()->unique()->values();
+        if ($ids->isEmpty()) {
+            return [];
+        }
+
+        return Product::with('batches')->whereIn('id', $ids)->get()
+            ->filter(fn ($p) => $p->is_running_out)
+            ->map(fn ($p) => self::lowStockItem($p))
+            ->map(fn ($i) => $i + ['when' => self::whenLabel($i['sort_at'], true)])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Where a notification about $product links: its own row on the Inventory
+     * page (not products.edit, which is role:admin while the bell is shown to
+     * staff too). RELATIVE -- the payload is cached and shared, and an absolute
+     * URL would freeze whichever host warmed it.
+     */
+    private static function itemHref(?Product $product, string $fallbackFilter): string
+    {
+        if (! $product) {
+            return route('inventory.index', ['filter' => $fallbackFilter], false);
+        }
+
+        return route('inventory.index', ['search' => $product->sku], false)
+            .'#product-row-'.$product->id;
+    }
+
     public function stockReportDecisionsFor(User $user, int $limit = 6): array
     {
         return StockReport::with(['product', 'reviewer'])

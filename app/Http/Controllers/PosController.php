@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Product;
 use App\Models\Sale;
+use App\Services\AlertService;
 use App\Services\CheckoutService;
 use App\Services\PayMongo;
 use Illuminate\Http\Request;
@@ -192,6 +193,9 @@ class PosController extends Controller
                 'transaction_no' => $sale->transaction_no,
                 'receipt_html' => view('pos._receipt', ['sale' => $sale])->render(),
                 'receipt_url' => route('pos.receipt', $sale),
+                // The low-stock alerts this sale caused, so the till pops them
+                // with the receipt instead of after another trip to /alerts.
+                'alerts' => app(AlertService::class)->lowStockItemsFor($sale->items->pluck('product_id')),
             ]);
         }
 

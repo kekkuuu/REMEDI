@@ -1109,6 +1109,14 @@
         closeCheckoutModal();
         openReceiptModal(data.receipt_html);
 
+        // The low-stock alerts this sale caused came back with the receipt
+        // (AlertService::lowStockItemsFor), so they pop NOW, through the same
+        // listener the bell's poll feeds -- it pops each id once, and the poll
+        // below carries the same ids, so nothing shows twice.
+        if (Array.isArray(data.alerts) && data.alerts.length) {
+            window.dispatchEvent(new CustomEvent('remedi:alerts', { detail: { items: data.alerts } }));
+        }
+
         cart = {};
         renderCart();
         fetchProducts(currentProductsUrl, false); // stock just changed

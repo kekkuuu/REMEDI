@@ -57,6 +57,46 @@ class LiveAlertTest extends TestCase
         $this->assertSame(1, $this->lowStockCount());
     }
 
+    /**
+     * The receipt carries the alert it caused (2026-10-22), so the till pops it
+     * at once instead of after a second trip to /alerts -- and with the SAME id
+     * that poll lists, which is what stops the toast showing it twice.
+     */
+    public function test_the_receipt_carries_the_low_stock_alert_the_sale_caused(): void
+    {
+        $product = $this->product(stock: 12, reorder: 5);
+        $this->actingAs(User::factory()->create());
+
+        $alerts = $this->postJson('/pos/checkout', [
+            'items' => [['product_id' => $product->id, 'quantity' => 8]],
+            'amount_paid' => 80,
+            'idempotency_key' => 'live-receipt-1',
+        ])->assertOk()->json('alerts');
+
+        $this->assertCount(1, $alerts);
+        $this->assertSame('low_stock:'.$product->id.':4', $alerts[0]['id']);
+        $this->assertSame('low_stock', $alerts[0]['kind']);
+        $this->assertSame('4 BOX left · reorder at 5', $alerts[0]['body']);
+        $this->assertNotEmpty($alerts[0]['when']);
+
+        // The bell's next poll lists the very same item.
+        $polled = collect($this->getJson('/alerts')->json('items'))->firstWhere('kind', 'low_stock');
+        $this->assertSame($alerts[0]['id'], $polled['id']);
+    }
+
+    /** A sale that leaves the shelf healthy hands back no alert. */
+    public function test_a_sale_that_leaves_stock_healthy_carries_no_alert(): void
+    {
+        $product = $this->product(stock: 50, reorder: 5);
+        $this->actingAs(User::factory()->create());
+
+        $this->postJson('/pos/checkout', [
+            'items' => [['product_id' => $product->id, 'quantity' => 2]],
+            'amount_paid' => 20,
+            'idempotency_key' => 'live-receipt-2',
+        ])->assertOk()->assertJsonPath('alerts', []);
+    }
+
     public function test_the_poll_is_never_cached_by_the_browser(): void
     {
         $this->actingAs(User::factory()->create());

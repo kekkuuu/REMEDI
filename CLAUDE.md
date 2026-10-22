@@ -48,7 +48,7 @@ DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test
 DB_CONNECTION=sqlite DB_DATABASE=:memory: php artisan test --filter=CheckoutTest
 ```
 
-**The suite is green (421 passed, 11 skipped, 1541 assertions — measured 2026-10-22) and is a usable regression gate.** The 11 skipped are `Feature\Reports\ReportExportTest`, which only runs against MySQL (below). It was 22 failed / 3 passed, for
+**The suite is green (423 passed, 11 skipped, 1550 assertions — measured 2026-10-22) and is a usable regression gate.** The 11 skipped are `Feature\Reports\ReportExportTest`, which only runs against MySQL (below). It was 22 failed / 3 passed, for
 two reasons that were both fixture bugs rather than application ones — see `UserFactory`: it
 hardcoded a cost-10 bcrypt hash while `phpunit.xml` sets `BCRYPT_ROUNDS=4` (the `hashed` cast runs
 `Hash::verifyConfiguration()` and rejected every user), and it set neither `role` nor `is_active`, so
@@ -2480,6 +2480,18 @@ while the poll bounds how long a change on ANOTHER machine takes to arrive, and 
 the cache the first one warmed. Do not raise `TTL_SECONDS` to match, or lower it: the rebuild hydrates
 every batch. `Feature\Alerts\LiveAlertTest` pins the server half (the next poll after a checkout
 already carries the new low-stock row; `/alerts` is `no-store`).
+
+**A sale's own low-stock alert rides back WITH THE RECEIPT (2026-10-22, at the user's request: "the notification has
+a delay").** Even with the refresh above, a product a checkout pushed below its reorder line popped only after a
+SECOND trip -- checkout (~1-2 s from the till to Europe), then `/alerts`, which also rebuilds the whole payload the
+sale just cleared (191-273 ms locally, slower live): ~2-4 s in all. Checkout (`PosController::checkoutSuccessResponse`)
+and a completed QR payment (`QrPaymentController::statusResponse`) now answer with `alerts` =
+`AlertService::lowStockItemsFor()` -- the products the sale touched, filtered by `is_running_out`, built by
+**`AlertService::lowStockItem()`, the ONE low-stock item definition `payload()` uses too**, so the id
+(`low_stock:{product}:{stock}`) is the one the next poll lists. `finishSale()` dispatches them through the same
+`remedi:alerts` event the poll feeds; the toast stack pops each id once, so the poll that follows shows nothing twice
+(verified: pop 21 ms after the sale, one card after the same id arrived again). Covered by two `LiveAlertTest` cases
+(the receipt's item and the next poll's agree; a healthy sale carries none).
 
 **The live watch rides the bell's existing poll; it must never open its own.**
 `window.dispatchEvent(new CustomEvent('remedi:alerts', {detail: data}))` fires from the bell's fetch
