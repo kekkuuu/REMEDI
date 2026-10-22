@@ -123,7 +123,13 @@
     // formats is less work per frame.
     const WANTED = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'itf', 'qr_code'];
     const SCAN_EVERY_MS = 120;
-    const REPEAT_GAP_MS = 1500;
+    // 0.8 s (was 1.5 s until 2026-10-22, at the user's request): long enough
+    // that a box held in view -- seen ~6 times a second -- stays one scan,
+    // short enough to show the next identical box without a long pause. The
+    // trade-off: a very soft webcam that loses a code for 0.8 s while it is
+    // still held can add it twice; the cart's +1 and Qty box are there for
+    // several of the same item either way.
+    const REPEAT_GAP_MS = 800;
 
     let stream = null;
     let detector = null;
