@@ -26,7 +26,8 @@ class SalesHistory extends Model
      * are cached. Safe: this table is written only by the seeder/import --
      * the POS records into `sales` / `sale_items` and never touches it.
      */
-    public const MONTHLY_CACHE_KEY = 'sales_history_monthly_revenue';
+    // _v2: rows carry `till_only` (2026-10-22); the old shape must not be served.
+    public const MONTHLY_CACHE_KEY = 'sales_history_monthly_revenue_v2';
 
     public const DEMAND_CACHE_KEY = 'sales_history_recent_demand';
 
@@ -194,21 +195,29 @@ class SalesHistory extends Model
                 ->pluck('total', 'ym')
                 ->map(fn ($t) => (float) $t)
                 ->pipe(function (Collection $history) {
+                    // The imported record's last month, read BEFORE the till is
+                    // added: every month after it holds the till's sales alone.
+                    $lastImported = $history->keys()->max();
+
                     // Add the till, month by month. A month present in only one
                     // record still appears -- that is the entire point.
                     foreach (static::posMonthlyRevenue() as $ym => $total) {
                         $history[$ym] = ($history[$ym] ?? 0) + $total;
                     }
 
-                    return $history->sortKeys();
+                    return $history->sortKeys()->map(fn ($total, $ym) => [
+                        'ym' => $ym,
+                        // Month AND year: across 30+ months a bare "January"
+                        // would repeat and read as the same bar.
+                        'label' => Carbon::createFromFormat('Y-m', $ym)->format('M Y'),
+                        'total' => round($total, 2),
+                        // Past the end of the imported record (2026-10-22): a
+                        // month of one till is a fraction of a month of the
+                        // shop's whole record, so the dashboard charts mark
+                        // these rather than drawing them as a collapse.
+                        'till_only' => $lastImported !== null && $ym > $lastImported,
+                    ]);
                 })
-                ->map(fn ($total, $ym) => [
-                    'ym' => $ym,
-                    // Month AND year: across 30+ months a bare "January"
-                    // would repeat and read as the same bar.
-                    'label' => Carbon::createFromFormat('Y-m', $ym)->format('M Y'),
-                    'total' => round($total, 2),
-                ])
                 ->values()
         );
     }

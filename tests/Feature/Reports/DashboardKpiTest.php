@@ -46,7 +46,7 @@ class DashboardKpiTest extends TestCase
     }
 
     /**
-     * Revenue Today (2026-09-22, replacing "Last 7 Days") is PROFIT --
+     * Profit Today (2026-09-22, replacing "Last 7 Days"; labelled Revenue Today until 2026-10-22) is PROFIT --
      * price minus cost, summed per line -- not raw revenue. Also a static,
      * pure function for the same reason ATV/ATC are: index() cannot be
      * requested here.

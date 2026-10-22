@@ -126,7 +126,7 @@
                  what a specific delivery actually cost), and the two sitting
                  on one page under the same label would leave an admin unable
                  to tell which one they're editing. This one is the product-
-                 level figure the dashboard's Revenue Today tile reads
+                 level figure the dashboard's Profit Today tile reads
                  (DashboardController::computeTodayProfit()); a batch's own
                  unit_cost is purchase-history/traceability and nothing
                  downstream computes profit from it. Optional, like

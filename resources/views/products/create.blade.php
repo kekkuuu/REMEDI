@@ -119,7 +119,7 @@
                  the same reason unit_cost is: a cost isn't always in hand
                  when a product is first keyed in, and blocking the form on
                  data nobody has yet would stop a legitimate new product over
-                 paperwork. Feeds the dashboard's Revenue Today tile, which
+                 paperwork. Feeds the dashboard's Profit Today tile, which
                  excludes any line whose product has none set -- see
                  DashboardController::computeTodayProfit(). --}}
             <div class="form-field">

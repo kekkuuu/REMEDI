@@ -146,7 +146,7 @@ cost a false "security bug" during a QA pass; `DeactivationTest` carries the war
   `seasonalTrends()`, both MySQL-only (`STRAIGHT_JOIN`) queries this suite's sqlite connection cannot
   run. `ReportController::atvAtc()` (the Sales Report's own ATV/ATC, POS-scoped, folded into
   `SalesReportPeriodTest`) is extracted the same way and for the same reason. Also covers
-  `computeTodayProfit()` (Revenue Today, which replaced Last 7 Days): price minus cost times
+  `computeTodayProfit()` (Profit Today -- "Revenue Today" until 2026-10-22 -- which replaced Last 7 Days): price minus cost times
   quantity, a line with no cost set excluded rather than scored at zero, zero lines reading as zero
   profit rather than null, and the sum rounding to centavos.
 
@@ -2746,7 +2746,16 @@ behind all of them so they cannot drift:
 `?full=1` is the no-JS path (`<noscript>` redirects to it) and the loader's failure panel offers it —
 keep it working, it is the floor under the enhancement.
 
-**The admin KPI row's second tile is "Revenue Today" -- PROFIT, not a second revenue figure** (it
+**Renamed "Profit Today" (2026-10-22, at the user's request), and the two "vs yesterday" empty states now read
+"No sales yesterday · to compare" / "No profit yesterday · to compare"** (`x-kpi-delta`'s `empty-against`): the old
+"No sales · vs yesterday" read as if TODAY had none, while it shows only when YESTERDAY is zero (`pctChange()` has no
+baseline). **The two sales charts mark months past the imported record** (same day): `SalesHistory::monthlyRevenue()`
+rows carry `till_only` (a month after the record's last month, so only the till's sales; cache key `_v2`), and Total
+Sales per Month draws those bars pale slate with no trend line through them and a note under the chart, while Seasonal
+Trends leaves them null so each year's line stops at the record's last month. Drawn as before, the 2026 line fell from
+₱2.2M in June to ₱145k in August -- a change of source, not of trade. `seasonalTrends()` (the Analytics report's
+averages) still includes them.
+**The admin KPI row's second tile was "Revenue Today" -- PROFIT, not a second revenue figure** (it
 replaced "Last 7 Days" 2026-09-22, at the user's request: Sales Today beside it already shows raw
 revenue, so a week-wide revenue total was the same question asked twice rather than a second one
 answered). It sums, per POS line rung up today, `(price charged − product's cost_price) × quantity`
