@@ -781,26 +781,14 @@
                 $months = array_fill(1, 12, null);
 
                 foreach ($rows as $row) {
-                    // A till-only month (after the imported record ends) is left
-                    // null, so the line stops there instead of plunging: one
-                    // till's month beside a whole record's months is a change of
-                    // source, not a season.
-                    if (! empty($row['till_only'])) {
-                        continue;
-                    }
                     $months[(int) substr($row['ym'], 5, 2)] = round($row['total'], 2);
                 }
 
                 return ['year' => $year, 'months' => array_values($months)];
             })
-            ->filter(fn ($series) => collect($series['months'])->filter(fn ($v) => $v !== null)->isNotEmpty())
             ->sortKeysDesc()
             ->take(3)          // three years is what stays readable on one card
             ->values();
-
-        // The last month the seasonal lines reach, for the note under them.
-        $lastImportedLabel = collect($monthlySales)->reject(fn ($r) => ! empty($r['till_only']))->last()['label'] ?? null;
-        $hasTillOnlyMonths = collect($monthlySales)->contains(fn ($r) => ! empty($r['till_only']));
 
         $salesYears = collect($monthlySales)
             ->pluck('ym')
@@ -828,14 +816,6 @@
         </div>
         <div class="chart-box"><canvas id="monthlySalesChart"></canvas></div>
         <p id="monthlyYearSummary" style="margin:10px 0 0; font-size:12.5px; color:#94a3b8;"></p>
-        {{-- Months after the imported record ends hold this till's sales alone
-             (`till_only`, SalesHistory::monthlyRevenue()). Drawn pale, with no
-             trend line through them, so a change of SOURCE does not read as
-             sales collapsing. --}}
-        <p id="monthlyTillNote" hidden style="margin:4px 0 0; font-size:12px; color:#94a3b8;">
-            <span style="display:inline-block; width:10px; height:10px; border-radius:2px; background:#cbd5e1; vertical-align:-1px; margin-right:4px;"></span>
-            <span id="monthlyTillNoteText"></span>
-        </p>
     </div>
 
     {{-- Seasonal Trends — average sales per calendar month across all
@@ -850,11 +830,6 @@
         </div>
         @if ($seasonalTrends->isNotEmpty())
             <div class="chart-box"><canvas id="seasonalTrendsChart"></canvas></div>
-            @if ($hasTillOnlyMonths && $lastImportedLabel)
-                <p style="margin:10px 0 0; font-size:12px; color:#94a3b8;">
-                    Lines stop at {{ $lastImportedLabel }}, where the imported sales record ends; later months hold this till's sales only.
-                </p>
-            @endif
         @else
             <p style="color:#94a3b8; font-size:13px;">Not enough sales history yet to show seasonal patterns.</p>
         @endif
@@ -1332,9 +1307,6 @@
     const monthlyRows = {!! json_encode(collect($monthlySales)->values()) !!};
     const monthlyLabels = monthlyRows.map(r => r.label);
     const monthlyData = monthlyRows.map(r => r.total);
-    const monthlyTrend = monthlyRows.map(r => r.till_only ? null : r.total);
-    // Which bars are till-only; reassigned by the year filter below.
-    let monthlyTillOnly = monthlyRows.map(r => !!r.till_only);
 
     // Draws each bar's numeric value directly on the bar (in addition to
     // the hover tooltip) so exact current-stock / demand numbers are
@@ -1425,11 +1397,7 @@
             datasets: [{
                 label: 'Total sales',
                 data: monthlyData,
-                // Till-only months (after the imported record ends) are pale
-                // slate: same series, but not comparable with the bars before.
-                backgroundColor: (ctx) => monthlyTillOnly[ctx.dataIndex]
-                    ? '#cbd5e1'
-                    : barGradient(ctx, ctx.dataIndex === ctx.chart.data.labels.length - 1 ? C.blueDeep : C.blue),
+                backgroundColor: (ctx) => barGradient(ctx, ctx.dataIndex === ctx.chart.data.labels.length - 1 ? C.blueDeep : C.blue),
                 borderRadius: 4,
                 maxBarThickness: 46,
                 order: 1,   // drawn first, so the trend line sits on top
@@ -1442,9 +1410,7 @@
                 {
                     type: 'line',
                     label: 'Trend',
-                    // Stops at the last imported month (null after it): drawn
-                    // on through till-only months it read as a crash.
-                    data: monthlyTrend,
+                    data: monthlyData,
                     // C.indigoDp is the emphasis shade of the bar colour
                     // (C.blue === C.indigo === the brand emerald), so the line
                     // reads as the same series stated more firmly rather than
@@ -1466,14 +1432,7 @@
             maintainAspectRatio: false,   // .chart-box supplies the height
             plugins: {
                 legend: { display: false },
-                tooltip: {
-                    // Bar and trend share a value, so list the month once.
-                    filter: (item) => item.datasetIndex === 0,
-                    callbacks: {
-                        label: (ctx) => '₱' + ctx.parsed.y.toLocaleString(),
-                        afterLabel: (ctx) => monthlyTillOnly[ctx.dataIndex] ? 'Till sales only (after the imported record)' : '',
-                    },
-                },
+                tooltip: { callbacks: { label: (ctx) => '₱' + ctx.parsed.y.toLocaleString() } },
             },
             scales: {
                 y: {
@@ -1512,10 +1471,7 @@
             // not touch the bar tops (Apr's point sat at ~P1.88M above a
             // ~P1.58M bar). Loop, so adding another dataset cannot reintroduce
             // this.
-            // The trend line stops where the imported record does.
-            monthlyTillOnly = rows.map(r => !!r.till_only);
-            monthlySalesChart.data.datasets[0].data = data;
-            monthlySalesChart.data.datasets[1].data = rows.map(r => r.till_only ? null : r.total);
+            monthlySalesChart.data.datasets.forEach(ds => { ds.data = data; });
             // backgroundColor is deliberately NOT reassigned here. It's a
             // callback that derives the gradient (and the darker "most recent
             // bar" cue) from the live label count, so it follows the filter on
@@ -1529,16 +1485,6 @@
                 summary.textContent = rows.length
                     ? `${rows.length} month${rows.length === 1 ? '' : 's'} · ${scope} · total ${peso(total)}`
                     : `No sales recorded for ${scope}.`;
-            }
-
-            const tillRows = rows.filter(r => r.till_only);
-            const tillNote = document.getElementById('monthlyTillNote');
-            if (tillNote) {
-                tillNote.hidden = tillRows.length === 0;
-                const lastImported = monthlyRows.filter(r => !r.till_only).slice(-1)[0];
-                document.getElementById('monthlyTillNoteText').textContent = tillRows.length && lastImported
-                    ? `After ${lastImported.label}: this till's sales only. The imported sales record ends there.`
-                    : '';
             }
         }
 

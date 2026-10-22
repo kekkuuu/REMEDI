@@ -2749,12 +2749,8 @@ keep it working, it is the floor under the enhancement.
 **Renamed "Profit Today" (2026-10-22, at the user's request), and the two "vs yesterday" empty states now read
 "No sales yesterday · to compare" / "No profit yesterday · to compare"** (`x-kpi-delta`'s `empty-against`): the old
 "No sales · vs yesterday" read as if TODAY had none, while it shows only when YESTERDAY is zero (`pctChange()` has no
-baseline). **The two sales charts mark months past the imported record** (same day): `SalesHistory::monthlyRevenue()`
-rows carry `till_only` (a month after the record's last month, so only the till's sales; cache key `_v2`), and Total
-Sales per Month draws those bars pale slate with no trend line through them and a note under the chart, while Seasonal
-Trends leaves them null so each year's line stops at the record's last month. Drawn as before, the 2026 line fell from
-₱2.2M in June to ₱145k in August -- a change of source, not of trade. `seasonalTrends()` (the Analytics report's
-averages) still includes them.
+baseline). Marking the months after the imported record on the two sales charts (pale bars, lines stopping at the
+record's last month) was tried the same day and REVERTED at the user's request: the charts draw every month as before.
 **The admin KPI row's second tile was "Revenue Today" -- PROFIT, not a second revenue figure** (it
 replaced "Last 7 Days" 2026-09-22, at the user's request: Sales Today beside it already shows raw
 revenue, so a week-wide revenue total was the same question asked twice rather than a second one
