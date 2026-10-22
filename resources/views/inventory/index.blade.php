@@ -217,6 +217,7 @@
     <input
         type="text"
         id="barcode-input"
+        data-scan-index="{{ route('pos.scan-index', [], false) }}"
         placeholder="Click here, then scan a product's barcode to look it up..."
         autocomplete="off"
         style="width:100%; padding:12px; border:1px solid #d1d5db; border-radius:6px; font-size:1.1rem; margin-top:6px;">
@@ -489,30 +490,47 @@
        the field and pressing Enter, and a camera decode from
        partials/_barcode-camera. A second copy here is how the two would drift
        into meaning different things. */
+    /* What a scan does once its product is known -- one definition for the
+       instant match and the network lookup alike. An admin goes to Manage
+       Product; staff (products.edit is role:admin) get the list filtered to it. */
+    function openScannedProduct(product) {
+        if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(true);
+        if (isAdmin) {
+            barcodeStatus.textContent = '\u2705 Opening ' + product.name + '...';
+            barcodeStatus.style.color = '#16a34a';
+            // A moment for the beep to sound before the page it is playing
+            // on is replaced.
+            setTimeout(function () {
+                window.location.href = `${productEditUrlBase}/${product.id}/edit`;
+            }, 150);
+            return;
+        }
+        barcodeStatus.textContent = '\u2705 Found: ' + product.name;
+        barcodeStatus.style.color = '#16a34a';
+        searchInput.value = product.name;
+        runInventorySearch();
+    }
+
     window.handleScannedCode = function (code) {
         {
             if (!code) return;
+
+            // Instant scan, as at the till: matched in the page's own list
+            // (REMEDI.scanIndex in remedi.js); only a code it does not hold
+            // goes to the server.
+            const known = window.REMEDI && REMEDI.scanIndex ? REMEDI.scanIndex.get(code) : null;
+            if (known) {
+                openScannedProduct(known);
+                return;
+            }
 
             barcodeStatus.textContent = 'Looking up ' + code + '...';
             barcodeStatus.style.color = '#6b7280';
 
             REMEDI.lookupScan(@json(route('pos.lookup', [], false)), code)
                 .then(function (result) {
-                    const data = result.data;
                     if (result.found) {
-                        if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(true);
-                        if (isAdmin) {
-                            // A moment for the beep to sound before the page
-                            // it is playing on is replaced.
-                            setTimeout(function () {
-                                window.location.href = `${productEditUrlBase}/${data.id}/edit`;
-                            }, 150);
-                            return;
-                        }
-                        barcodeStatus.textContent = '\u2705 Found: ' + data.name;
-                        barcodeStatus.style.color = '#16a34a';
-                        searchInput.value = data.name;
-                        runInventorySearch();
+                        openScannedProduct(result.data);
                     } else {
                         if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(false);
                         barcodeStatus.textContent = '\u274C Product not found for code: ' + code;

@@ -292,6 +292,7 @@
     <input
         type="text"
         id="barcode-input"
+        data-scan-index="{{ route('pos.scan-index', [], false) }}"
         placeholder="Click here, then scan a product's barcode..."
         autocomplete="off"
         autofocus
@@ -1111,7 +1112,7 @@
         cart = {};
         renderCart();
         fetchProducts(currentProductsUrl, false); // stock just changed
-        loadScanIndex();
+        if (window.REMEDI && REMEDI.scanIndex) REMEDI.scanIndex.reload();
 
         // The sale may have pushed a product into low stock or out of
         // it entirely. Checkout already cleared the alert cache, so ask
@@ -1388,56 +1389,14 @@
        the field and pressing Enter, and a camera decode from
        partials/_barcode-camera. A second copy here is how the two would drift
        into meaning different things. */
-    /* ── Instant scan ──
-       Every product's codes, price and sellable stock, held in the page
-       (PosController::scanIndex). A lookup over the network took 1.5-4 s from
-       the till (2026-10-22); a code found here is added at once. A code NOT
-       here -- a product added after the list loaded, or a list that has not
-       loaded yet -- still takes the network lookup, so nothing is ever refused
-       because the list was stale. Refreshed every SCAN_INDEX_REFRESH_MS while
-       the tab is visible, and after every sale. The stock here only caps the
-       cart; checkout re-checks it on the server, as it always has. */
-    const SCAN_INDEX_REFRESH_MS = 60000;
-    let scanIndex = null;          // Map: code (SKU or barcode) -> product
-    let scanIndexLoading = false;
-
-    function loadScanIndex() {
-        if (scanIndexLoading || document.hidden) return;
-        scanIndexLoading = true;
-        fetch(@json(route('pos.scan-index', [], false)), {
-            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            credentials: 'same-origin',
-            cache: 'no-store',
-        })
-            .then(function (res) { return res.ok ? res.json() : null; })
-            .then(function (data) {
-                if (!data || !Array.isArray(data.products)) return;
-                const map = new Map();
-                data.products.forEach(function (row) {
-                    const product = { id: row[0], name: row[1], price: row[2], stock: row[3] };
-                    map.set(String(row[4]), product);                 // SKU
-                    if (row[5]) map.set(String(row[5]), product);     // the barcode printed on the box
-                });
-                scanIndex = map;
-            })
-            // A failed refresh keeps the last good list; scans not in it still
-            // go to the network.
-            .catch(function () {})
-            .finally(function () { scanIndexLoading = false; });
-    }
-
-    loadScanIndex();
-    setInterval(loadScanIndex, SCAN_INDEX_REFRESH_MS);
-    document.addEventListener('visibilitychange', function () { if (!document.hidden) loadScanIndex(); });
-
-    // For checking from the console: how many codes the till holds, and a reload.
-    window.posScanIndex = { size: function () { return scanIndex ? scanIndex.size : 0; }, reload: loadScanIndex };
-
     window.handleScannedCode = function (code) {
         {
             if (!code) return;
 
-            const known = scanIndex && scanIndex.get(String(code).trim());
+            /* Instant scan: matched against the page's own list
+               (REMEDI.scanIndex in remedi.js) with no round trip. The stock
+               there only caps the cart; checkout re-checks it on the server. */
+            const known = window.REMEDI && REMEDI.scanIndex ? REMEDI.scanIndex.get(code) : null;
             if (known) {
                 // The grid's badge is refreshed every 15 s, the list every 60 s:
                 // take the fresher figure where the tile is on screen.

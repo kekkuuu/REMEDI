@@ -2808,3 +2808,61 @@
             default: return 'Something went wrong looking that up. Scan again.';
         }
     };
+
+
+    /* ── Instant scan: the list of every product's codes, in the page ──
+       PosController::scanIndex answers every active product as
+       [id, name, price, sellable stock, sku, barcode|null]; held here as a
+       code -> product map so a scan is matched without a round trip (a lookup
+       took 1.5-4 s from the till to the hosting in Europe, 2026-10-22). A page
+       opts in by putting data-scan-index="<url>" on its scan field -- POS and
+       Inventory -- and reads REMEDI.scanIndex at scan time. Created HERE, not
+       by the page, because page scripts run before this file does.
+       Refreshed every REFRESH_MS while the tab is visible, and on
+       REMEDI.scanIndex.reload() (POS calls it after a sale). A code NOT in
+       the map must still go to the network lookup: a product saved after the
+       list loaded is never refused because the list was stale. */
+    (function () {
+        var field = document.querySelector('[data-scan-index]');
+        if (!field) return;
+
+        var REFRESH_MS = 60000;
+        var url = field.getAttribute('data-scan-index');
+        var map = null;
+        var loading = false;
+
+        function load() {
+            if (loading || document.hidden) return;
+            loading = true;
+            fetch(url, {
+                headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                credentials: 'same-origin',
+                cache: 'no-store',
+            })
+                .then(function (res) { return res.ok ? res.json() : null; })
+                .then(function (data) {
+                    if (!data || !Array.isArray(data.products)) return;
+                    var next = new Map();
+                    data.products.forEach(function (row) {
+                        var product = { id: row[0], name: row[1], price: row[2], stock: row[3] };
+                        next.set(String(row[4]), product);                // SKU
+                        if (row[5]) next.set(String(row[5]), product);    // the barcode printed on the box
+                    });
+                    map = next;
+                })
+                // A failed refresh keeps the last good list.
+                .catch(function () {})
+                .finally(function () { loading = false; });
+        }
+
+        window.REMEDI = window.REMEDI || {};
+        window.REMEDI.scanIndex = {
+            get: function (code) { return (map && map.get(String(code).trim())) || null; },
+            size: function () { return map ? map.size : 0; },
+            reload: load,
+        };
+
+        load();
+        setInterval(load, REFRESH_MS);
+        document.addEventListener('visibilitychange', function () { if (!document.hidden) load(); });
+    })();

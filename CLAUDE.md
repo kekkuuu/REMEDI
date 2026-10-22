@@ -990,8 +990,12 @@ server work but took 1.5–4 s from the till to the European hosting, so "Lookin
 `GET /pos/scan-index` (`PosController::scanIndex`, shared like the till) returns every active product as
 `[id, name, price, sellable stock, sku, barcode|null]` -- arrays to halve the download (2,637 products,
 ~197 KB raw, 0.39 s locally); stock through the same `sellable()` scope as `lookupBySku()` and checkout
-(25 random products matched the lookup exactly); barcode null when it only repeats the SKU. The POS page
-holds it as a code→product map, refreshes it every 60 s while visible and after each sale, and a scan
+(25 random products matched the lookup exactly); barcode null when it only repeats the SKU. **The list
+lives in `remedi.js` as `REMEDI.scanIndex` (get / size / reload)**, created for any page whose scan field
+carries `data-scan-index="<url>"` -- POS and, since the same day, Inventory (an admin's scan opens
+Manage Product, a staff scan filters the list; `openScannedProduct()` is shared by the instant and the
+network path). Created by `remedi.js`, not the page, because page scripts run before it. It is a
+code→product map, refreshed every 60 s while visible and after each sale (POS calls `reload()`), and a scan
 found there is added with **no network call** (measured 71 ms, 0 requests). **A code NOT in the map
 still goes to `/pos/lookup`**, so a product or barcode saved after the page loaded is never refused (tested:
 found through the server, then locally after the refresh). The map's stock only caps the cart -- the
