@@ -29,6 +29,11 @@
      up to ~0.7. It helps a slightly soft picture; it cannot rescue a badly
      blurred one -- a scanner gun or a phone camera is the real fix there.
 
+     THE CAMERA'S SIZE (2026-10-22): "Camera: 1280x720" under the hint is the
+     frame size the decoder actually gets (videoWidth x videoHeight), not what
+     was asked for -- `ideal: 1920x1080` falls back silently, and a 640x480
+     webcam gives a product barcode about half the pixels per bar.
+
      THE NUDGE: "Can't read it yet..." shows only while something is MOVING
      in front of the camera (a 32x18 frame difference) and nothing has been
      read for NUDGE_AFTER_MS -- never for an idle camera facing the counter.
@@ -61,6 +66,8 @@
     .cam-preview__hint strong { color: #334155; font-weight: 600; }
     .cam-preview__nudge { display: block; margin-top: 3px; color: #b45309; }
     .cam-preview__nudge[hidden] { display: none; }
+    .cam-preview__res { display: block; margin-top: 3px; font-size: .72rem; color: #94a3b8; font-variant-numeric: tabular-nums; }
+    .cam-preview__res:empty { display: none; }
     .cam-status { display: flex; align-items: flex-start; gap: 6px; margin-top: 8px; padding: 6px 10px; border-radius: 6px; background: #fffbeb; border: 1px solid #fde68a; color: #92400e; font-size: .8rem; line-height: 1.35; }
     .cam-status[hidden] { display: none; }
     .cam-status i { font-size: 1rem; line-height: 1.1; flex: none; }
@@ -82,6 +89,7 @@
             <i class="ti ti-focus-2" aria-hidden="true"></i>
             Can&rsquo;t read it yet. Try more light, keep it still, or move it back a little until the bars look sharp.
         </span>
+        <span class="cam-preview__res" id="camRes"></span>
     </div>
 </div>
 
@@ -98,6 +106,18 @@
     const statusText = document.getElementById('camStatusText');
     const statusRetry = document.getElementById('camStatusRetry');
     const nudge = document.getElementById('camNudge');
+    const resLabel = document.getElementById('camRes');
+
+    /* The frame size the decoder really receives -- see the note at the top.
+       Re-read on resize: some cameras renegotiate a moment after starting. */
+    function showResolution() {
+        if (!resLabel) return;
+        resLabel.textContent = preview.videoWidth
+            ? 'Camera: ' + preview.videoWidth + '\u00d7' + preview.videoHeight
+            : '';
+    }
+    preview.addEventListener('loadedmetadata', showResolution);
+    preview.addEventListener('resize', showResolution);
 
     // The 1D retail symbologies a pharmacy shelf carries, plus QR. Fewer
     // formats is less work per frame.
@@ -338,6 +358,7 @@
 
             preview.srcObject = stream;
             await preview.play().catch(function () {});
+            showResolution();
 
             starting = false;
             running = true;
