@@ -387,4 +387,63 @@ class CheckoutTest extends TestCase
         $this->assertSame(1, Sale::count());
         $this->assertNull(Sale::latest('id')->first()->idempotency_key);
     }
+
+    /**
+     * Two tills checking out at the same instant: InnoDB rolls one back with a
+     * deadlock (SQLSTATE 40001 / errno 1213) while both lock the day's last
+     * transaction number. Measured locally 2026-10-23 -- 3 of 3 rounds, the
+     * losing cashier reading "Checkout failed". The rollback is complete, so
+     * the retry helper runs the checkout again; anything else still surfaces.
+     * Exercised on the helper directly: sqlite cannot deadlock, and inside
+     * RefreshDatabase's own transaction Laravel rethrows a nested deadlock as
+     * a different exception, as it should (a nested one cannot be retried).
+     */
+    public function test_a_checkout_that_loses_a_deadlock_is_run_again(): void
+    {
+        $retry = new \ReflectionMethod(\App\Services\CheckoutService::class, 'withTransactionNoRetry');
+        $service = app(\App\Services\CheckoutService::class);
+        $error = function (string $state, int $code, string $message) {
+            $pdo = new \PDOException($message);
+            $pdo->errorInfo = [$state, $code, $message];
+            // PDO reports its SQLSTATE as a string code, which no constructor sets.
+            (new \ReflectionProperty(\Exception::class, 'code'))->setValue($pdo, $state);
+
+            return new \Illuminate\Database\QueryException('mysql', 'insert into sales ...', [], $pdo);
+        };
+
+        $calls = 0;
+        $result = $retry->invoke($service, function () use (&$calls, $error) {
+            if (++$calls === 1) {
+                throw $error('40001', 1213, 'Deadlock found when trying to get lock; try restarting transaction');
+            }
+
+            return ['sale' => 'second attempt'];
+        });
+        $this->assertSame(2, $calls);
+        $this->assertSame(['sale' => 'second attempt'], $result);
+
+        // Any other database error is not retried.
+        $calls = 0;
+        try {
+            $retry->invoke($service, function () use (&$calls, $error) {
+                $calls++;
+                throw $error('42S02', 1146, "Table 'sales' doesn't exist");
+            });
+            $this->fail('A non-deadlock error must surface.');
+        } catch (\Illuminate\Database\QueryException $e) {
+            $this->assertSame(1, $calls);
+        }
+
+        // And a deadlock every time gives up after the attempts allowed.
+        $calls = 0;
+        $this->expectException(\Illuminate\Database\QueryException::class);
+        try {
+            $retry->invoke($service, function () use (&$calls, $error) {
+                $calls++;
+                throw $error('40001', 1213, 'Deadlock found');
+            });
+        } finally {
+            $this->assertSame(3, $calls);
+        }
+    }
 }

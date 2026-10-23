@@ -326,6 +326,15 @@ class CheckoutService
      * 23000 / errno 1062 and names the offending index in the message, which is
      * how the two are told apart.
      *
+     * Also retries a DEADLOCK (SQLSTATE 40001 / errno 1213), added 2026-10-23.
+     * Two checkouts landing together both lock the day's last transaction
+     * number (Sale::nextTransactionNo()), and InnoDB answers the pair's
+     * inserts by rolling one back. Measured locally: two tills selling the same
+     * product at the same instant deadlocked in 3 of 3 rounds, the loser's
+     * cashier reading "Checkout failed". InnoDB has already rolled that whole
+     * transaction back -- no sale, no stock moved -- so running it again is
+     * the documented response and cannot double-sell.
+     *
      * On the last attempt the exception is rethrown rather than swallowed: a
      * checkout that cannot be numbered must fail loudly, because the
      * alternative is a cashier believing a sale was recorded when it was not.
@@ -338,8 +347,10 @@ class CheckoutService
             } catch (QueryException $e) {
                 $isSequenceClash = $e->getCode() === '23000'
                     && str_contains($e->getMessage(), 'transaction_no');
+                $isDeadlock = $e->getCode() === '40001'
+                    || ($e->errorInfo[1] ?? null) === 1213;
 
-                if (! $isSequenceClash || $attempt >= $attempts) {
+                if (! ($isSequenceClash || $isDeadlock) || $attempt >= $attempts) {
                     throw $e;
                 }
             }

@@ -1249,8 +1249,18 @@ reasoning `PosController::checkout()` already compares money in centavos for.
 `transaction_no` is `unique()`; mint it only via `Sale::nextTransactionNo()`, which counts within the
 day under `lockForUpdate()`. Never derive it from `Sale::count()` — a global count behind a per-day
 prefix regresses whenever a sale is deleted and collides when two registers check out at once, both
-of which end in an unhandled 500 at the till. `PosController::withTransactionNoRetry()` covers the
-first-sale-of-day race the lock can't. REMEDI.md "Transaction numbers" has the reproduction.
+of which end in an unhandled 500 at the till. `CheckoutService::withTransactionNoRetry()` (moved there from
+`PosController`) covers the first-sale-of-day race the lock can't. REMEDI.md "Transaction numbers" has the reproduction.
+
+**It also retries a DEADLOCK (SQLSTATE 40001 / errno 1213), since 2026-10-23.** Two checkouts at the same
+instant both take `nextTransactionNo()`'s lock and then insert, and InnoDB rolls one back: measured locally
+with two processes running `CheckoutService::run()` together, 3 of 3 rounds of the same product deadlocked
+(InnoDB's report named `sales_transaction_no_unique`), the loser's cashier reading "Checkout failed". The
+rollback is complete (no sale, no stock moved), so the helper runs it again; after the fix 5 rounds of three
+tills at once all completed. Nothing was ever oversold -- the last 2 units raced by two tills sold once. Covered
+by `CheckoutTest::test_a_checkout_that_loses_a_deadlock_is_run_again` (on the helper: sqlite cannot deadlock).
+A QR completion calls `run()` inside its own transaction, where Laravel rethrows a nested deadlock rather than
+retrying it; the next 3-second poll completes it instead (idempotency key `qrpay:<id>`).
 
 Checkout deducts with `decrement()`, which **bypasses model events on purpose** — so it clears the
 alert cache itself (see "Notifications").
