@@ -333,8 +333,8 @@
        Virtual cameras -- DroidCam above all -- answer a size they cannot send
        (free DroidCam sends 640x480; we ask for 1080p) with a solid green frame,
        and also send green while their PC client is not connected to the phone.
-       So a second after starting, the picture is sampled; if it is solid green
-       every time, the camera restarts one size down, and the size that worked is
+       So after starting, the picture is sampled; if it is solid green three
+       times in a row, the camera restarts one size down, and the size that worked is
        remembered (per browser; "Try again" starts from 1080p again) so the next page
        starts on it directly. Only
        GREEN triggers it: a white wall or a covered lens is a real picture. */
@@ -354,32 +354,45 @@
         try { localStorage.setItem(SIZE_KEY, String(index)); } catch (e) { /* private window */ }
     }
 
-    function frameIsSolidGreen() {
-        if (!(preview.videoWidth > 0)) return null;   // no frame yet: cannot tell
+    // What the camera is showing: 'green' (solid green, the virtual camera's
+    // "no picture"), 'blank' (one flat colour, e.g. black while it warms up --
+    // cannot tell yet), 'picture' (anything with detail), or null (no frame).
+    function framePicture() {
+        if (!(preview.videoWidth > 0)) return null;
         const c = document.createElement('canvas');
         c.width = 32; c.height = 18;
         const g = c.getContext('2d', { willReadFrequently: true });
         g.drawImage(preview, 0, 0, 32, 18);
         const px = g.getImageData(0, 0, 32, 18).data;
-        let green = 0;
         const total = px.length / 4;
+        let green = 0, sum = 0, sumSq = 0;
         for (let i = 0; i < px.length; i += 4) {
-            if (px[i + 1] > 60 && px[i + 1] > px[i] + 40 && px[i + 1] > px[i + 2] + 40) green++;
+            const r = px[i], gr = px[i + 1], b = px[i + 2];
+            if (gr > 30 && gr > r + 25 && gr > b + 25) green++;
+            const y = 0.299 * r + 0.587 * gr + 0.114 * b;
+            sum += y; sumSq += y * y;
         }
-        return green / total > 0.9;
+        if (green / total > 0.85) return 'green';
+        const mean = sum / total;
+        return Math.sqrt(Math.max(0, sumSq / total - mean * mean)) < 3 ? 'blank' : 'picture';
     }
 
-    function checkForGreen(attempt, greenSeen) {
+    // Sampled every 400 ms for up to ~8 s after the camera starts: three green
+    // samples in a row step down a size; a real picture is remembered and ends
+    // the check; a blank frame (warming up) just waits for the next sample.
+    const GREEN_SAMPLES = 3, MAX_SAMPLES = 20;
+    function checkForGreen(attempt, greenRun) {
         clearTimeout(greenTimer);
         if (!running) return;
-        const solid = frameIsSolidGreen();
-        if (solid === false) { rememberSize(sizeIndex); return; }   // a real picture
-        const seen = greenSeen + (solid ? 1 : 0);
-        if (attempt < 3) {
-            greenTimer = setTimeout(function () { checkForGreen(attempt + 1, seen); }, 400);
+        const seen = framePicture();
+        if (seen === 'picture') { rememberSize(sizeIndex); return; }
+        const run = seen === 'green' ? greenRun + 1 : 0;
+        if (run < GREEN_SAMPLES) {
+            if (attempt < MAX_SAMPLES) {
+                greenTimer = setTimeout(function () { checkForGreen(attempt + 1, run); }, 400);
+            }
             return;
         }
-        if (seen < 3) return;   // never had a frame to judge: leave it alone
 
         // Green on every sample: try the next size down.
         running = false;
@@ -439,7 +452,7 @@
             hideStatus();
             previewWrap.hidden = false;
             scanLoop();
-            greenTimer = setTimeout(function () { checkForGreen(1, 0); }, 1000);
+            greenTimer = setTimeout(function () { checkForGreen(1, 0); }, 600);
         } catch (err) {
             starting = false;
             releaseStream();

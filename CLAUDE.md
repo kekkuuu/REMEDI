@@ -1019,14 +1019,17 @@ read 4.8) with no read for 4 s, and goes after 8 s of stillness or on any read. 
 
 **A solid GREEN picture steps the camera size down (2026-10-23, at the user's request: "my droidcam stays
 green").** DroidCam's virtual camera shows a green frame when its client is not connected AND when it is asked
-for a size it cannot send (the free version sends 640x480; the scanner asks for 1080p). One second after the
-camera starts, `checkForGreen()` samples a 32x18 copy of the frame three times 400 ms apart; if every sample is
-over 90% green it releases the stream and retries at the next of `SIZES` (1920x1080 → 1280x720 → 640x480). The
+for a size it cannot send (the free version sends 640x480; the scanner asks for 1080p). From 0.6 s after the
+camera starts, `checkForGreen()` samples a 32x18 copy of the frame every 400 ms for up to ~8 s
+(`framePicture()`: `green` = over 85% green-dominant pixels, dark greens included -- DroidCam's is about
+rgb(0,64-75,0); `blank` = one flat colour, e.g. black while the camera warms up, which only waits; `picture`
+= anything with detail, which is remembered and ends the check). Three green samples in a row release the stream and retries at the next of `SIZES` (1920x1080 → 1280x720 → 640x480). The
 first size that shows a real picture is remembered per workstation in `localStorage['remedi.camSize']`, so the
 next page load asks for it straight away; still green at 640x480 hides the preview and says to open DroidCam on
 the PC and connect the phone. "Try again" starts back at 1080p. Verified with fake `captureStream()` cameras:
 DroidCam-like (green above 640) settles at "Camera: 640×480" and is remembered; always green shows the warning;
-a normal HD webcam stays at 1920×1080; and connecting after the warning, then Try again, settles at 640×480.
+a normal HD webcam and a covered lens stay at 1920×1080; a black first 1.5 s then dark green still steps
+down (the first version took that black frame as a real picture and stopped checking); and connecting after the warning, then Try again, settles at 640×480.
 
 **Products has the scanner too (2026-10-22, at the user's request: "same with inventory").** The same card
 (gun field + `partials._barcode-camera`, `data-scan-index`) above the list on `products.index`, absent on the
