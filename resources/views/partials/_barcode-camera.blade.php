@@ -329,13 +329,79 @@
           });
     }
 
-    async function start() {
+    /* GREEN PICTURE (2026-10-23, at the user's request: "my DroidCam stays green").
+       Virtual cameras -- DroidCam above all -- answer a size they cannot send
+       (free DroidCam sends 640x480; we ask for 1080p) with a solid green frame,
+       and also send green while their PC client is not connected to the phone.
+       So a second after starting, the picture is sampled; if it is solid green
+       every time, the camera restarts one size down, and the size that worked is
+       remembered (per browser; "Try again" starts from 1080p again) so the next page
+       starts on it directly. Only
+       GREEN triggers it: a white wall or a covered lens is a real picture. */
+    const SIZES = [[1920, 1080], [1280, 720], [640, 480]];
+    let sizeIndex = 0;
+    let greenTimer = null;
+    const SIZE_KEY = 'remedi.camSize';
+
+    function rememberedSize() {
+        try {
+            const v = parseInt(localStorage.getItem(SIZE_KEY), 10);
+            return v >= 0 && v < SIZES.length ? v : 0;
+        } catch (e) { return 0; }
+    }
+
+    function rememberSize(index) {
+        try { localStorage.setItem(SIZE_KEY, String(index)); } catch (e) { /* private window */ }
+    }
+
+    function frameIsSolidGreen() {
+        if (!(preview.videoWidth > 0)) return null;   // no frame yet: cannot tell
+        const c = document.createElement('canvas');
+        c.width = 32; c.height = 18;
+        const g = c.getContext('2d', { willReadFrequently: true });
+        g.drawImage(preview, 0, 0, 32, 18);
+        const px = g.getImageData(0, 0, 32, 18).data;
+        let green = 0;
+        const total = px.length / 4;
+        for (let i = 0; i < px.length; i += 4) {
+            if (px[i + 1] > 60 && px[i + 1] > px[i] + 40 && px[i + 1] > px[i + 2] + 40) green++;
+        }
+        return green / total > 0.9;
+    }
+
+    function checkForGreen(attempt, greenSeen) {
+        clearTimeout(greenTimer);
+        if (!running) return;
+        const solid = frameIsSolidGreen();
+        if (solid === false) { rememberSize(sizeIndex); return; }   // a real picture
+        const seen = greenSeen + (solid ? 1 : 0);
+        if (attempt < 3) {
+            greenTimer = setTimeout(function () { checkForGreen(attempt + 1, seen); }, 400);
+            return;
+        }
+        if (seen < 3) return;   // never had a frame to judge: leave it alone
+
+        // Green on every sample: try the next size down.
+        running = false;
+        clearTimeout(loopTimer);
+        releaseStream();
+        if (sizeIndex < SIZES.length - 1) {
+            sizeIndex++;
+            start(true);
+            return;
+        }
+        previewWrap.hidden = true;
+        showStatus('The camera only shows a green picture. If it is DroidCam, open DroidCam on the PC, connect the phone, then Try again.', true);
+    }
+
+    async function start(keepSize) {
         if (running || starting) return;
         if (!window.isSecureContext || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             showStatus('Camera scanning needs the https:// address (or localhost). This address has no camera access.', false);
             return;
         }
 
+        if (keepSize !== true) sizeIndex = rememberedSize();
         starting = true;
         try {
             if (!detector) detector = await makeDetector();
@@ -347,10 +413,12 @@
 
             // "environment" is the REAR camera on a phone -- the one pointed at
             // the shelf; a machine with one webcam ignores it. 1080p asked
-            // for because a webcam's 640x480 default is too coarse for thin bars.
+            // for first because a webcam's 640x480 default is too coarse for thin
+            // bars; smaller only after a green picture (checkForGreen).
+            const size = SIZES[sizeIndex];
             stream = await navigator.mediaDevices.getUserMedia({
                 audio: false,
-                video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } },
+                video: { facingMode: { ideal: 'environment' }, width: { ideal: size[0] }, height: { ideal: size[1] } },
             });
 
             const track = stream.getVideoTracks()[0];
@@ -371,6 +439,7 @@
             hideStatus();
             previewWrap.hidden = false;
             scanLoop();
+            greenTimer = setTimeout(function () { checkForGreen(1, 0); }, 1000);
         } catch (err) {
             starting = false;
             releaseStream();
@@ -387,6 +456,7 @@
     function stop() {
         running = false;
         clearTimeout(loopTimer);
+        clearTimeout(greenTimer);
         previewWrap.hidden = true;
         sessionStart = 0;
         prevTiny = null;
@@ -395,7 +465,9 @@
         return Promise.resolve();
     }
 
-    if (statusRetry) statusRetry.addEventListener('click', function () { hideStatus(); start(); });
+    // Try again starts from 1080p: the client may be connected now, or a
+    // better camera plugged in.
+    if (statusRetry) statusRetry.addEventListener('click', function () { hideStatus(); sizeIndex = 0; start(true); });
 
     /* Allowing the camera from the address bar fires a permission change --
        start straight away rather than making the person reload. Not every
