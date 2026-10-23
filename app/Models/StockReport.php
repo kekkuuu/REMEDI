@@ -18,11 +18,17 @@ use Illuminate\Support\Facades\Cache;
  */
 class StockReport extends Model
 {
+    // Added 2026-10-23, at the user's request: an EMPTY shelf is its own
+    // report, not "low stock" -- the same split the Inventory tab draws with
+    // its Out of Stock filter and graphite badge.
+    public const TYPE_OUT_OF_STOCK = 'out_of_stock';
+
     public const TYPE_LOW_STOCK = 'low_stock';
 
     public const TYPE_EXPIRED = 'expired';
 
     public const TYPES = [
+        self::TYPE_OUT_OF_STOCK => 'Out of stock',
         self::TYPE_LOW_STOCK => 'Low stock',
         self::TYPE_EXPIRED => 'Expired stock',
     ];
@@ -94,13 +100,17 @@ class StockReport extends Model
      * Is the condition a staff member wants to report actually true of this
      * product right now? The ONE check behind both the Notify button and the
      * endpoint, so the button cannot offer a report the endpoint refuses.
-     * Reads the shared rules: `is_running_out` for low stock (the rule every
-     * low-stock list uses), an expired batch still holding units for expired.
+     * Reads the shared rules: nothing on the shelf (`total_stock <= 0`, the
+     * Inventory Out of Stock filter) for out of stock; `is_running_out` for low
+     * stock (the rule every low-stock list uses) but NOT once the shelf is
+     * empty, which is out of stock instead -- one problem, one button; an
+     * expired batch still holding units for expired.
      */
     public static function applies(Product $product, string $type): bool
     {
         return match ($type) {
-            self::TYPE_LOW_STOCK => (bool) $product->is_running_out,
+            self::TYPE_OUT_OF_STOCK => $product->total_stock <= 0,
+            self::TYPE_LOW_STOCK => $product->total_stock > 0 && (bool) $product->is_running_out,
             self::TYPE_EXPIRED => $product->batches->contains(fn ($b) => $b->quantity > 0 && ! $b->returned_at && $b->is_expired),
             default => false,
         };

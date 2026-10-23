@@ -71,7 +71,7 @@
                     <div class="sr-sub">SKU {{ $product->sku ?? '—' }}@if($product?->trashed()) · archived @endif</div>
                 </td>
                 <td>
-                    <span class="badge {{ $report->type === \App\Models\StockReport::TYPE_EXPIRED ? 'badge-critical' : 'badge-danger' }}">
+                    <span class="badge {{ match ($report->type) { \App\Models\StockReport::TYPE_EXPIRED => 'badge-critical', \App\Models\StockReport::TYPE_OUT_OF_STOCK => 'badge-out', default => 'badge-danger' } }}">
                         {{ $report->type_label }}
                     </span>
                 </td>

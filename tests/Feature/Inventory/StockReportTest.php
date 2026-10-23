@@ -101,6 +101,41 @@ class StockReportTest extends TestCase
         $this->assertDatabaseHas('stock_reports', ['product_id' => $expired->id, 'type' => 'expired']);
     }
 
+    /**
+     * An EMPTY shelf is reported as out of stock (2026-10-23), not low stock:
+     * one problem, one button. A product with units left is the other way round.
+     */
+    public function test_staff_can_report_out_of_stock_and_it_is_not_also_low_stock(): void
+    {
+        $staff = User::factory()->create();
+        $empty = $this->product(0, now()->addYear()->toDateString());
+        $low = $this->product(2, now()->addYear()->toDateString());
+
+        $this->report($staff, $empty, 'out_of_stock')->assertOk()->assertJson(['success' => true]);
+        $this->assertDatabaseHas('stock_reports', ['product_id' => $empty->id, 'type' => 'out_of_stock', 'status' => 'pending']);
+        $this->report($staff, $empty, 'low_stock')->assertStatus(422);
+
+        $this->report($staff, $low, 'out_of_stock')->assertStatus(422);
+        $this->assertDatabaseMissing('stock_reports', ['product_id' => $low->id]);
+
+        $this->assertTrue(AuditTrail::where('details', 'like', 'Stock report: Out of stock%')->exists());
+    }
+
+    /** The staff Inventory row offers "Notify: Out of stock" on an empty shelf, and only that. */
+    public function test_the_inventory_row_offers_out_of_stock_for_an_empty_shelf(): void
+    {
+        $staff = User::factory()->create();
+        $empty = $this->product(0, now()->addYear()->toDateString());
+
+        $html = $this->actingAs($staff)->getJson('/inventory?filter=out_of_stock')->assertOk()->json('html');
+        $row = substr($html, strpos($html, 'id="product-row-'.$empty->id.'"'));
+        $row = substr($row, 0, strpos($row, '</tr>'));
+
+        $this->assertStringContainsString('Notify: Out of stock', $row);
+        $this->assertStringContainsString('value="out_of_stock"', $row);
+        $this->assertStringNotContainsString('Notify: Low stock', $row);
+    }
+
     public function test_a_report_that_is_not_true_is_refused(): void
     {
         $staff = User::factory()->create();

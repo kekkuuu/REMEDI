@@ -207,14 +207,14 @@
                                 <form method="POST" action="{{ route('stock-reports.store') }}"
                                       class="js-confirm"
                                       data-confirm-title="Notify the admin?"
-                                      data-confirm-body="Tell the admin that {{ $product->name }} {{ $type === 'expired' ? 'is holding expired stock that needs pulling' : 'is low on stock ('.$product->sellable_stock.' '.$product->unit.' sellable, reorder at '.$product->reorder_level.')' }}. They will see it in their notifications and can approve it."
+                                      data-confirm-body="Tell the admin that {{ $product->name }} {{ match ($type) { 'expired' => 'is holding expired stock that needs pulling', 'out_of_stock' => 'is out of stock (nothing left on the shelf, reorder at '.$product->reorder_level.')', default => 'is low on stock ('.$product->sellable_stock.' '.$product->unit.' sellable, reorder at '.$product->reorder_level.')' } }}. They will see it in their notifications and can approve it."
                                       data-confirm-label="Notify admin"
                                       data-confirm-icon="ti-bell-ringing"
                                       data-confirm-tone="neutral">
                                     @csrf
                                     <input type="hidden" name="product_id" value="{{ $product->id }}">
                                     <input type="hidden" name="type" value="{{ $type }}">
-                                    <button type="submit" class="btn {{ $type === 'expired' ? 'btn-danger' : 'btn-warning' }} btn-sm">
+                                    <button type="submit" class="btn {{ match ($type) { 'expired' => 'btn-danger', 'out_of_stock' => 'btn-out', default => 'btn-warning' } }} btn-sm">
                                         <i class="ti ti-bell-ringing" aria-hidden="true"></i> Notify: {{ $typeLabel }}
                                     </button>
                                 </form>
