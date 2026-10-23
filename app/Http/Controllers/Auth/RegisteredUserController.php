@@ -59,11 +59,12 @@ class RegisteredUserController extends Controller
             // profile form would lock an existing account out of saving any
             // change until it supplied one. Same max as the column (40).
             'phone' => ['required', 'string', 'max:40'],
-            // Optional even though the fields beside it are not: this is a
-            // PERSONAL inbox, an admin may genuinely not have it at the
-            // counter, and an account with none simply falls back to asking
-            // another admin for a reset. Not `unique` -- two people may share
-            // a household address, and `users.email` is the identity column.
+            // A PERSONAL inbox, where the account's password reset code is
+            // emailed. OPTIONAL here -- the admin may not have it at the
+            // counter -- and the account holder is asked for it on first
+            // sign-in instead (EnsureUserHasPersonalEmail, 2026-10-23). Not
+            // `unique` -- two people may share a household address, and
+            // `users.email` is the identity column.
             'personal_email' => ['nullable', 'string', 'email', 'max:255'],
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
         ]);

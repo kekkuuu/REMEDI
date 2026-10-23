@@ -1,0 +1,128 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 680" width="1120" height="680" font-family="'Source Sans 3', 'Segoe UI', Arial, sans-serif">
+  <title>REMEDI System Architecture</title>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#555f66"/>
+    </marker>
+    <!-- A person: teal head, orange body with arms and legs -->
+    <g id="person">
+      <circle cx="0" cy="-58" r="15" fill="#6ECBD3"/>
+      <path d="M-26,-38 h52 a10,10 0 0 1 10,10 v52 a6,6 0 0 1 -12,0 v-40 h-2 v86 a7,7 0 0 1 -14,0 v-46 h-4 v46 a7,7 0 0 1 -14,0 v-86 h-2 v40 a6,6 0 0 1 -12,0 v-52 a10,10 0 0 1 10,-10 z"
+            fill="#F7B54A" stroke="#5b6870" stroke-width="2" stroke-linejoin="round"/>
+    </g>
+    <!-- A desktop monitor -->
+    <g id="monitor">
+      <rect x="-58" y="-48" width="116" height="78" rx="6" fill="#6ECBD3" stroke="#5b6870" stroke-width="3"/>
+      <rect x="-58" y="18" width="116" height="12" fill="#F7B54A" stroke="#5b6870" stroke-width="3"/>
+      <path d="M-10,30 h20 l5,16 h-30 z" fill="#6ECBD3" stroke="#5b6870" stroke-width="3" stroke-linejoin="round"/>
+      <rect x="-30" y="45" width="60" height="7" rx="3" fill="#6ECBD3" stroke="#5b6870" stroke-width="3"/>
+    </g>
+  </defs>
+
+  <rect width="1120" height="680" fill="#ffffff"/>
+
+  <!-- ── Connections ── -->
+  <g fill="none" stroke="#555f66" stroke-width="2">
+    <!-- Pharmacy records branch to both users -->
+    <path d="M150,330 H210"/>
+    <path d="M210,110 V550"/>
+    <path d="M210,110 H272" marker-end="url(#arrow)"/>
+    <path d="M210,550 H272" marker-end="url(#arrow)"/>
+    <!-- Users to their interfaces -->
+    <path d="M370,110 H468" marker-end="url(#arrow)"/>
+    <path d="M370,550 H468" marker-end="url(#arrow)"/>
+    <!-- Interfaces to the web server -->
+    <path d="M610,105 H805 V168" marker-end="url(#arrow)"/>
+    <path d="M610,545 H700 V262 H738" marker-end="url(#arrow)"/>
+    <!-- Server <-> forecasting engine -->
+    <path d="M805,312 V398" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <!-- Engine <-> database -->
+    <path d="M880,452 H983" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+    <!-- Database <-> server -->
+    <path d="M1045,392 V232 H884" marker-start="url(#arrow)" marker-end="url(#arrow)"/>
+  </g>
+  <g font-size="13" fill="#5b6870">
+    <text x="692" y="420" text-anchor="end">HTTPS</text>
+    <text x="815" y="350">scheduler starts</text>
+    <text x="815" y="366">the monthly run</text>
+    <text x="886" y="442" font-size="12">reads sales</text>
+    <text x="886" y="472" font-size="12">writes forecasts</text>
+    <text x="1055" y="300">SQL</text>
+  </g>
+
+  <!-- ── Pharmacy records (left) ── -->
+  <use href="#person" x="88" y="330"/>
+  <g stroke="#5b6870" stroke-width="2">
+    <rect x="112" y="322" width="46" height="58" fill="#6ECBD3"/>
+    <rect x="104" y="332" width="46" height="58" fill="#6ECBD3"/>
+    <rect x="96" y="342" width="46" height="58" fill="#6ECBD3"/>
+  </g>
+  <rect x="104" y="358" width="30" height="6" fill="#F7B54A"/>
+  <rect x="104" y="372" width="30" height="6" fill="#F7B54A"/>
+  <text x="96" y="440" font-size="19" fill="#2b3640" text-anchor="middle">Pharmacy records</text>
+  <text x="96" y="462" font-size="14" fill="#5b6870" text-anchor="middle">products · stock · sales</text>
+
+  <!-- ── Admin (top) ── -->
+  <use href="#person" x="320" y="120"/>
+  <text x="320" y="238" font-size="19" fill="#2b3640" text-anchor="middle">Admin</text>
+  <use href="#monitor" x="540" y="100"/>
+  <text x="540" y="186" font-size="19" fill="#2b3640" text-anchor="middle">Admin Interface</text>
+  <text x="540" y="208" font-size="14" fill="#5b6870" text-anchor="middle">Dashboard · Reports · Forecasting</text>
+  <text x="540" y="226" font-size="14" fill="#5b6870" text-anchor="middle">Users · Safeguard · Audit trail</text>
+
+  <!-- ── Staff (bottom) ── -->
+  <use href="#person" x="320" y="560"/>
+  <text x="320" y="662" font-size="19" fill="#2b3640" text-anchor="middle">Staff (Cashier)</text>
+  <use href="#monitor" x="540" y="540"/>
+  <text x="540" y="626" font-size="19" fill="#2b3640" text-anchor="middle">Staff Interface</text>
+  <text x="540" y="648" font-size="14" fill="#5b6870" text-anchor="middle">Point of Sale · Inventory</text>
+  <text x="540" y="666" font-size="14" fill="#5b6870" text-anchor="middle">Barcode scanner / camera</text>
+
+  <!-- ── Web server ── -->
+  <g stroke="#5b6870" stroke-width="2.5">
+    <rect x="740" y="170" width="118" height="26" rx="4" fill="#F7B54A"/>
+    <rect x="740" y="198" width="118" height="26" rx="4" fill="#F7B54A"/>
+    <rect x="740" y="226" width="118" height="26" rx="4" fill="#F7B54A"/>
+    <rect x="740" y="254" width="118" height="26" rx="4" fill="#F7B54A"/>
+    <rect x="740" y="282" width="118" height="26" rx="4" fill="#F7B54A"/>
+  </g>
+  <g fill="#6ECBD3">
+    <rect x="752" y="179" width="44" height="7" rx="2"/>
+    <rect x="752" y="207" width="44" height="7" rx="2"/>
+    <rect x="752" y="235" width="44" height="7" rx="2"/>
+    <rect x="752" y="263" width="44" height="7" rx="2"/>
+    <rect x="752" y="291" width="44" height="7" rx="2"/>
+  </g>
+  <circle cx="852" cy="262" r="34" fill="#6ECBD3" stroke="#5b6870" stroke-width="2.5"/>
+  <g fill="none" stroke="#F7B54A" stroke-width="2">
+    <ellipse cx="852" cy="262" rx="14" ry="30"/>
+    <path d="M820,252 H884 M820,272 H884 M852,230 V294"/>
+  </g>
+  <rect x="826" y="253" width="52" height="18" rx="4" fill="#6ECBD3"/>
+  <text x="852" y="267" font-size="14" font-weight="700" fill="#ffffff" text-anchor="middle">WEB</text>
+  <text x="935" y="160" font-size="19" fill="#2b3640">Web Server</text>
+  <text x="935" y="181" font-size="14" fill="#5b6870">Laravel 12 · PHP 8.3</text>
+  <text x="935" y="199" font-size="14" fill="#5b6870">Vercel / Railway</text>
+
+  <!-- ── SARIMA forecasting engine ── -->
+  <rect x="738" y="400" width="140" height="104" rx="8" fill="#6ECBD3" stroke="#5b6870" stroke-width="3"/>
+  <rect x="738" y="400" width="140" height="18" rx="8" fill="#F7B54A" stroke="#5b6870" stroke-width="3"/>
+  <g fill="#F7B54A" stroke="#5b6870" stroke-width="1.5">
+    <rect x="756" y="462" width="14" height="30"/>
+    <rect x="776" y="448" width="14" height="44"/>
+    <rect x="796" y="456" width="14" height="36"/>
+    <rect x="816" y="440" width="14" height="52"/>
+  </g>
+  <path d="M754,452 L784,436 L806,446 L828,428 L860,436" fill="none" stroke="#ffffff" stroke-width="3" stroke-dasharray="5 4" stroke-linecap="round"/>
+  <circle cx="860" cy="436" r="5" fill="#ffffff" stroke="#5b6870" stroke-width="1.5"/>
+  <text x="808" y="532" font-size="19" fill="#2b3640" text-anchor="middle">Forecasting Engine</text>
+  <text x="808" y="553" font-size="14" fill="#5b6870" text-anchor="middle">Seasonal SARIMA · Python</text>
+
+  <!-- ── Database ── -->
+  <g stroke="#5b6870" stroke-width="3">
+    <path d="M985,410 V490 a60,18 0 0 0 120,0 V410" fill="#6ECBD3"/>
+    <ellipse cx="1045" cy="410" rx="60" ry="18" fill="#F7B54A"/>
+  </g>
+  <text x="1045" y="540" font-size="19" fill="#2b3640" text-anchor="middle">Database</text>
+  <text x="1045" y="561" font-size="14" fill="#5b6870" text-anchor="middle">MySQL</text>
+</svg>

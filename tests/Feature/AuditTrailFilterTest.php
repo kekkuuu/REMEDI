@@ -41,6 +41,7 @@ class AuditTrailFilterTest extends TestCase
     public function test_creating_an_account_is_logged(): void
     {
         $this->actingAs($this->admin())->post('/register', [
+            'personal_email' => 'someone@gmail.com',
             'name' => 'New Cashier',
             'email' => 'new.cashier@remedi.com',
             'password' => 'password',
@@ -60,6 +61,7 @@ class AuditTrailFilterTest extends TestCase
         $user = User::factory()->create(['name' => 'Old Name']);
 
         $this->actingAs($this->admin())->put("/users/{$user->id}", [
+            'personal_email' => 'someone@gmail.com',
             'name' => 'New Name',
             'email' => $user->email,
             'role' => 'staff',
@@ -118,6 +120,7 @@ class AuditTrailFilterTest extends TestCase
         $admin = $this->admin();
 
         $this->actingAs($admin)->post('/register', [
+            'personal_email' => 'someone@gmail.com',
             'name' => 'Findable Cashier',
             'email' => 'findable@remedi.com',
             'password' => 'password',
@@ -137,6 +140,7 @@ class AuditTrailFilterTest extends TestCase
         $admin = $this->admin();
 
         $this->actingAs($admin)->post('/register', [
+            'personal_email' => 'someone@gmail.com',
             'name' => 'Bookmarked Cashier',
             'email' => 'bookmarked@remedi.com',
             'password' => 'password',
@@ -171,6 +175,7 @@ class AuditTrailFilterTest extends TestCase
         $admin = $this->admin();
 
         $this->actingAs($admin)->post('/register', [
+            'personal_email' => 'someone@gmail.com',
             'name' => 'Narrowing Probe',
             'email' => 'narrowing@remedi.com',
             'password' => 'password',

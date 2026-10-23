@@ -49,6 +49,7 @@ class PasswordChangeNotificationTest extends TestCase
         $staff = User::factory()->create(['name' => 'Cashier Cruz', 'password_reset_requested_at' => now()]);
 
         $this->actingAs($admin)->put('/users/'.$staff->id, [
+            'personal_email' => 'someone@gmail.com',
             'name' => $staff->name,
             'email' => $staff->email,
             'role' => 'staff',
@@ -71,6 +72,7 @@ class PasswordChangeNotificationTest extends TestCase
         $staff = User::factory()->create();
 
         $this->actingAs($admin)->put('/users/'.$staff->id, [
+            'personal_email' => 'someone@gmail.com',
             'name' => 'Renamed Person',
             'email' => $staff->email,
             'role' => 'staff',

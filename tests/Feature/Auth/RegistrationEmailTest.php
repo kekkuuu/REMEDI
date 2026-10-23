@@ -32,6 +32,7 @@ class RegistrationEmailTest extends TestCase
             'email' => 'jane@remedi.com',
             'role' => 'staff',
             'phone' => '+63 912 345 6789',
+            'personal_email' => 'jane@gmail.com',
             'password' => 'password123',
             'password_confirmation' => 'password123',
         ], $overrides);

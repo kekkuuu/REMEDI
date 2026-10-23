@@ -59,6 +59,11 @@ class UserFactory extends Factory
             // application cannot use.
             'role' => 'staff',
             'is_active' => true,
+
+            // Set, because EnsureUserHasPersonalEmail sends an account without
+            // one to My Profile on every request (2026-10-23). A test about an
+            // account with none passes `'personal_email' => null`.
+            'personal_email' => fake()->unique()->safeEmail(),
         ];
     }
 

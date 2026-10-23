@@ -129,6 +129,7 @@ class DestructiveGuardsTest extends TestCase
         $admin = $this->admin();
 
         $this->actingAs($admin)->put('/users/'.$admin->id, [
+            'personal_email' => 'someone@gmail.com',
             'name' => $admin->name,
             'email' => $admin->email,
             'role' => 'staff',

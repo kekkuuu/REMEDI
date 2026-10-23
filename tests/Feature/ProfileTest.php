@@ -75,6 +75,7 @@ class ProfileTest extends TestCase
         $response = $this
             ->actingAs($user)
             ->patch('/profile', [
+                'personal_email' => 'someone@gmail.com',
                 'name' => 'Test User',
                 'email' => 'someone-else@example.com',
             ]);
@@ -95,6 +96,7 @@ class ProfileTest extends TestCase
 
         $this->actingAs($admin)
             ->patch('/profile', [
+                'personal_email' => 'someone@gmail.com',
                 'name' => 'Test Admin',
                 'email' => 'test@example.com',
             ])
@@ -118,6 +120,7 @@ class ProfileTest extends TestCase
         $user = User::factory()->create(['name' => 'Old Name', 'phone' => null]);
 
         $this->actingAs($user)->patch('/profile', [
+            'personal_email' => 'someone@gmail.com',
             'name' => 'New Name',
             'email' => $user->email,
             'phone' => '09171234567',
@@ -135,9 +138,11 @@ class ProfileTest extends TestCase
 
     public function test_a_profile_save_that_changes_nothing_writes_no_audit_row(): void
     {
-        $user = User::factory()->create();
+        // Saved already, so posting it again (required since 2026-10-23) is no change.
+        $user = User::factory()->create(['personal_email' => 'someone@gmail.com']);
 
         $this->actingAs($user)->patch('/profile', [
+            'personal_email' => 'someone@gmail.com',
             'name' => $user->name,
             'email' => $user->email,
         ])->assertSessionHasNoErrors();
@@ -152,6 +157,7 @@ class ProfileTest extends TestCase
         $response = $this
             ->actingAs($user)
             ->patch('/profile', [
+                'personal_email' => 'someone@gmail.com',
                 'name' => 'Test User',
                 'email' => $user->email,
             ]);

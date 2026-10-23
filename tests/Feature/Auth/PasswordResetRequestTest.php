@@ -31,7 +31,8 @@ class PasswordResetRequestTest extends TestCase
 
     public function test_requesting_a_reset_flags_the_account_and_logs_it(): void
     {
-        $user = User::factory()->create();
+        // No personal email: the ask-an-admin path, not the emailed code.
+        $user = User::factory()->create(['personal_email' => null]);
 
         $response = $this->post('/forgot-password', ['email' => $user->email]);
 
@@ -60,7 +61,8 @@ class PasswordResetRequestTest extends TestCase
 
     public function test_a_second_request_does_not_duplicate_the_audit_entry(): void
     {
-        $user = User::factory()->create();
+        // No personal email: the ask-an-admin path, not the emailed code.
+        $user = User::factory()->create(['personal_email' => null]);
 
         $this->post('/forgot-password', ['email' => $user->email]);
         $firstRequestedAt = $user->fresh()->password_reset_requested_at;
@@ -151,6 +153,7 @@ class PasswordResetRequestTest extends TestCase
 
         $this->actingAs($user)
             ->patch('/profile', [
+                'personal_email' => 'someone@gmail.com',
                 'name' => 'Changed Name',
                 'phone' => '09999999999',
                 'email' => $user->email,
@@ -178,6 +181,7 @@ class PasswordResetRequestTest extends TestCase
         $user = User::factory()->create(['must_change_password' => false, 'name' => 'Original Name']);
 
         $this->actingAs($user)->patch('/profile', [
+            'personal_email' => 'someone@gmail.com',
             'name' => 'Changed Name',
             'email' => $user->email,
         ]);

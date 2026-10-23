@@ -149,6 +149,9 @@ class UserController extends Controller
             // account holder can reach while locked OUT, unlike the
             // @remedi.com address above. Not unique: two people may share a
             // household address, and `users.email` is the identity column.
+            // Optional here, like Add User: the account holder is asked for it
+            // on sign-in (EnsureUserHasPersonalEmail) and must keep one on
+            // My Profile (ProfileUpdateRequest).
             'personal_email' => 'nullable|string|email|max:255',
             'password' => 'nullable|confirmed|min:8',
         ]);

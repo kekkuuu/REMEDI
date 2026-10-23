@@ -44,8 +44,9 @@ Route::middleware('guest')->get('/', function () {
 // `must_change_password` rides along too -- an account on its admin-reset
 // default password ("Forgot your password?", see UserController::
 // resetPassword()) is funnelled to /profile, which sits in this same group,
-// until it sets its own.
-Route::middleware(['auth', 'active', 'must_change_password'])->group(function () {
+// until it sets its own. `personal_email` likewise sends an account with no
+// personal email to /profile, where a pop-up asks for it (2026-10-23).
+Route::middleware(['auth', 'active', 'must_change_password', 'personal_email'])->group(function () {
 
     // Dashboard - shared, role-aware
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');

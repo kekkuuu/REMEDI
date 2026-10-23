@@ -45,6 +45,7 @@ class RegistrationTest extends TestCase
         $admin = User::factory()->admin()->create();
 
         $this->actingAs($admin)->post('/register', [
+            'personal_email' => 'someone@gmail.com',
             'name' => 'Test User',
             'email' => 'test@example.com',
             'password' => 'password',
@@ -81,6 +82,7 @@ class RegistrationTest extends TestCase
         $admin = User::factory()->admin()->create();
 
         $response = $this->actingAs($admin)->post('/register', [
+            'personal_email' => 'someone@gmail.com',
             'name' => 'Ajax User',
             'email' => 'ajax@example.com',
             'password' => 'password',

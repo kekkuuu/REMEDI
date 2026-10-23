@@ -23,6 +23,7 @@ class UserPhoneTest extends TestCase
     public function test_add_user_saves_a_phone_number(): void
     {
         $this->actingAs($this->admin())->post('/register', [
+            'personal_email' => 'someone@gmail.com',
             'name' => 'New Hire',
             'email' => 'newhire@remedi.com',
             'role' => 'staff',
@@ -48,6 +49,7 @@ class UserPhoneTest extends TestCase
     public function test_add_user_now_requires_a_phone_number(): void
     {
         $this->actingAs($this->admin())->post('/register', [
+            'personal_email' => 'someone@gmail.com',
             'name' => 'No Phone Yet',
             'email' => 'nophone@remedi.com',
             'role' => 'staff',
@@ -61,6 +63,7 @@ class UserPhoneTest extends TestCase
     public function test_add_user_saves_an_optional_personal_email(): void
     {
         $this->actingAs($this->admin())->post('/register', [
+            'personal_email' => 'someone@gmail.com',
             'name' => 'With Personal',
             'email' => 'personal@remedi.com',
             'role' => 'staff',
@@ -79,6 +82,7 @@ class UserPhoneTest extends TestCase
         $staff = User::factory()->create(['role' => 'staff', 'phone' => null]);
 
         $this->actingAs($admin)->put('/users/'.$staff->id, [
+            'personal_email' => 'someone@gmail.com',
             'name' => $staff->name,
             'email' => $staff->email,
             'role' => 'staff',

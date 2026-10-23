@@ -147,7 +147,7 @@
                  can be created before you have it; an admin with none saved
                  just falls back to asking another admin. --}}
             <div class="field">
-                <label for="personal_email">Personal Email <span style="font-weight:400; color:#94a3b8;">(optional &mdash; used for password resets)</span></label>
+                <label for="personal_email">Personal Email</label>
                 <input type="email" id="personal_email" name="personal_email" value="{{ old('personal_email') }}"
                        placeholder="name@gmail.com" autocomplete="off">
                 @error('personal_email')<p class="err">{{ $message }}</p>@enderror
