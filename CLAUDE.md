@@ -971,7 +971,8 @@ never read a printed barcode:**
   0.2 s. `detect(video)` reads the stream's own frames, so the visible preview IS the source — no
   off-screen reader any more.
 - **A 176×99 aiming preview** (`#camPreview`, red aim line, green `.is-hit` flash on a read,
-  mirrored unless the track reports `facingMode: 'environment'`), shown only while the camera runs.
+  never mirrored since 2026-10-23 at the user's request -- it mirrored a webcam facing the person, so codes read
+  backwards), shown only while the camera runs.
 - **A failure is ONE QUIET amber line, never a pop-up** (`#camStatus`): camera blocked, no camera,
   camera in use, an address without camera access (needs https or localhost; `http://<LAN-ip>` has no
   camera API), or the scanner not loading. "Try again" retries, and a permission flipped to Allow

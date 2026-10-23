@@ -17,8 +17,10 @@
      the stream's own frames, so the small preview below IS the source.
 
      The preview (176x99, red aim line, green flash on a read) shows only once
-     the camera is running. Mirrored for a webcam facing the person (moving
-     the box left moves it left on screen), not for a phone's rear camera.
+     the camera is running. NEVER mirrored (2026-10-23, at the user's request):
+     the preview shows the box exactly as the camera sees it, the barcode's
+     digits readable, for every camera -- it used to mirror a webcam facing
+     the person, which made the code read backwards.
 
      SHARPENING (2026-10-22): every third frame is decoded plain; the other two
      decode the strip around the red line after an unsharp mask (greyscale,
@@ -57,7 +59,6 @@
     .cam-preview[hidden] { display: none; }
     .cam-preview__box { position: relative; width: 176px; height: 99px; flex: none; border-radius: 8px; overflow: hidden; background: #0f172a; border: 2px solid #cbd5e1; transition: border-color .15s ease, box-shadow .15s ease; }
     .cam-preview__box video { width: 100%; height: 100%; object-fit: cover; display: block; }
-    .cam-preview__box.is-mirrored video { transform: scaleX(-1); }
     /* The aim line: where to put the barcode. */
     .cam-preview__aim { position: absolute; left: 12%; right: 12%; top: 50%; height: 2px; margin-top: -1px; background: rgba(239, 68, 68, .85); box-shadow: 0 0 4px rgba(239, 68, 68, .8); pointer-events: none; }
     .cam-preview__box.is-hit { border-color: #16a34a; box-shadow: 0 0 0 3px rgba(22, 163, 74, .35); }
@@ -440,8 +441,6 @@
             if (track && track.applyConstraints) {
                 track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }).catch(function () {});
             }
-            const facing = track && track.getSettings ? track.getSettings().facingMode : undefined;
-            previewBox.classList.toggle('is-mirrored', facing !== 'environment');
 
             preview.srcObject = stream;
             await preview.play().catch(function () {});
