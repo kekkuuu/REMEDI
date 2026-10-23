@@ -84,6 +84,13 @@
     $forecastUnitsTotal = $actionableUnits->sum();
     $forecastRevenueTotal = $actionableRevenue->sum();
     $forecastMonths = $actionableUnits->count();
+
+    // HIDDEN 2026-10-23, at the user's request: the accuracy metrics (Model
+    // accuracy and the 80/20 train/test card) and the "Top 5 products in
+    // demand" chart. Hidden, not deleted -- flip either flag to bring them back;
+    // the controller still computes them.
+    $showAccuracyMetrics = false;
+    $showTopDemand = false;
 @endphp
 
 <div class="card" style="margin-bottom:18px;">
@@ -132,7 +139,7 @@
          them, averaged ACROSS PRODUCTS. The median sits beside the average because
          a few slow sellers with very large percentage misses pull the average up.
          The grade split runs every scored product through ForecastGrade. --}}
-    @if ($accuracy)
+    @if ($showAccuracyMetrics && $accuracy)
     @php
         $gradeRows = [
             \App\Support\ForecastGrade::NORMAL => ['Normal', '#16a34a'],
@@ -278,7 +285,7 @@
          The two baselines are what a buyer could do with no model at all, so
          the model's numbers mean something only beside them -- and the card
          says plainly when the model loses to them. --}}
-    @if ($split)
+    @if ($showAccuracyMetrics && $split)
     @php
         $splitRows = [
             'model' => 'SARIMA model (as in the app)',
@@ -378,7 +385,7 @@
          answer different questions on purpose -- what to reorder vs. what
          earns -- rather than the same ranking told twice, which is why a
          product can appear on one and not the other. --}}
-    @if (!empty($topDemand['series']))
+    @if ($showTopDemand && !empty($topDemand['series']))
     <div style="border:0.5px solid #e5e7eb; border-radius:12px; background:#fff; padding:16px; margin-bottom:18px;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:4px;">
             <span style="font-size:14px; font-weight:500; color:#111;">
