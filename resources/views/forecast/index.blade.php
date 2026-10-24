@@ -88,9 +88,12 @@
     // HIDDEN 2026-10-23, at the user's request: the accuracy metrics (Model
     // accuracy and the 80/20 train/test card) and the "Top 5 products in
     // demand" chart. Hidden, not deleted -- flip either flag to bring them back;
-    // the controller still computes them.
+    // the controller still computes them. The other Top 5 chart, "Top 5 sales
+    // forecast by sales product", followed on 2026-10-24, also at the user's
+    // request -- the page now has no Top 5 chart at all.
     $showAccuracyMetrics = false;
     $showTopDemand = false;
+    $showTopSales = false;
 @endphp
 
 <div class="card" style="margin-bottom:18px;">
@@ -404,7 +407,7 @@
     </div>
     @endif
 
-    @if (!empty($topSales['series']))
+    @if ($showTopSales && !empty($topSales['series']))
     <div style="border:0.5px solid #e5e7eb; border-radius:12px; background:#fff; padding:16px; margin-bottom:18px;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap; margin-bottom:4px;">
             <span style="font-size:14px; font-weight:500; color:#111;">
