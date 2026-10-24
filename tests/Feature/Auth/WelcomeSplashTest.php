@@ -28,6 +28,23 @@ class WelcomeSplashTest extends TestCase
         $this->assertDoesNotMatchRegularExpression('/<video[^>]*id="splashVideo"[^>]*\sloop/s', $html);
     }
 
+    /**
+     * Get Started comes only after the video. The CSS-only link (for a page
+     * whose script never runs) stands down as soon as the script runs -- its
+     * 6s timer put it up mid-video on every visit -- and waits past the
+     * 10-second video even when it is needed; the "never started" timer is
+     * long enough that a slow-loading video is not overtaken by it.
+     */
+    public function test_get_started_waits_for_the_video(): void
+    {
+        $html = $this->get('/')->assertOk()->getContent();
+
+        $this->assertStringContainsString("classList.add('has-js')", $html);
+        $this->assertMatchesRegularExpression('/\.splash-inner\.has-js \.no-js-fallback \{ display: none; \}/', $html);
+        $this->assertStringContainsString('noJsFallbackReveal 0s linear 11s', $html);
+        $this->assertStringContainsString('var FALLBACK_DURATION_MS = 15000;', $html);
+    }
+
     public function test_the_login_page_has_no_separate_intro(): void
     {
         $this->assertStringNotContainsString('remedi-reveal.mp4', $this->get('/login')->assertOk()->getContent());

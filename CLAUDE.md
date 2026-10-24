@@ -2845,12 +2845,20 @@ request: "like the last time, after the video it stays and has a GET STARTED").*
 ahead of the data so it starts while still downloading -- no ffmpeg here, a short Python box-reorder did it) replaced
 `public/Logo.mp4`, the old mark that was chroma-keyed onto a canvas (the keying code is gone; `startKeying()` /
 `stopKeying()` keep their names and only mark playback). It plays full screen behind the text, muted (autoplay refuses
-sound), stops on its last frame, and the existing flow carries on: Get Started appears at the end (or after
-`FALLBACK_DURATION_MS`, 4 s, if playback never STARTS), and only a click on it reveals the login form on the same
-page. The subtitle appears with the button (mid-reveal the logo's bars cross its line) and the loading dots are gone.
-**Sizing**: like `object-fit: cover`, but never wider than 2.1 screen widths (`min(max(100vw, 177.78vh), 210vw)`),
-because the logo spans 31-72% of the frame and a true cover on a 375x812 phone cut both sides off; on screens taller
-than 4:3 a mask fades the frame's top and bottom into the grey behind. **Signing out lands here** (the server
+sound), stops on its last frame, and the existing flow carries on: Get Started appears at the end, and only a click
+on it reveals the login form on the same page. **Only at the end (same day, at the user's request)**: the CSS-only
+fallback link (`.no-js-fallback`, for a page whose script never runs) revealed itself on a 6 s timer -- mid-video, on
+every visit -- so the script now adds `has-js` to `.splash-inner` first thing, which hides it, and its own timer is
+11 s, past the video. The "never started" timer `FALLBACK_DURATION_MS` is 15 s (was 4 s, which a slow-loading video
+after logout overtook); a refused autoplay or a load `error` reveals the button at once. Measured: button first
+visible at video t=10.0 (ended) on a fresh visit and after logout, fallback link never. The subtitle appears with the button (mid-reveal the logo's bars cross its line) and the loading dots are gone.
+**Sizing (smaller, like the old mark, same day at the user's request -- it first filled the screen)**: a centred
+frame of `--frame: clamp(440px, min(68vw, 120vh), 940px)`, so the logo (31-72% of the frame's width) is ~180px on a
+phone up to ~390px on a desktop, against the old mark's 180-420px; the subtitle is pulled up into the faded strip under
+the settled logo (`margin-top: calc(var(--frame) * -0.11)`). The video has its own grey backdrop rather than
+transparency, so a radial mask (`ellipse 40% 50%`, opaque to 66%) fades the frame's edges into the page's matching
+grey instead of showing a rectangle; on a phone the 440px frame is wider than the screen and its faded sides simply
+run off it (no horizontal scroll). **Signing out lands here** (the server
 redirects to `/` and the AJAX logout follows it), so the reveal plays after every logout too. Served through
 `StaticAsset::url()` (cached a year); `server.php` sends `.mp4` as `video/mp4` with a length and no charset. For one
 day (commit 99c9123) the video was a separate intro over `/login`; that was removed when the user asked for the

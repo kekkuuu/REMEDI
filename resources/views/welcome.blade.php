@@ -65,36 +65,32 @@
             position: fixed;
             inset: 0;
             z-index: 100;
-            /* The logo-reveal video's own grey (2026-10-24), for the moment
-               before its first frame and the bands above and below it on a
-               tall screen. */
-            background: radial-gradient(ellipse at 50% 55%, #ededed 0%, #d6d6d6 60%, #c2c2c2 100%);
+            /* The logo-reveal video's own grey (2026-10-24), so the frame's
+               faded edges (below) melt into the page. */
+            background: radial-gradient(ellipse at 50% 45%, #ebebeb 0%, #dcdcdc 45%, #cacaca 100%);
             opacity: 1;
             transition: opacity .5s ease;
-            align-items: flex-end;
+            /* The frame's width, shared by the video and the subtitle's pull-up. */
+            --frame: clamp(440px, min(68vw, 120vh), 940px);
         }
 
-        /* Fills the screen like object-fit: cover (the larger of full width
-           and full height at 16:9), but never wider than 2.1 screen widths:
-           the logo spans 31-72% of the frame's width, so on a tall phone a
-           true cover (~3.8 widths on 375x812) cut both sides of it off.
-           Capped, the logo fits and the frame stops short of the top and
-           bottom, where the mask fades its edges into the grey behind. */
+        /* Centred and smaller, like the old Logo.mp4 mark (2026-10-24, at the
+           user's request -- it first filled the screen). The logo spans
+           31-72% of the frame's width, so a frame of up to 940px gives a logo
+           of up to ~390px, about the old mark's 420px. The video carries its
+           own grey backdrop rather than transparency, so a radial mask fades
+           the frame's edges into the page instead of showing a rectangle;
+           the logo (within 0.67 of the centre at its widest) stays opaque.
+           440px minimum: on a phone the frame is wider than the screen and
+           its faded sides are simply off it -- the logo itself still fits. */
         .splash-video {
-            position: fixed;            /* to the screen, not to .splash-inner */
-            left: 50%;
-            top: 50%;
-            transform: translate(-50%, -50%);
-            width: min(max(100vw, 177.78vh), 210vw);
+            display: block;
+            width: var(--frame);
             height: auto;
             aspect-ratio: 16 / 9;
             pointer-events: none;
-        }
-        @media (max-aspect-ratio: 4/3) {
-            .splash-video {
-                -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent);
-                        mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent);
-            }
+            -webkit-mask-image: radial-gradient(ellipse 40% 50% at 51% 50%, #000 66%, transparent 98%);
+                    mask-image: radial-gradient(ellipse 40% 50% at 51% 50%, #000 66%, transparent 98%);
         }
 
         /* Set once the Get Started button appears -- the whole splash
@@ -110,19 +106,19 @@
         #splash.is-gone { display: none; }
 
         .splash-inner {
-            position: relative;         /* over the video */
             display: flex;
             flex-direction: column;
             align-items: center;
             text-align: center;
-            padding: 0 24px 18px;
+            padding: 24px;
         }
 
-        /* Under the logo-reveal video the logo reaches 83% of the frame's
-           height, so the text and button share the strip below it: the
-           subtitle sits tight above the button, and the loading dots go --
-           the playing video already says something is happening. */
-        #splash .splash-subtitle { margin-top: 0; margin-bottom: 10px; font-size: clamp(12px, 1.6vw, 15px); color: #475569; }
+        /* The settled logo ends at 78% of the frame's height and the rest is
+           faded backdrop, so the subtitle is pulled up into that strip
+           (-11% of the frame's width = -20% of its height) rather than
+           leaving a gap; the loading dots go -- the playing video already
+           says something is happening. */
+        #splash .splash-subtitle { margin-top: calc(var(--frame) * -0.11); font-size: clamp(13px, 1.8vw, 17px); color: #475569; position: relative; }
         #splash .splash-dots { display: none !important; }
         /* Mid-reveal the logo's chart bars reach the subtitle's line; by the
            last frame the logo has settled above it. So it comes in with the
@@ -293,8 +289,16 @@
             box-shadow: 0 6px 18px rgba(16, 185, 129, .22);
             opacity: 0;
             pointer-events: none;
-            animation: noJsFallbackReveal 0s linear 6s forwards;
+            /* 11s: after the 10-second logo reveal, so even a page whose
+               script never runs does not offer it mid-video. */
+            animation: noJsFallbackReveal 0s linear 11s forwards;
         }
+
+        /* The splash script marks itself as running the moment it starts
+           (2026-10-24): from then on Get Started is its job, shown only when
+           the video ends. Without this the CSS timer above put this link up
+           6 seconds into the 10-second video on every visit. */
+        .splash-inner.has-js .no-js-fallback { display: none; }
 
         .no-js-fallback:hover { background: var(--brand-dark); }
 
@@ -624,13 +628,20 @@
 
     <script>
         (function () {
-            // Only used if the video never actually STARTS playing -- blocked
-            // autoplay, a decode failure, a very slow network. Cleared the
-            // moment the `playing` event fires (see below), so it only ever
-            // has to cover "did playback begin" -- if it never does, the Get
-            // Started button is revealed anyway rather than leaving the
-            // splash with nothing to click.
-            var FALLBACK_DURATION_MS = 4000;
+            // The script is running: the CSS-only Get Started link (for a page
+            // whose script never runs) stands down, and Get Started waits
+            // for the video to END (2026-10-24, at the user's request).
+            document.querySelector('.splash-inner').classList.add('has-js');
+
+            // Only used if the video never actually STARTS playing -- a very
+            // slow network, a stalled download. Cleared the moment the
+            // `playing` event fires (see below), so it only ever has to cover
+            // "did playback begin" -- if it never does, the Get Started button
+            // is revealed anyway rather than leaving the splash with nothing
+            // to click. 15s (was 4s): 4s fired while a slow-loading video was
+            // still on its way, putting the button up mid-video. A refused
+            // autoplay or a load error reveal it at once instead (below).
+            var FALLBACK_DURATION_MS = 15000;
 
             var splash = document.getElementById('splash');
             var loginStage = document.getElementById('login-stage');
@@ -747,6 +758,8 @@
                     clearTimeout(fallbackTimer);
                     startKeying();
                 });
+                // A video that cannot load will never end: don't wait on it.
+                video.addEventListener('error', revealGetStarted);
 
                 var playPromise = video.play();
                 if (playPromise && typeof playPromise.catch === 'function') {
