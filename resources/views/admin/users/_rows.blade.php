@@ -53,7 +53,22 @@
     </thead>
     <tbody>
     @forelse($users as $user)
-        <tr>
+        {{-- Clicking the row (anywhere but its buttons) opens the read-only
+             Personal Information pop-up in index.blade.php (2026-10-23, at the
+             user's request) -- the same fields My Profile shows. The values
+             ride on the row as JSON, so the pop-up costs no request. --}}
+        <tr class="user-row" tabindex="0"
+            aria-label="View {{ $user->name }}'s personal information"
+            data-user-info="{{ json_encode([
+                'name' => $user->name,
+                'email' => $user->email,
+                'personal_email' => $user->personal_email,
+                'phone' => $user->phone,
+                'role' => $user->isAdmin() ? 'Administrator' : 'Staff',
+                'code' => $user->staff_code,
+                'since' => $user->created_at?->format('F j, Y'),
+                'edit' => $archived ? null : route('users.edit', $user, false),
+            ]) }}">
             {{-- User::$staff_code ("ADM-001" / "STF-004"), not the bare
                  primary key -- matches what My Profile shows for the same
                  account. Sorting stays on the real `id` column (see the

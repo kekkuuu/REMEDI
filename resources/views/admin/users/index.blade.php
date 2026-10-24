@@ -220,6 +220,22 @@
         .users-toolbar .spacer { display: none; }
         .users-search { max-width: none; }
     }
+    /* -- Personal Information pop-up (row click, 2026-10-23) --
+       Same fields and look as My Profile's Personal Information card. */
+    .user-row { cursor: pointer; }
+    .user-row:focus-visible { outline: 2px solid #1d9e75; outline-offset: -2px; }
+    #userInfoModal .remedi-modal__panel { max-width: 760px; text-align: left; padding: 24px 28px; }
+    #userInfoModal h3 { margin: 0 0 18px; font-size: 18px; font-weight: 700; color: #0f172a; }
+    .user-info-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px 20px; }
+    @media (max-width: 640px) { .user-info-grid { grid-template-columns: 1fr; } }
+    .user-info-field label { display: block; font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 6px; }
+    .user-info-field input { width: 100%; cursor: default; }
+    .user-info-field input:focus { outline: none; box-shadow: none; }
+    .user-info-field .hint { margin: 6px 0 0; font-size: 12px; color: #64748b; }
+    .user-info-locked { position: relative; display: flex; align-items: center; }
+    .user-info-locked input { background: #f8fafc; color: #64748b; }
+    .user-info-locked i { position: absolute; right: 12px; color: #94a3b8; font-size: 16px; pointer-events: none; }
+    #userInfoModal .remedi-modal__actions { justify-content: flex-end; margin-top: 22px; }
 </style>
 
 <div class="page-head">
@@ -383,7 +399,119 @@
     @include('admin.users._rows')
 </div>
 
+{{-- Read-only Personal Information for the clicked row -- the same fields as
+     My Profile. Nothing here is a form: changes are made from Edit user. --}}
+<div class="remedi-modal" id="userInfoModal" role="dialog" aria-modal="true" aria-labelledby="userInfoTitle">
+    <div class="remedi-modal__panel">
+        <h3 id="userInfoTitle">Personal Information</h3>
+        <div class="user-info-grid">
+            <div class="user-info-field">
+                <label for="ui-name">Full Name</label>
+                <input id="ui-name" type="text" readonly data-ui="name">
+            </div>
+            <div class="user-info-field">
+                <label for="ui-email">Email Address</label>
+                <input id="ui-email" type="text" readonly data-ui="email">
+            </div>
+            <div class="user-info-field">
+                <label for="ui-personal-email">Personal Email</label>
+                <input id="ui-personal-email" type="text" readonly data-ui="personal_email">
+                <p class="hint">Used to send a password reset code.</p>
+            </div>
+            <div class="user-info-field">
+                <label for="ui-phone">Phone Number</label>
+                <input id="ui-phone" type="text" readonly data-ui="phone">
+            </div>
+            <div class="user-info-field">
+                <label for="ui-role">Role</label>
+                <div class="user-info-locked">
+                    <input id="ui-role" type="text" readonly data-ui="role">
+                    <i class="ti ti-lock" aria-hidden="true"></i>
+                </div>
+            </div>
+            <div class="user-info-field">
+                <label for="ui-code">User ID</label>
+                <div class="user-info-locked">
+                    <input id="ui-code" type="text" readonly data-ui="code">
+                    <i class="ti ti-lock" aria-hidden="true"></i>
+                </div>
+            </div>
+            <div class="user-info-field">
+                <label for="ui-since">Member Since</label>
+                <div class="user-info-locked">
+                    <input id="ui-since" type="text" readonly data-ui="since">
+                    <i class="ti ti-lock" aria-hidden="true"></i>
+                </div>
+            </div>
+        </div>
+        <div class="remedi-modal__actions">
+            <button type="button" class="btn btn-secondary" id="userInfoClose">Close</button>
+            <a href="#" class="btn btn-info" id="userInfoEdit"><i class="ti ti-pencil" aria-hidden="true"></i> Edit user</a>
+        </div>
+    </div>
+</div>
+
 <script>
+/* Row click -> read-only Personal Information pop-up (2026-10-23).
+ *
+ * Delegated on #usersResults because the rows are replaced by every AJAX
+ * search. A click on anything interactive in the row -- Edit, the activate /
+ * archive forms, a link -- is that control's, never the row's. Enter or Space
+ * on a focused row opens it too. Missing values read "-" rather than a blank
+ * box that looks unfilled.
+ */
+(function () {
+    var wrapper = document.getElementById('usersResults');
+    var modal = document.getElementById('userInfoModal');
+    if (!wrapper || !modal) return;
+
+    var closeBtn = document.getElementById('userInfoClose');
+    var editLink = document.getElementById('userInfoEdit');
+    var unlock = null;
+    var opener = null;
+
+    function open(row) {
+        var info;
+        try { info = JSON.parse(row.getAttribute('data-user-info')); } catch (e) { return; }
+
+        modal.querySelectorAll('[data-ui]').forEach(function (input) {
+            var v = info[input.getAttribute('data-ui')];
+            input.value = (v === null || v === undefined || v === '') ? '\u2014' : v;
+        });
+        editLink.hidden = !info.edit;
+        if (info.edit) editLink.href = info.edit;
+
+        opener = row;
+        modal.classList.add('is-open');
+        unlock = REMEDI.lockScroll();
+        closeBtn.focus({ preventScroll: true });
+    }
+
+    function close() {
+        if (!modal.classList.contains('is-open')) return;
+        modal.classList.remove('is-open');
+        if (unlock) { unlock(); unlock = null; }
+        if (opener) { opener.focus({ preventScroll: true }); opener = null; }
+    }
+
+    wrapper.addEventListener('click', function (e) {
+        if (e.target.closest('a, button, form, input, select, textarea, label')) return;
+        var row = e.target.closest('tr.user-row');
+        if (row) open(row);
+    });
+
+    wrapper.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        if (!e.target.matches || !e.target.matches('tr.user-row')) return;
+        e.preventDefault();
+        open(e.target);
+    });
+
+    closeBtn.addEventListener('click', close);
+    modal.addEventListener('click', function (e) { if (e.target === modal) close(); });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
+})();
+
 /* The Filter button reveals the panel; it does not filter by itself.
  *
  * `hidden` rather than a display rule, so the panel is out of the accessibility
