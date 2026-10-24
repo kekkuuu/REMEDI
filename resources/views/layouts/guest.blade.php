@@ -192,5 +192,101 @@
         });
     })();
 </script>
+
+{{-- The opening intro (2026-10-23, at the user's request: the REMEDI logo
+     reveal, public/assets/remedi-reveal.mp4, "before the login page"). Plays
+     over the login page the FIRST time it is opened in a browser session
+     (sessionStorage), so a wrong password or a sign-out does not replay ten
+     seconds of video; never over an error or a status message. Muted, because
+     a browser refuses to autoplay sound. It fades to the login form when the
+     video ends or on Skip, and gets out of the way at once -- so it can never
+     be what stops someone signing in -- if the video errors, is refused
+     autoplay, has not started within 4 s, or the device asks for reduced
+     motion. --}}
+@if(request()->routeIs('login') && ! $errors->any() && ! session('status') && is_file(public_path('assets/remedi-reveal.mp4')))
+<style>
+    .intro {
+        position: fixed;
+        inset: 0;
+        z-index: 1000;
+        display: flex;
+        align-items: flex-end;
+        justify-content: center;
+        background: #d4d4d4;        /* the video's own grey, before frame one */
+        transition: opacity .5s ease;
+    }
+    .intro.is-leaving { opacity: 0; pointer-events: none; }
+    .intro video {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;          /* the logo sits in the middle third */
+    }
+    .intro__skip {
+        position: relative;
+        margin: 0 16px 28px;
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        border: 0;
+        border-radius: 999px;
+        padding: 8px 18px;
+        background: rgba(15, 110, 86, .92);
+        color: #fff;
+        font: 600 14px 'Outfit', sans-serif;
+        cursor: pointer;
+        box-shadow: 0 8px 24px -12px rgba(15, 23, 42, .45);
+    }
+    .intro__skip:hover { background: #0b5a46; }
+    .intro__skip:focus-visible { outline: 2px solid #0f6e56; outline-offset: 2px; }
+    @media (prefers-reduced-motion: reduce) { .intro { display: none; } }
+</style>
+<div class="intro" id="intro">
+    <video id="introVideo" src="{{ \App\Support\StaticAsset::url('assets/remedi-reveal.mp4') }}"
+           muted playsinline autoplay preload="auto" disablepictureinpicture aria-hidden="true"></video>
+    <button type="button" class="intro__skip" id="introSkip">Skip intro &rsaquo;</button>
+</div>
+<script>
+    (function () {
+        var el = document.getElementById('intro');
+        var KEY = 'remedi.introPlayed';
+        var played = false;
+        try { played = sessionStorage.getItem(KEY) === '1'; sessionStorage.setItem(KEY, '1'); } catch (e) {}
+
+        // Decided before the first paint (this runs straight after the
+        // markup), so a repeat visit never flashes the intro.
+        if (played || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) {
+            el.remove();
+            return;
+        }
+
+        var video = document.getElementById('introVideo');
+        var done = false;
+        var html = document.documentElement, overflow = html.style.overflow;
+        html.style.overflow = 'hidden';
+
+        function finish() {
+            if (done) return;
+            done = true;
+            clearTimeout(startGuard);
+            html.style.overflow = overflow;
+            el.classList.add('is-leaving');
+            setTimeout(function () { el.remove(); }, 550);
+            var email = document.getElementById('email');
+            if (email) email.focus({ preventScroll: true });
+        }
+
+        var startGuard = setTimeout(function () { if (video.currentTime === 0) finish(); }, 4000);
+        video.addEventListener('playing', function () { clearTimeout(startGuard); });
+        video.addEventListener('ended', finish);
+        video.addEventListener('error', finish);
+        var playing = video.play();
+        if (playing && playing.catch) playing.catch(finish);
+        document.getElementById('introSkip').addEventListener('click', finish);
+        document.addEventListener('keydown', function (e) { if (e.key === 'Escape') finish(); });
+    })();
+</script>
+@endif
 </body>
 </html>

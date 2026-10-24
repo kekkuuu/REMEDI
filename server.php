@@ -26,7 +26,16 @@ $uri = urldecode(
 );
 
 if ($uri !== '/' && file_exists($file = __DIR__.'/public'.$uri) && ! is_dir($file)) {
-    header('Content-Type: '.get_mime_type($file).'; charset=UTF-8');
+    $mime = get_mime_type($file);
+    // A charset only means something on text; the sign-in video (2026-10-23)
+    // is the first binary here that a browser inspects closely, so it goes
+    // out bare, with its length so the player knows the file's size.
+    if (str_starts_with($mime, 'video/')) {
+        header('Content-Type: '.$mime);
+        header('Content-Length: '.filesize($file));
+    } else {
+        header('Content-Type: '.$mime.'; charset=UTF-8');
+    }
     // Without a Cache-Control every page load asked this function for the file
     // again -- one cold-startable invocation per asset per click. A versioned
     // URL (?v=<content hash>, see layouts/app.blade.php) never changes content,
@@ -74,6 +83,7 @@ function get_mime_type(string $filename): string
         'woff2' => 'font/woff2',
         'otf' => 'font/otf',
         'map' => 'application/json',
+        'mp4' => 'video/mp4',
     ];
 
     return $mimes[$extension] ?? 'application/octet-stream';

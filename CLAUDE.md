@@ -2839,6 +2839,18 @@ branded loader card is for arrivals only (`is-first-load`, from the `remedi.just
 revisit gets the skeleton alone, so **`.dash-loader` must not carry `display` in its own rule block**
 or it defeats that gate. REMEDI.md "Theme: one palette" has the loader in full.
 
+**The login page opens with the REMEDI logo-reveal video (2026-10-23, at the user's request: "before the login
+page").** `public/assets/remedi-reveal.mp4` (10 s, 1920x1080, H.264, 2.2 MB; the user's
+`Commercial_reveal_of_REMEDI_logo_*.mp4` with its `moov` index moved ahead of the data so it starts while still
+downloading -- there is no ffmpeg here, a short Python box-reorder did it). `layouts/guest.blade.php` renders it full
+screen over `login` only, never with an error or status message on the page; it plays the FIRST time in a browser
+session (`sessionStorage['remedi.introPlayed']`, decided by a script straight after the markup, so a repeat never
+flashes it), muted (autoplay refuses sound), and fades to the form -- focus in Email -- when it ends, on Skip or
+Escape. It gets out of the way at once if the video errors, autoplay is refused, it has not started in 4 s, or the
+device prefers reduced motion. Served through `StaticAsset::url()` (cached a year); `server.php` now sends `.mp4` as
+`video/mp4` with a length and no charset. A first version played it over the dashboard after sign-in; it was
+never committed -- the user meant before the login page. Covered by `Feature\Auth\LoginIntroTest`.
+
 **`partials/_page-skeleton.blade.php` is the one definition of the navigation skeleton**, included
 by the layout (`.content-body.is-navigating`) and by `dashboard/_loading.blade.php` as the backdrop.
 It paints only after `SKELETON_DELAY_MS` (180ms), so a fast page paints none at all, and it has two
