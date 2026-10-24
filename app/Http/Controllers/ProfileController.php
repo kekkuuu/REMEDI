@@ -40,6 +40,9 @@ class ProfileController extends Controller
      */
     public function update(ProfileUpdateRequest $request)
     {
+        // Was this the address EnsureUserHasPersonalEmail was waiting for?
+        $firstPersonalEmail = trim((string) $request->user()->personal_email) === '';
+
         $request->user()->fill($request->validated());
 
         if ($request->user()->isDirty('email')) {
@@ -69,6 +72,13 @@ class ProfileController extends Controller
         // set a 'success' flash, so the page would show the same message twice.
         if ($request->wantsJson() || $request->ajax()) {
             return response()->json(['success' => true, 'message' => 'Profile updated.']);
+        }
+
+        // The pop-up that asked for it is done: carry on to wherever the
+        // person was going when they were sent here (the dashboard after a
+        // sign-in).
+        if ($firstPersonalEmail) {
+            return Redirect::intended(route('dashboard'))->with('success', 'Personal email saved. Thank you!');
         }
 
         return Redirect::route('profile.edit')->with('status', 'profile-updated');

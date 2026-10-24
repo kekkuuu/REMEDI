@@ -34,7 +34,9 @@ class ProfileUpdateRequest extends FormRequest
             // a password reset code is sent, so an account that cannot change
             // it after switching providers would discover that at the exact
             // moment it needed the address to work.
-            'personal_email' => ['nullable', 'string', 'email', 'max:255'],
+            // REQUIRED since 2026-10-23, at the user's request (it was optional):
+            // every account then has somewhere to receive its own reset code.
+            'personal_email' => ['bail', 'required', 'string', 'email', 'max:255'],
         ];
 
         if ($this->user()->isAdmin()) {

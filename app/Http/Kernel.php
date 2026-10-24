@@ -4,6 +4,7 @@ namespace App\Http;
 
 use App\Http\Middleware\Authenticate;
 use App\Http\Middleware\EncryptCookies;
+use App\Http\Middleware\EnsureUserHasPersonalEmail;
 use App\Http\Middleware\EnsureUserHasRole;
 use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\EnsureUserSetsNewPassword;
@@ -99,5 +100,8 @@ class Kernel extends HttpKernel
         // Sends an account still on its admin-reset default password to
         // /profile until it sets its own. See the middleware's note.
         'must_change_password' => EnsureUserSetsNewPassword::class,
+        // Sends an account with no personal email to /profile, where a pop-up
+        // asks for it. See the middleware's note.
+        'personal_email' => EnsureUserHasPersonalEmail::class,
     ];
 }

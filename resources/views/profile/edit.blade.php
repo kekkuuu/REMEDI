@@ -313,6 +313,51 @@
     </div>
 @endif
 
+{{-- No personal email yet (2026-10-23, at the user's request): an admin may
+     create an account without one, and EnsureUserHasPersonalEmail sends the
+     account here on every request until it is saved. Rendered OPEN, with no
+     close button, Escape or backdrop click -- the only ways out are saving it
+     or logging out. Not shown while a temporary password is still in force:
+     that dialog comes first, and this form could not save until it is done.
+     A plain POST, so it works without JavaScript; the name (and, for an admin,
+     the work email) ride along because ProfileUpdateRequest requires them. --}}
+@if(! $user->must_change_password && trim((string) $user->personal_email) === '')
+    <style>body { overflow: hidden; }</style>
+    <div class="remedi-modal is-open" id="personalEmailModal" role="dialog" aria-modal="true"
+         aria-labelledby="personalEmailTitle" aria-describedby="personalEmailBody">
+        <div class="remedi-modal__panel" style="max-width:440px;">
+            <div class="remedi-modal__icon is-neutral"><i class="ti ti-mail" aria-hidden="true"></i></div>
+            <h3 id="personalEmailTitle">Add your personal email</h3>
+            <p id="personalEmailBody">
+                If you forget your password, a reset code is sent to this address.
+                Please add it to continue.
+            </p>
+            <form method="POST" action="{{ route('profile.update') }}" style="text-align:left; margin-top:14px;">
+                @csrf
+                @method('patch')
+                <input type="hidden" name="name" value="{{ $user->name }}">
+                @if($user->isAdmin())
+                    <input type="hidden" name="email" value="{{ $user->email }}">
+                @endif
+                <label for="pe-personal-email" style="display:block; font-size:13px; font-weight:500; color:#374151; margin-bottom:6px;">Personal Email</label>
+                <input id="pe-personal-email" type="email" name="personal_email" value="{{ old('personal_email') }}"
+                       placeholder="name@gmail.com" autocomplete="email" required autofocus style="width:100%;">
+                @error('personal_email')<p class="err" style="margin:6px 0 0; font-size:13px; color:#991b1b;">{{ $message }}</p>@enderror
+                <div class="remedi-modal__actions" style="margin-top:18px;">
+                    <button type="submit" form="logoutForm" class="btn btn-secondary">Log out</button>
+                    <button type="submit" class="btn btn-primary">Save and continue</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <script>
+        // Out of the content area, which stacks below the alert toasts
+        // (#remediToasts, z-index 195): at the top level the dialog's own 200
+        // puts it over them.
+        document.body.appendChild(document.getElementById('personalEmailModal'));
+    </script>
+@endif
+
 <div class="profile-grid">
 
   <div class="profile-col">
@@ -766,9 +811,9 @@
                     <label for="personal_email">Personal Email</label>
                     <input id="personal_email" type="email" name="personal_email"
                            value="{{ old('personal_email', $user->personal_email) }}"
-                           placeholder="name@gmail.com" autocomplete="off">
+                           placeholder="name@gmail.com" autocomplete="off" required>
                     <p class="hint" style="margin:6px 0 0; font-size:12px; color:#64748b;">
-                        Used to send you a password reset code. Optional.
+                        Required. Used to send you a password reset code.
                     </p>
                     @error('personal_email')<p class="err">{{ $message }}</p>@enderror
                 </div>

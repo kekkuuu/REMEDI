@@ -108,7 +108,7 @@
                 <input type="email" id="personal_email" name="personal_email"
                        value="{{ old('personal_email', $user->personal_email) }}"
                        placeholder="Enter personal email" autocomplete="off">
-                <p class="hint">Used to send password reset codes. Optional.</p>
+                <p class="hint">Optional. If left blank, the user is asked for it when they sign in.</p>
                 @error('personal_email')<p class="err">{{ $message }}</p>@enderror
             </div>
 
