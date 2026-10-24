@@ -65,12 +65,36 @@
             position: fixed;
             inset: 0;
             z-index: 100;
-            background:
-                radial-gradient(circle at 30% 20%, rgba(16, 185, 129, .08), transparent 45%),
-                radial-gradient(circle at 75% 80%, rgba(16, 185, 129, .06), transparent 50%),
-                #fafcfb;
+            /* The logo-reveal video's own grey (2026-10-24), for the moment
+               before its first frame and the bands above and below it on a
+               tall screen. */
+            background: radial-gradient(ellipse at 50% 55%, #ededed 0%, #d6d6d6 60%, #c2c2c2 100%);
             opacity: 1;
             transition: opacity .5s ease;
+            align-items: flex-end;
+        }
+
+        /* Fills the screen like object-fit: cover (the larger of full width
+           and full height at 16:9), but never wider than 2.1 screen widths:
+           the logo spans 31-72% of the frame's width, so on a tall phone a
+           true cover (~3.8 widths on 375x812) cut both sides of it off.
+           Capped, the logo fits and the frame stops short of the top and
+           bottom, where the mask fades its edges into the grey behind. */
+        .splash-video {
+            position: fixed;            /* to the screen, not to .splash-inner */
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: min(max(100vw, 177.78vh), 210vw);
+            height: auto;
+            aspect-ratio: 16 / 9;
+            pointer-events: none;
+        }
+        @media (max-aspect-ratio: 4/3) {
+            .splash-video {
+                -webkit-mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent);
+                        mask-image: linear-gradient(to bottom, transparent, #000 14%, #000 86%, transparent);
+            }
         }
 
         /* Set once the Get Started button appears -- the whole splash
@@ -86,12 +110,24 @@
         #splash.is-gone { display: none; }
 
         .splash-inner {
+            position: relative;         /* over the video */
             display: flex;
             flex-direction: column;
             align-items: center;
             text-align: center;
-            padding: 24px;
+            padding: 0 24px 18px;
         }
+
+        /* Under the logo-reveal video the logo reaches 83% of the frame's
+           height, so the text and button share the strip below it: the
+           subtitle sits tight above the button, and the loading dots go --
+           the playing video already says something is happening. */
+        #splash .splash-subtitle { margin-top: 0; margin-bottom: 10px; font-size: clamp(12px, 1.6vw, 15px); color: #475569; }
+        #splash .splash-dots { display: none !important; }
+        /* Mid-reveal the logo's chart bars reach the subtitle's line; by the
+           last frame the logo has settled above it. So it comes in with the
+           Get Started button, not with playback. */
+        #splash .splash-inner:not(.is-ready) .splash-subtitle { visibility: hidden; }
 
         .splash-logo {
             display: block;
@@ -472,32 +508,14 @@
          reached only by clicking it. See revealGetStarted() below. --}}
     <div id="splash">
         <div class="splash-inner">
-            {{-- LOGO: public/Logo.mp4 -- the animated REMEDI mark. Standard
-                 H.264 has no alpha channel, so the raw <video> would render
-                 its own solid background rather than sitting transparently
-                 over the splash. The <video> here is decode-only and never
-                 shown (opacity:0, 1x1, off the layout); a canvas the same
-                 size as .splash-logo draws each frame and keys the clip's
-                 own solid background colour out to transparent in real
-                 time -- see chromaKeyFrame() below. Filename case matters on
-                 Linux (Vercel/Railway), unlike Windows/XAMPP -- keep it
-                 exactly `Logo.mp4` if the file is ever replaced. --}}
-            <video id="splashVideo" src="{{ asset('Logo.mp4') }}" muted playsinline preload="auto" fetchpriority="high"
-                   style="position:absolute; width:1px; height:1px; opacity:0; pointer-events:none;"></video>
-            {{-- width/height match Logo.mp4's real dimensions (824x768).
-                 Without them a <canvas> defaults to 300x150 (2:1) until the
-                 first real frame is drawn and chromaKeyFrame() sets
-                 canvas.width/height to the video's actual size -- at which
-                 point the intrinsic ratio jumps from 2:1 to ~1.07:1, nearly
-                 doubling the rendered height under `height:auto` and
-                 visibly shoving the whole vertically-centred splash block
-                 (subtitle, dots, button) down the screen the moment
-                 playback starts. Declaring the real size up front means
-                 the space is correctly reserved from the very first paint,
-                 so there's nothing left to reflow when JS's own
-                 `if (canvas.width !== video.videoWidth)` check runs and
-                 finds they already match. --}}
-            <canvas id="splashCanvas" class="splash-logo" width="824" height="768" role="img" aria-label="REMEDI"></canvas>
+            {{-- The REMEDI logo reveal (2026-10-24, at the user's request:
+                 public/assets/remedi-reveal.mp4, 10 s, replacing the keyed
+                 Logo.mp4 mark). It carries its own grey backdrop, so it is
+                 shown as it is, full screen behind the text and button, and
+                 stops on its last frame when it ends -- Get Started then
+                 appears, as before. Muted: autoplay refuses sound. --}}
+            <video id="splashVideo" class="splash-video" src="{{ \App\Support\StaticAsset::url('assets/remedi-reveal.mp4') }}"
+                   muted playsinline preload="auto" fetchpriority="high" disablepictureinpicture aria-hidden="true"></video>
             <p class="splash-subtitle">Web-Based Pharmacy Management System</p>
             <div class="splash-dots" aria-hidden="true"><span></span><span></span><span></span></div>
             {{-- Both the button and its no-JS fallback live in one slot --
@@ -617,8 +635,6 @@
             var splash = document.getElementById('splash');
             var loginStage = document.getElementById('login-stage');
             var video = document.getElementById('splashVideo');
-            var canvas = document.getElementById('splashCanvas');
-            var ctx = canvas.getContext('2d', { willReadFrequently: true });
             var getStartedBtn = document.getElementById('getStartedBtn');
 
             // Server-rendered flag: true when this page is being shown again
@@ -630,262 +646,14 @@
             // AuthenticatedSessionController.
             var skipSplash = @json($errors->any() || old('email') !== null);
 
-            // ---- Chroma key ----
-            // Logo.mp4 has no alpha channel (H.264 in a <video> element never
-            // does), so it plays with its own background baked in. That
-            // background isn't one flat colour -- there's a soft vignette
-            // across the frame (measured: pale green ranging roughly
-            // rgb(196,224,210) at the corners to rgb(229,241,233) toward the
-            // centre) -- so keying on distance from a single sampled colour
-            // left a visible rectangle wherever the vignette drifted outside
-            // that one point's threshold.
-            //
-            // What actually separates every background sample from the
-            // logo's own light pixels (the capsule's near-neutral white) is
-            // the RELATIONSHIP between channels, not their absolute value:
-            // the background is consistently a little light (average channel
-            // 195-245) AND a little green-shifted (green minus the red/blue
-            // average sits at +4 to +32). The capsule's white measures near
-            // rgb(252,253,253) -- neutral, green delta ~0-1 -- so it fails
-            // the green-shift test and stays opaque; the logo's saturated
-            // greens fail the lightness test the same way. Two independent
-            // "how far outside the background's known range" penalties are
-            // summed into one score and fed through the same soft KEY_LOW/
-            // KEY_HIGH edge as before, so anti-aliased edges still blend
-            // rather than going jagged.
-            // The clip fades in FROM true black to its pale steady-state
-            // background, and a fade-to-black is (approximately) every
-            // channel scaled down by the same factor -- so the RATIO between
-            // green and the red/blue average stays roughly constant across
-            // the whole fade, even though absolute brightness swings from 0
-            // to ~210. Keying on that ratio (rather than on brightness bands)
-            // is what catches every brightness the fade passes through,
-            // including the mid-fade grey that two separate brightness bands
-            // missed -- it scored as "too bright to be the dark profile, too
-            // dark to be the pale one" and stayed a visible box.
-            //
-            // Below AVG_FLOOR the ratio itself gets noisy (near-zero channels
-            // divide unreliably), but a pixel that dark carries no visible
-            // colour anyway, so it's simply treated as background outright --
-            // this is what the true rgb(0,0,0) opening frame hits.
-            // RATIO_MAX is wider than the steady-state background's own
-            // ratio (~0.04-0.10) needs, because the ratio isn't perfectly
-            // stable across the fade in practice -- likely gamma correction
-            // in the encode rather than a literal linear scale-to-black.
-            // Measured directly from real playback at the darkest part of
-            // the fade (rgb(49,66,60), the first frame sampled after true
-            // black): ratio 0.197. 0.28 covers that with margin while
-            // staying far below every logo-green sample's ratio (>=0.45).
-            var AVG_FLOOR = 20;
-            var RATIO_MIN = 0.02, RATIO_MAX = 0.28;
-            var RATIO_SCALE = 100; // converts the ratio gap into the same units KEY_LOW/HIGH use
-            var KEY_LOW = 0.3;
-            var KEY_HIGH = 1.2;
-            var keying = false;
-
-            function backgroundScore(r, g, b) {
-                var avg = (r + g + b) / 3;
-                if (avg <= AVG_FLOOR) return 0;
-
-                var greenShift = g - (r + b) / 2;
-                var ratio = greenShift / avg;
-
-                if (ratio < RATIO_MIN) return (RATIO_MIN - ratio) * RATIO_SCALE;
-                if (ratio > RATIO_MAX) return (ratio - RATIO_MAX) * RATIO_SCALE;
-                return 0;
-            }
-
-            // The clip also carries a soft WHITE glow immediately around the
-            // mark, between the pale background and the artwork itself --
-            // colourimetrically indistinguishable from the capsule's own
-            // white (both sit around rgb(250,252,252)), so no per-pixel
-            // colour rule can tell them apart. What DOES separate them is
-            // CONNECTIVITY: the glow is continuously reachable from the
-            // frame's own edges by hopping through background-or-glow-
-            // coloured pixels; the capsule's white is walled off from the
-            // edges by the dark ribbon around it and is never reached that
-            // way, even though its colour alone looks identical. So this
-            // floods inward from the four borders through anything either
-            // background-scored OR plainly near-white, and only what that
-            // flood actually reaches gets made transparent -- a standard
-            // "magic wand from the edges" background removal.
-            var NEAR_WHITE_MIN = 235;
-
-            // Reused across frames rather than reallocated each one; resized
-            // only if the video's own dimensions ever change (they don't,
-            // but canvas.width/height get touched on the first frame).
-            var floodBuffers = null;
-
-            function chromaKeyFrame() {
-                if (video.videoWidth && video.videoHeight) {
-                    if (canvas.width !== video.videoWidth) canvas.width = video.videoWidth;
-                    if (canvas.height !== video.videoHeight) canvas.height = video.videoHeight;
-                    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-
-                    var w = canvas.width, h = canvas.height;
-                    var frame = ctx.getImageData(0, 0, w, h);
-                    var d = frame.data;
-
-                    if (!floodBuffers || floodBuffers.w !== w || floodBuffers.h !== h) {
-                        floodBuffers = {
-                            w: w, h: h,
-                            floodable: new Uint8Array(w * h),
-                            visited: new Uint8Array(w * h),
-                            queue: new Int32Array(w * h),
-                            labeled: new Uint8Array(w * h),
-                            nearBoundary: new Uint8Array(w * h),
-                        };
-                    }
-                    var floodable = floodBuffers.floodable;
-                    var visited = floodBuffers.visited;
-                    var queue = floodBuffers.queue;
-                    var labeled = floodBuffers.labeled;
-                    var nearBoundary = floodBuffers.nearBoundary;
-                    visited.fill(0);
-                    labeled.fill(0);
-                    nearBoundary.fill(0);
-
-                    var pixelCount = w * h;
-                    for (var p = 0; p < pixelCount; p++) {
-                        var idx = p * 4;
-                        var r = d[idx], g = d[idx + 1], b = d[idx + 2];
-                        var isNearWhite = (r + g + b) / 3 > NEAR_WHITE_MIN;
-                        floodable[p] = (backgroundScore(r, g, b) <= KEY_HIGH || isNearWhite) ? 1 : 0;
-                    }
-
-                    var qHead = 0, qTail = 0;
-                    function tryEnqueue(x, y) {
-                        if (x < 0 || x >= w || y < 0 || y >= h) return;
-                        var p = y * w + x;
-                        if (visited[p] || !floodable[p]) return;
-                        visited[p] = 1;
-                        queue[qTail++] = p;
-                    }
-                    for (var x = 0; x < w; x++) { tryEnqueue(x, 0); tryEnqueue(x, h - 1); }
-                    for (var y = 0; y < h; y++) { tryEnqueue(0, y); tryEnqueue(w - 1, y); }
-                    while (qHead < qTail) {
-                        var p2 = queue[qHead++];
-                        var px = p2 % w, py = (p2 / w) | 0;
-                        tryEnqueue(px + 1, py); tryEnqueue(px - 1, py);
-                        tryEnqueue(px, py + 1); tryEnqueue(px, py - 1);
-                    }
-
-                    // The soft per-pixel formula below exists for genuine
-                    // anti-aliasing: the handful of pixels right on the seam
-                    // between the mark and the flat background, blended by
-                    // the video encode. It has no business running anywhere
-                    // else, but until now it ran over the WHOLE canvas --
-                    // and a cool blue-grey highlight partway down the
-                    // capsule's glass cap has almost no green push
-                    // (greenShift/avg near 0), which is colourimetrically
-                    // the same "too neutral to be background" reading
-                    // RATIO_MIN is tuned to catch, so it was scored and
-                    // partially keyed out as a diagonal soft patch with no
-                    // connection to any real edge -- the "hole" in the cap.
-                    // Restrict it to a BOUNDARY_RADIUS-px band dilated out
-                    // from the actual flood, via a capped multi-source BFS
-                    // reusing `queue` (the earlier flood's contents are done
-                    // with by this point). Anything outside that band is
-                    // topologically nowhere near the background and is left
-                    // fully opaque regardless of what its colour ratio says.
-                    var BOUNDARY_RADIUS = 3;
-                    var dqHead = 0, dqTail = 0;
-                    for (var pv = 0; pv < pixelCount; pv++) {
-                        if (visited[pv]) { nearBoundary[pv] = 1; queue[dqTail++] = pv; }
-                    }
-                    var frontierStart = 0, frontierEnd = dqTail;
-                    for (var depth = 0; depth < BOUNDARY_RADIUS; depth++) {
-                        var nextEnd = frontierEnd;
-                        for (var qi = frontierStart; qi < frontierEnd; qi++) {
-                            var cp = queue[qi];
-                            var cx = cp % w, cy = (cp / w) | 0;
-                            if (cx + 1 < w) { var np1 = cp + 1; if (!nearBoundary[np1]) { nearBoundary[np1] = 1; queue[nextEnd++] = np1; } }
-                            if (cx - 1 >= 0) { var np2 = cp - 1; if (!nearBoundary[np2]) { nearBoundary[np2] = 1; queue[nextEnd++] = np2; } }
-                            if (cy + 1 < h) { var np3 = cp + w; if (!nearBoundary[np3]) { nearBoundary[np3] = 1; queue[nextEnd++] = np3; } }
-                            if (cy - 1 >= 0) { var np4 = cp - w; if (!nearBoundary[np4]) { nearBoundary[np4] = 1; queue[nextEnd++] = np4; } }
-                        }
-                        frontierStart = frontierEnd;
-                        frontierEnd = nextEnd;
-                    }
-
-                    // Anything the flood reached is background (or the glow
-                    // around it) and goes fully transparent. Anything within
-                    // the boundary band but not reached keeps the soft
-                    // per-pixel edge from backgroundScore(), so genuine edge
-                    // anti-aliasing against the flat background still blends
-                    // rather than going jagged. Everything else -- the bulk
-                    // of the artwork -- is forced fully opaque, whatever its
-                    // own colour ratio happens to read as.
-                    for (var p3 = 0; p3 < pixelCount; p3++) {
-                        if (visited[p3]) {
-                            d[p3 * 4 + 3] = 0;
-                            continue;
-                        }
-                        var idx3 = p3 * 4;
-                        if (!nearBoundary[p3]) {
-                            d[idx3 + 3] = 255;
-                            continue;
-                        }
-                        var score = backgroundScore(d[idx3], d[idx3 + 1], d[idx3 + 2]);
-                        if (score < KEY_HIGH) {
-                            d[idx3 + 3] = Math.round(Math.max(0, (score - KEY_LOW) / (KEY_HIGH - KEY_LOW)) * 255);
-                        } else {
-                            d[idx3 + 3] = 255;
-                        }
-                    }
-
-                    // The flood only removes background/glow that's reachable
-                    // from the canvas edges, so a handful of near-white
-                    // anti-aliasing pixels along the capsule's own highlight
-                    // -- walled off from the edges same as the capsule is,
-                    // but only 3-15px, not part of any real stroke -- survive
-                    // as visible flecks. Real marks in this logo are all
-                    // hundreds of pixels; nothing legitimate is this small.
-                    // Label connected opaque components among what's left
-                    // (reusing `queue` as a scratch buffer, one component's
-                    // indices per contiguous slice) and erase any island
-                    // under MIN_ISLAND_SIZE outright.
-                    var MIN_ISLAND_SIZE = 60;
-                    var runStart = 0;
-                    for (var p4 = 0; p4 < pixelCount; p4++) {
-                        if (visited[p4] || labeled[p4]) continue;
-                        var idx4 = p4 * 4;
-                        if (d[idx4 + 3] <= 0) { labeled[p4] = 1; continue; }
-                        var qh = runStart, qt = runStart;
-                        queue[qt++] = p4;
-                        labeled[p4] = 1;
-                        while (qh < qt) {
-                            var cp = queue[qh++];
-                            var cx = cp % w, cy = (cp / w) | 0;
-                            if (cx + 1 < w) { var np1 = cp + 1; if (!visited[np1] && !labeled[np1] && d[np1 * 4 + 3] > 0) { labeled[np1] = 1; queue[qt++] = np1; } }
-                            if (cx - 1 >= 0) { var np2 = cp - 1; if (!visited[np2] && !labeled[np2] && d[np2 * 4 + 3] > 0) { labeled[np2] = 1; queue[qt++] = np2; } }
-                            if (cy + 1 < h) { var np3 = cp + w; if (!visited[np3] && !labeled[np3] && d[np3 * 4 + 3] > 0) { labeled[np3] = 1; queue[qt++] = np3; } }
-                            if (cy - 1 >= 0) { var np4 = cp - w; if (!visited[np4] && !labeled[np4] && d[np4 * 4 + 3] > 0) { labeled[np4] = 1; queue[qt++] = np4; } }
-                        }
-                        if (qt - runStart < MIN_ISLAND_SIZE) {
-                            for (var k = runStart; k < qt; k++) { d[queue[k] * 4 + 3] = 0; }
-                        }
-                        runStart = qt;
-                    }
-
-                    ctx.putImageData(frame, 0, 0);
-                }
-                if (keying) requestAnimationFrame(chromaKeyFrame);
-            }
-
+            // The video is shown as it is (it carries its own backdrop), so
+            // there is nothing to key any more; these only mark playback for
+            // the subtitle's zoom (see .is-playing) and keep the old names.
             function startKeying() {
-                if (keying) return;
-                keying = true;
-                // Fires the logo's fade-in and the subtitle's zoom-in
-                // together, right as the first real frame is about to be
-                // drawn -- see the .is-playing rules above.
                 document.querySelector('.splash-inner').classList.add('is-playing');
-                requestAnimationFrame(chromaKeyFrame);
             }
 
-            function stopKeying() {
-                keying = false;
-            }
+            function stopKeying() {}
 
             function showLogin() {
                 loginStage.classList.add('is-active');
@@ -969,13 +737,8 @@
                 var fallbackTimer = setTimeout(revealGetStarted, FALLBACK_DURATION_MS);
 
                 // The clip plays once, in full, then stops on its final
-                // frame -- no `loop`, no auto-advance. stopKeying() here
-                // (rather than leaving the rAF loop running) matters now
-                // that the splash can sit idle indefinitely waiting for a
-                // click: chromaKeyFrame() redraws every frame regardless of
-                // whether the video is still advancing, which cost nothing
-                // over a brief hold and would be needless CPU otherwise. The
-                // canvas keeps whatever it last drew.
+                // frame -- no `loop`, no auto-advance -- and Get Started
+                // appears over it.
                 video.addEventListener('ended', function () {
                     stopKeying();
                     revealGetStarted();
