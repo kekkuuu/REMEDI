@@ -80,6 +80,10 @@
 .sr-table .pos { color: #2563eb; }
 .sr-table .nil { color: #cbd5e1; }
 .sr-table .tot { color: #16a34a; font-weight: 600; }
+.sr-table-scroll { max-height: 460px; overflow-y: auto; }
+/* A sticky cell loses its border once it detaches; a shadow travels with it. */
+.sr-table-scroll thead th { position: sticky; top: 0; z-index: 2; box-shadow: inset 0 -1px 0 #e5e7eb; }
+.sr-table-scroll tfoot td { position: sticky; bottom: 0; z-index: 2; box-shadow: inset 0 1px 0 #e5e7eb; }
 
 .sr-print-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1.5px solid #111; }
 .sr-print-label { font-size: 11px; color: #6b7280; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .04em; }

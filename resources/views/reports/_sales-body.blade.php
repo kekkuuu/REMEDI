@@ -195,7 +195,9 @@
                 @if($breakdownNote) &middot; {{ $breakdownNote }} @endif
             </span>
         </div>
-        <div class="table-scroll"><table class="sr-table">
+        {{-- Scrolls inside its card (2026-10-25, at the user's request): up to
+             366 rows. The headings and the Total row stay in view. --}}
+        <div class="table-scroll sr-table-scroll"><table class="sr-table">
             <thead>
                 <tr>
                     <th class="idx">#</th>
