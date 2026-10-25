@@ -256,6 +256,10 @@ class PasswordResetRequestController extends Controller
             ]);
         }
 
+        // Spent on use (2026-10-26): left live until the password was saved,
+        // the same code verified a SECOND browser for up to its 10 minutes.
+        $user->clearPasswordOtp();
+
         // Only now is the session allowed near the password form. Regenerate
         // first so a session id captured before verification cannot be
         // replayed as a verified one.

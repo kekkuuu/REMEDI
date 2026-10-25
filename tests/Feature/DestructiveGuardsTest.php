@@ -167,6 +167,26 @@ class DestructiveGuardsTest extends TestCase
         $this->assertSame(Category::MEDICINE, $medicine->fresh()->name);
     }
 
+    /** Their 30-day return window is matched on the name as well. */
+    public function test_an_extended_return_window_category_cannot_be_renamed(): void
+    {
+        foreach (Product::EXTENDED_RETURN_WINDOW_CATEGORIES as $name) {
+            $category = Category::firstOrCreate(['name' => $name]);
+
+            $this->actingAs($this->admin())
+                ->put('/categories/'.$category->id, ['name' => $name.' Corner'])
+                ->assertSessionHasErrors();
+
+            $this->assertSame($name, $category->fresh()->name);
+        }
+
+        // An ordinary category still renames.
+        $plain = Category::firstOrCreate(['name' => 'Snacks']);
+        $this->actingAs($this->admin())->put('/categories/'.$plain->id, ['name' => 'Snacks & Treats'])
+            ->assertSessionHasNoErrors();
+        $this->assertSame('Snacks & Treats', $plain->fresh()->name);
+    }
+
     public function test_a_category_holding_products_cannot_be_archived(): void
     {
         $category = Category::firstOrCreate(['name' => 'Household']);

@@ -59,9 +59,9 @@ class CategoryController extends Controller
         if ($category->drivesBusinessRules() && $request->input('name') !== $category->name) {
             return $this->actionFailed(
                 $request,
-                "\"{$category->name}\" cannot be renamed — the supplier return rules for medicine "
-                .'are matched against this exact name, and renaming it would silently reclassify '
-                .'every product in it.',
+                "\"{$category->name}\" cannot be renamed — the supplier return rules for its products "
+                .'are matched against this exact name, and renaming it would silently move '
+                .'every product in it onto different rules.',
                 'name'
             );
         }

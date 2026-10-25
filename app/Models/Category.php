@@ -46,8 +46,13 @@ class Category extends Model
      * The durable fix is a stable key on `categories` (a slug or an explicit
      * `is_medicine` flag) so the display name stops being load-bearing. Until
      * that exists, this list is the guard rail.
+     *
+     * Baby Care and Vitamins & Supplements joined it 2026-10-26: their 30-day
+     * supplier return window (Product::EXTENDED_RETURN_WINDOW_CATEGORIES) is
+     * matched on the name too, and renaming either put all its products (192 /
+     * 153 here) on the 10-day window without a word.
      */
-    const RULE_DRIVING_NAMES = [self::MEDICINE];
+    const RULE_DRIVING_NAMES = [self::MEDICINE, ...Product::EXTENDED_RETURN_WINDOW_CATEGORIES];
 
     /** Does this category's name drive a business rule that a rename would break? */
     public function drivesBusinessRules(): bool

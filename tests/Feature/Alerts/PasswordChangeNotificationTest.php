@@ -59,11 +59,54 @@ class PasswordChangeNotificationTest extends TestCase
 
         $this->assertNull($staff->fresh()->password_reset_requested_at);
         $this->assertTrue(Hash::check('brand-new-789', $staff->fresh()->password));
+        // The admin knows it, so the account holder must set their own.
+        $this->assertTrue($staff->fresh()->must_change_password);
 
         $row = $this->feed()['Password changed'] ?? null;
         $this->assertNotNull($row);
         $this->assertSame(AlertService::ACCOUNT_KIND, $row['kind']);
         $this->assertStringContainsString('by an admin', $row['body']);
+    }
+
+    public function test_an_admin_setting_their_own_password_here_is_not_forced_to_change_it(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($admin)->put('/users/'.$admin->id, [
+            'personal_email' => 'someone@gmail.com',
+            'name' => $admin->name,
+            'email' => $admin->email,
+            'role' => 'admin',
+            'password' => 'my-own-pass-1',
+            'password_confirmation' => 'my-own-pass-1',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertFalse((bool) $admin->fresh()->must_change_password);
+    }
+
+    public function test_the_forced_change_locks_the_account_until_a_new_password_is_set(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $staff = User::factory()->create(['password' => Hash::make('old-pass-123')]);
+
+        $this->actingAs($admin)->put('/users/'.$staff->id, [
+            'personal_email' => 'someone@gmail.com',
+            'name' => $staff->name,
+            'email' => $staff->email,
+            'role' => 'staff',
+            'password' => 'admin-set-456',
+            'password_confirmation' => 'admin-set-456',
+        ])->assertSessionHasNoErrors();
+
+        $this->actingAs($staff->fresh())->get('/pos')->assertRedirect(route('profile.edit'));
+
+        $this->actingAs($staff->fresh())->put('/password', [
+            'current_password' => 'admin-set-456',
+            'password' => 'my-choice-789',
+            'password_confirmation' => 'my-choice-789',
+        ])->assertSessionHasNoErrors();
+
+        $this->assertFalse((bool) $staff->fresh()->must_change_password);
     }
 
     public function test_an_edit_without_a_password_says_nothing_about_passwords(): void

@@ -168,12 +168,21 @@ class UserController extends Controller
         $user->personal_email = $validated['personal_email'] ?? null;
 
         $passwordChanged = ! empty($validated['password']);
+        // Someone ELSE's password set here is one the admin knows, so -- like
+        // the staff123 reset (resetPassword()) -- the account holder must set
+        // their own at next sign-in (2026-10-26, at the user's request). An
+        // admin changing their own here chose it themselves.
+        $forceChange = $passwordChanged && $user->id !== auth()->id();
 
         if ($passwordChanged) {
             $user->password = Hash::make($validated['password']);
             // An admin setting a password answers any "Forgot your password?"
             // request that was waiting on them.
             $user->password_reset_requested_at = null;
+
+            if ($forceChange) {
+                $user->must_change_password = true;
+            }
         }
 
         $user->save();
@@ -187,7 +196,10 @@ class UserController extends Controller
             AuditTrail::log('Updated', "Password changed by an admin: {$user->name}");
         }
 
-        return $this->actionOk($request, "User \"{$user->name}\" updated successfully.", redirect()->route('users.index'));
+        return $this->actionOk($request,
+            "User \"{$user->name}\" updated successfully."
+                .($forceChange ? ' They will be asked to set their own password the next time they sign in.' : ''),
+            redirect()->route('users.index'));
     }
 
     public function toggleActive(Request $request, User $user)

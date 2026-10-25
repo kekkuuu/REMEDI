@@ -157,6 +157,22 @@ class AdminOtpPasswordResetTest extends TestCase
         $this->assertNull($admin->password_otp_hash, 'the code is burned once used');
     }
 
+    public function test_a_code_verifies_only_once(): void
+    {
+        $admin = $this->adminWithEmail();
+        $code = $this->requestCodeFor($admin);
+
+        $this->post('/forgot-password/code', ['code' => $code])
+            ->assertRedirect(route('password.otp.reset'));
+        $this->assertNull($admin->fresh()->password_otp_hash, 'spent the moment it is accepted');
+
+        // A second browser holding the same code and the same pending email gets nowhere.
+        $this->flushSession();
+        $this->withSession(['password_otp' => ['email' => $admin->email]])
+            ->post('/forgot-password/code', ['code' => $code])
+            ->assertSessionHasErrors('code');
+    }
+
     public function test_a_wrong_code_is_refused(): void
     {
         $admin = $this->adminWithEmail();
