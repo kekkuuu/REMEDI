@@ -37,7 +37,7 @@ class SalesHistory extends Model
     public const CACHE_TTL_HOURS = 24;
 
     /** Every key this model caches, so callers can invalidate in one go. */
-    public const QUARTER_CACHE_KEY = 'sales_history_quarterly_revenue_v3';
+    public const QUARTER_CACHE_KEY = 'sales_history_quarterly_revenue_v4';
 
     public const CACHE_KEYS = [self::MONTHLY_CACHE_KEY, self::DEMAND_CACHE_KEY, self::QUARTER_CACHE_KEY];
 
@@ -262,21 +262,19 @@ class SalesHistory extends Model
                     return ['year' => null, 'quarters' => [], 'total' => 0.0, 'records' => 0];
                 }
 
-                // The record's latest year, counted only up to where the record
-                // ends (2026-10-25, at the user's request): 2026 read Q1 49% /
-                // Q2 49% / Q3 1% / Q4 0% because Q3-Q4 held only the till's
-                // small sales after the record stopped in June. Same boundary as
-                // Seasonal Trends, lastCompleteMonth(). `covered` is how many
-                // quarters the record reaches, so the legend says "—" for the
-                // rest instead of a misleading 0%.
-                $through = self::lastCompleteMonth() ?? $monthly->last()['ym'];
-                $year = substr($through, 0, 4);
-                $covered = intdiv((int) substr($through, 5, 2) + 2, 3);
+                // The latest calendar year with sales, BOTH records: the
+                // imported record and the till (POS). Counted only to where the
+                // record ends for a few hours on 2026-10-25, then put back at the
+                // user's request ("put the pos sales back in q3 and q4"), so the
+                // ring shows every quarter of the year as recorded. `covered`
+                // stays 4: every quarter carries its share in the legend.
+                $year = substr($monthly->last()['ym'], 0, 4);
+                $covered = 4;
 
                 $quarters = [0.0, 0.0, 0.0, 0.0];
 
                 foreach ($monthly as $row) {
-                    if (substr($row['ym'], 0, 4) !== $year || $row['ym'] > $through) {
+                    if (substr($row['ym'], 0, 4) !== $year) {
                         continue;
                     }
 
@@ -291,12 +289,9 @@ class SalesHistory extends Model
                     'quarters' => array_map(fn ($v) => round($v, 2), $quarters),
                     'total' => round($total, 2),
                     'covered' => $covered,
-                    // Same cut-off as the revenue above it, or the ring
-                    // would be labelled with a record count that includes
-                    // days the revenue deliberately excludes.
                     'records' => (int) DB::table('sales_history')
                         ->whereYear('sale_date', $year)
-                        ->where('sale_date', '<=', Carbon::parse($through.'-01')->endOfMonth()->min(Carbon::parse(self::reportableThrough()))->toDateString())
+                        ->where('sale_date', '<=', self::reportableThrough())
                         ->count(),
                 ];
             }
