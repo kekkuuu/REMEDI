@@ -93,6 +93,30 @@ class VoidTest extends TestCase
         $this->assertFalse($sale->fresh()->payment_voided);
     }
 
+    public function test_a_sale_voided_at_checkout_does_not_claim_its_stock_came_back(): void
+    {
+        [$product] = $this->checkoutProduct();
+        $admin = $this->admin();
+        $sale = $this->checkout($admin, $product, 1, 10);
+
+        // The old point-of-sale bypass: flagged voided, no time, reason or restock.
+        $sale->update(['payment_voided' => true]);
+
+        $this->actingAs($admin)->get("/sales/{$sale->id}")
+            ->assertOk()
+            ->assertSee('Voided at checkout')
+            ->assertSee('Its stock was not returned to the shelf')
+            ->assertDontSee('Stock was returned to the shelf');
+
+        // A real void keeps the usual sentence.
+        $voided = $this->checkout($admin, $product, 1, 10);
+        $this->actingAs($admin)->patch("/sales/{$voided->id}/void", ['reason' => 'cashier_error']);
+
+        $this->actingAs($admin)->get("/sales/{$voided->id}")
+            ->assertOk()
+            ->assertSee('Stock was returned to the shelf');
+    }
+
     public function test_staff_cannot_void_without_a_passcode_set_at_all(): void
     {
         [$product] = $this->checkoutProduct();

@@ -60,11 +60,19 @@
     <div style="margin-bottom:16px;padding:14px 16px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;display:flex;align-items:flex-start;gap:10px;">
         <i class="ti ti-receipt-off" style="color:#b91c1c;font-size:20px;flex:none;margin-top:1px;" aria-hidden="true"></i>
         <div style="font-size:13.5px;color:#7f1d1d;">
-            <strong>Voided</strong> — {{ $sale->voidReasonLabel() }}.
-            Stock was returned to the shelf and this transaction no longer counts toward revenue.
-            <div style="margin-top:2px;color:#991b1b;">
-                {{ $sale->voidedBy->name ?? 'An admin' }} &middot; {{ $sale->voided_at?->format('M j, Y g:i A') }}
-            </div>
+            {{-- No voided_at: marked voided at checkout by the old point-of-sale
+                 bypass (removed before Void existed) -- no reason or voider was
+                 kept and nothing was restocked, so the usual sentence is untrue. --}}
+            @if($sale->voided_at)
+                <strong>Voided</strong> — {{ $sale->voidReasonLabel() }}.
+                Stock was returned to the shelf and this transaction no longer counts toward revenue.
+                <div style="margin-top:2px;color:#991b1b;">
+                    {{ $sale->voidedBy->name ?? 'An admin' }} &middot; {{ $sale->voided_at->format('M j, Y g:i A') }}
+                </div>
+            @else
+                <strong>Voided at checkout</strong> — recorded before voids kept a reason.
+                Its stock was not returned to the shelf, and this transaction does not count toward revenue.
+            @endif
         </div>
     </div>
 @endif
