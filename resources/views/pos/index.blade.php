@@ -539,7 +539,18 @@
 
     /* Returns whether the item went into the cart, so a scan can say "Added"
        only when it was -- a found code on an empty shelf is refused here. */
+    // Why the last addToCart() refused, for the scan status line.
+    let lastAddRefusal = '';
+
     function addToCart(id, name, price, maxStock, sku) {
+        // A product at PHP 0.00 would ring up free; checkout refuses it too
+        // (CheckoutService::unpricedError), this just says so at the scan.
+        if (Math.round(Number(price) * 100) <= 0) {
+            lastAddRefusal = 'no price set';
+            stockMessage('No selling price', `${name} has no selling price set. Ask an admin to set one on Manage Product.`);
+            return false;
+        }
+        lastAddRefusal = 'not enough stock';
         if (maxStock <= 0) {
             stockMessage('Out of stock', `${name} has no sellable stock.`, sku);
             return false;
@@ -564,7 +575,7 @@
     /* What a scan says and sounds like once its product is known. */
     function reportScan(added, name) {
         if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(added);
-        barcodeStatus.textContent = added ? '\u2705 Added: ' + name : '\u26A0\uFE0F Not added: ' + name + ' (not enough stock)';
+        barcodeStatus.textContent = added ? '\u2705 Added: ' + name : '\u26A0\uFE0F Can\'t sell ' + name + ': ' + lastAddRefusal;
         barcodeStatus.style.color = added ? '#16a34a' : '#b45309';
     }
 
