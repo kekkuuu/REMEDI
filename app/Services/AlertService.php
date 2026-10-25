@@ -122,7 +122,10 @@ class AlertService
             $expiring = $expiringBatches->count();
             $expired = $expiredBatches->count();
             $due = $dueBatches->count();
-            $missed = $batches->filter(fn ($b) => $b->product?->is_medicine && $b->failed_return)->count();
+            // The Inventory "Fail to Return" tab's rule, which this alert links
+            // to (ProductBatch::missed_return): medicine past its window, and
+            // any other stock expired on the shelf. It counted medicine only.
+            $missed = $batches->filter(fn ($b) => $b->missed_return)->count();
 
             $lowProducts = Product::with('batches')->get()
                 // Same rule the Inventory low-stock tab filters on. This

@@ -97,4 +97,30 @@ class DashboardKpiTest extends TestCase
 
         $this->assertSame(0.03, $result['profit']);
     }
+
+    /**
+     * The Monthly Sales bar chart's series has every month (2026-10-25): July
+     * 2026 had no sale on record and was simply missing, so the bars read
+     * Jun, Aug as if consecutive.
+     */
+    public function test_the_monthly_chart_fills_months_with_no_sales_at_zero(): void
+    {
+        $rows = DashboardController::continuousMonths([
+            ['ym' => '2026-05', 'label' => 'May 2026', 'total' => 10.5],
+            ['ym' => '2026-08', 'label' => 'Aug 2026', 'total' => 3.0],
+            ['ym' => '2026-06', 'label' => 'Jun 2026', 'total' => 7.0],
+        ]);
+
+        $this->assertSame(['2026-05', '2026-06', '2026-07', '2026-08'], array_column($rows, 'ym'));
+        $this->assertSame([10.5, 7.0, 0.0, 3.0], array_column($rows, 'total'));
+        $this->assertSame('Jul 2026', $rows[2]['label']);
+        $this->assertSame([], DashboardController::continuousMonths([]));
+
+        // Across a year boundary, and a single month stays a single month.
+        $this->assertSame(['2025-12', '2026-01', '2026-02'], array_column(DashboardController::continuousMonths([
+            ['ym' => '2026-02', 'label' => 'Feb 2026', 'total' => 1.0],
+            ['ym' => '2025-12', 'label' => 'Dec 2025', 'total' => 1.0],
+        ]), 'ym'));
+        $this->assertCount(1, DashboardController::continuousMonths([['ym' => '2026-03', 'label' => 'Mar 2026', 'total' => 1.0]]));
+    }
 }

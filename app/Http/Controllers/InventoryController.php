@@ -122,6 +122,18 @@ class InventoryController extends Controller
         // one query per batch while rendering the rows.
         $products->each(fn ($p) => $p->batches->each(fn ($b) => $b->setRelation('product', $p)));
 
+        // Medicine only (?medicine=1) or everything else (?medicine=0), by
+        // Product::is_medicine -- the rule the return windows themselves use.
+        // Added 2026-10-25 for the dashboard's two returns cards, which count
+        // one side each but linked to lists of both: "Medicine Returns" read
+        // Fail to Return 120 and opened 185, "Other Product Returns" read its
+        // non-medicine figures and opened lists with medicine in them.
+        $medicineParam = $request->get('medicine');
+        $medicineScope = $medicineParam === '1' ? 'only' : ($medicineParam === '0' ? 'exclude' : null);
+        if ($medicineScope !== null) {
+            $products = $products->filter(fn ($p) => $p->is_medicine === ($medicineScope === 'only'))->values();
+        }
+
         if ($filter === 'low_stock') {
             // is_running_out, not is_low_stock: a shelf holding nothing but
             // expired units is an Expired problem, and the tab beside this
@@ -252,6 +264,7 @@ class InventoryController extends Controller
             'expiryTo' => $expiryTo,
             'categoryId' => $categoryId,
             'categoryName' => $category?->name,
+            'medicineScope' => $medicineScope,
         ]);
     }
 }

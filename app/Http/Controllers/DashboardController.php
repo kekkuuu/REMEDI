@@ -19,6 +19,37 @@ class DashboardController extends Controller
     private const HOURLY_HISTORY_DAYS = 30;
 
     /**
+     * A monthly series ({ym, label, total} rows, months with a sale only) with
+     * every missing month between its first and last filled in at 0, so a bar
+     * chart's axis is a real time axis. Static and pure, like computeAtv()
+     * below, so it can be tested without the MySQL-only dashboard route.
+     *
+     * @param  iterable<array{ym: string, label: string, total: float}>  $rows
+     * @return list<array{ym: string, label: string, total: float}>
+     */
+    public static function continuousMonths(iterable $rows): array
+    {
+        $byMonth = [];
+        foreach ($rows as $row) {
+            $byMonth[$row['ym']] = $row;
+        }
+        if ($byMonth === []) {
+            return [];
+        }
+        ksort($byMonth);
+
+        $out = [];
+        $month = \Carbon\Carbon::createFromFormat('Y-m-d', array_key_first($byMonth).'-01')->startOfMonth();
+        $last = array_key_last($byMonth);
+        while (($ym = $month->format('Y-m')) <= $last) {
+            $out[] = $byMonth[$ym] ?? ['ym' => $ym, 'label' => $month->format('M Y'), 'total' => 0.0];
+            $month->addMonthNoOverflow();
+        }
+
+        return $out;
+    }
+
+    /**
      * ATV (Average Transaction Value): today's takings over today's
      * transaction count. Null, not 0, with no transactions yet, so the tile
      * can say "no sales yet today" rather than a misleading ₱0.00.
@@ -304,6 +335,15 @@ class DashboardController extends Controller
         // records (30+ months of them) were never plotted. Both the wrong
         // source and the too-narrow window are fixed here.
         $data['monthlySales'] = SalesHistory::monthlyRevenue();
+
+        // The Monthly Sales bar chart's own copy, with every month from the
+        // first to the last present (2026-10-25). The series lists only months
+        // that had a sale, so July 2026 -- after the imported record ends in
+        // June and before the till's first sale in August -- was simply
+        // missing and the bars read Jun, Aug as if consecutive. A month with no
+        // recorded sales is a ₱0 bar. Seasonal Trends keeps reading
+        // $monthlySales: it leaves no-data months blank on purpose.
+        $data['monthlySalesSeries'] = self::continuousMonths($data['monthlySales']);
 
         if ($user && $user->isAdmin()) { // Added a quick null-check for safety
             // Extra admin-only stats (not used by the shared dashboard

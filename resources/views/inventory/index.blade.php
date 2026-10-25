@@ -173,6 +173,14 @@
     }
 </style>
 
+@if($medicineScope)
+    <div class="category-banner">
+        <i class="ti ti-pill" aria-hidden="true"></i>
+        {{ $medicineScope === 'only' ? 'Showing medicine only' : 'Showing everything except medicine' }}
+        <a href="{{ route('inventory.index', array_filter(['filter' => $filter, 'search' => request('search'), 'category_id' => $categoryId])) }}">Show all products &times;</a>
+    </div>
+@endif
+
 @if($categoryId && $categoryName)
     <div class="category-banner">
         <i class="ti ti-filter" aria-hidden="true"></i>
@@ -241,12 +249,14 @@
             data-suggest-url="{{ route('suggest.products') }}" placeholder="Search product by name or SKU..." value="{{ request('search') }}" style="flex:1; min-width:0; padding:9px 12px; border:1px solid #d1d5db; border-radius:7px;" autocomplete="off">
         <input type="hidden" name="filter" id="filter-input" value="{{ $filter }}">
         <input type="hidden" name="category_id" id="category-input" value="{{ $categoryId }}">
+        <input type="hidden" name="medicine" id="medicine-input" value="{{ $medicineScope === null ? '' : ($medicineScope === 'only' ? '1' : '0') }}">
         <input type="hidden" name="expiry_from" id="expiry-from-hidden" value="{{ $expiryFrom }}">
         <input type="hidden" name="expiry_to" id="expiry-to-hidden" value="{{ $expiryTo }}">
     </form>
 
     @php
-        $filterParams = array_filter(['search' => request('search'), 'category_id' => $categoryId, 'expiry_from' => $expiryFrom, 'expiry_to' => $expiryTo]);
+        $filterParams = array_filter(['search' => request('search'), 'category_id' => $categoryId, 'expiry_from' => $expiryFrom, 'expiry_to' => $expiryTo,
+            'medicine' => $medicineScope === null ? null : ($medicineScope === 'only' ? '1' : '0')], fn ($v) => $v !== null && $v !== '');
     @endphp
     <div style="display:flex; gap:10px; flex-wrap:wrap;">
         <a href="{{ route('inventory.index', ['filter' => 'all'] + $filterParams) }}" data-filter="all" class="filter-btn filter-all {{ $filter === 'all' ? 'active' : '' }}">All</a>
@@ -292,6 +302,7 @@
     const searchInput = document.getElementById('search-input');
     const filterInput = document.getElementById('filter-input');
     const categoryInput = document.getElementById('category-input');
+    const medicineInput = document.getElementById('medicine-input');
     const resultsWrapper = document.getElementById('results-wrapper');
     const inventoryBaseUrl = "{{ route('inventory.index') }}";
 
@@ -347,6 +358,7 @@
         if (term) url.searchParams.set('search', term);
         url.searchParams.set('filter', filterInput.value);
         if (categoryInput.value) url.searchParams.set('category_id', categoryInput.value);
+        if (medicineInput.value !== '') url.searchParams.set('medicine', medicineInput.value);
         if (expiryFromInput.value) url.searchParams.set('expiry_from', expiryFromInput.value);
         if (expiryToInput.value) url.searchParams.set('expiry_to', expiryToInput.value);
         syncExpiryState();
@@ -432,6 +444,7 @@
         searchInput.value = params.get('search') || '';
         filterInput.value = params.get('filter') || 'all';
         categoryInput.value = params.get('category_id') || '';
+        medicineInput.value = params.get('medicine') ?? '';
         expiryFromInput.value = params.get('expiry_from') || '';
         expiryToInput.value = params.get('expiry_to') || '';
         expiryMonthInput.value = '';

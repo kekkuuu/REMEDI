@@ -758,7 +758,7 @@
         <div class="card">
             <div class="demand-head">
                 <span class="label">Medicine Returns</span>
-                <a href="{{ route('inventory.index', ['filter' => 'fail_to_return']) }}" class="view-all">View All</a>
+                <a href="{{ route('inventory.index', ['filter' => 'fail_to_return', 'medicine' => 1]) }}" class="view-all">View All</a>
             </div>
             @if (array_sum($returnStats))
                 {{-- Swatches use the same colors as the status badges
@@ -773,17 +773,17 @@
                          dashboard's legend. All three filters are on the shared
                          Inventory page, so nothing here 403s for staff. --}}
                     <div class="returns-legend">
-                        <a href="{{ route('inventory.index', ['filter' => 'returned']) }}" class="item">
+                        <a href="{{ route('inventory.index', ['filter' => 'returned', 'medicine' => 1]) }}" class="item">
                             <span class="dot" style="background:#22c55e;"></span>
                             <span class="lbl">Successfully Returned</span>
                             <span class="expiry-badge badge-return-done">{{ $returnStats['returned'] }}</span>
                         </a>
-                        <a href="{{ route('inventory.index', ['filter' => 'need_to_return']) }}" class="item">
+                        <a href="{{ route('inventory.index', ['filter' => 'need_to_return', 'medicine' => 1]) }}" class="item">
                             <span class="dot" style="background:#3b82f6;"></span>
                             <span class="lbl">Need to Return</span>
                             <span class="expiry-badge badge-return-due">{{ $returnStats['need_to_return'] }}</span>
                         </a>
-                        <a href="{{ route('inventory.index', ['filter' => 'fail_to_return']) }}" class="item">
+                        <a href="{{ route('inventory.index', ['filter' => 'fail_to_return', 'medicine' => 1]) }}" class="item">
                             <span class="dot" style="background:#9f1239;"></span>
                             <span class="lbl">Fail to Return</span>
                             <span class="expiry-badge badge-return-late">{{ $returnStats['fail_to_return'] }}</span>
@@ -800,7 +800,7 @@
                      move, and they move somewhere that can actually show
                      them. --}}
                 @if ($needToReturnBatches->isNotEmpty())
-                    <a href="{{ route('inventory.index', ['filter' => 'need_to_return']) }}" class="returns-more">
+                    <a href="{{ route('inventory.index', ['filter' => 'need_to_return', 'medicine' => 1]) }}" class="returns-more">
                         {{ $needToReturnBatches->count() }} {{ Str::plural('batch', $needToReturnBatches->count()) }} inside the return window
                     </a>
                 @endif
@@ -823,7 +823,7 @@
         <div class="card">
             <div class="demand-head">
                 <span class="label">Other Product Returns</span>
-                <a href="{{ route('inventory.index', ['filter' => 'need_to_return']) }}" class="view-all">View All</a>
+                <a href="{{ route('inventory.index', ['filter' => 'need_to_return', 'medicine' => 0]) }}" class="view-all">View All</a>
             </div>
             @if (array_sum($nonPharmaReturnStats))
                 <div class="returns-grid">
@@ -836,17 +836,17 @@
                              a returned Baby Care batch was counted nowhere on
                              the dashboard while the bell and the Inventory
                              "Returned" filter both showed it. --}}
-                        <a href="{{ route('inventory.index', ['filter' => 'returned']) }}" class="item">
+                        <a href="{{ route('inventory.index', ['filter' => 'returned', 'medicine' => 0]) }}" class="item">
                             <span class="dot" style="background:#22c55e;"></span>
                             <span class="lbl">Successfully Returned</span>
                             <span class="expiry-badge badge-return-done">{{ $nonPharmaReturnStats['returned'] }}</span>
                         </a>
-                        <a href="{{ route('inventory.index', ['filter' => 'need_to_return']) }}" class="item">
+                        <a href="{{ route('inventory.index', ['filter' => 'need_to_return', 'medicine' => 0]) }}" class="item">
                             <span class="dot" style="background:#3b82f6;"></span>
                             <span class="lbl">Need to Return</span>
                             <span class="expiry-badge badge-return-due">{{ $nonPharmaReturnStats['need_to_return'] }}</span>
                         </a>
-                        <a href="{{ route('inventory.index', ['filter' => 'expired']) }}" class="item">
+                        <a href="{{ route('inventory.index', ['filter' => 'expired', 'medicine' => 0]) }}" class="item">
                             <span class="dot" style="background:#dc2626;"></span>
                             <span class="lbl">Expired</span>
                             <span class="expiry-badge badge-expiry-expired">{{ $nonPharmaReturnStats['expired'] }}</span>
@@ -856,7 +856,7 @@
 
                 {{-- Summary panel, same reasoning as Medicine Returns above. --}}
                 @if ($nonPharmaNeedToReturnBatches->isNotEmpty())
-                    <a href="{{ route('inventory.index', ['filter' => 'need_to_return']) }}" class="returns-more">
+                    <a href="{{ route('inventory.index', ['filter' => 'need_to_return', 'medicine' => 0]) }}" class="returns-more">
                         {{ $nonPharmaNeedToReturnBatches->count() }} {{ Str::plural('batch', $nonPharmaNeedToReturnBatches->count()) }} to pull from the shelf
                     </a>
                 @endif

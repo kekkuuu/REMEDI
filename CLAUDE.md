@@ -467,6 +467,26 @@ a surface that needs the same answer, call it rather than re-deriving it.
   27 report exports) were swept the same way against real data with zero 500s. `pos:backfill` now
   excludes voided sales when counting what a day already has.
 
+### Logic audit, 2026-10-25 — counts against the lists they open
+Every figure was recomputed independently (model accessors + raw SQL) and compared with what the page shows: the
+bell, the Inventory filter totals, the dashboard KPIs and both returns cards, the Inventory report (OK + Low + Expired =
+products, 1,856 + 658 + 123 = 2,637), the Sales Report against SQL (Mar 2026 ₱1,868,147.00, Jun ₱2,211,830.73; Oct ₱2.10
+is right -- one non-voided till sale, the rest voided test sales), and forecast units × current price on the list and
+detail pages. Three were wrong, all fixed:
+- **The bell's "Return window missed" counted medicine only** (120) while linking to the Inventory "Fail to Return" tab
+  (185, which also lists other products holding expired stock, `Product::failed_return`). `AlertService` now counts
+  `ProductBatch::missed_return` -- the tab's rule per batch; the two accessors are twins.
+- **The dashboard's two returns cards linked to lists of both kinds.** "Medicine Returns" counts medicine only
+  (120 / 26 / 0) and "Other Product Returns" everything else (8 / 5 / 65), but every link opened all categories (185 /
+  34 / 5 / 123). Inventory takes **`?medicine=1` / `?medicine=0`** (by `Product::is_medicine`, carried through the tabs
+  and the live search by the hidden `#medicine-input`, with a "Showing medicine only / everything except medicine"
+  banner); each card's links use their side.
+- **The dashboard's Monthly Sales bar chart skipped months with no sales** -- July 2026 (after the imported record ends
+  in June, before the till starts in August) was missing, so the bars read Jun, Aug. `DashboardController::
+  continuousMonths()` fills every month between the first and last at ₱0 into `$monthlySalesSeries` for that chart;
+  Seasonal Trends keeps `$monthlySales`, where no-data months stay blank on purpose.
+Covered by `Feature\Inventory\ReturnCountsAgreeTest` and a `DashboardKpiTest` case.
+
 ### Laravel 10-style skeleton on Laravel 12
 `bootstrap/app.php` binds `App\Http\Kernel` / `App\Console\Kernel`; middleware aliases live in
 `app/Http/Kernel.php` and the scheduler in `app/Console/Kernel.php::schedule()` (`forecast:generate`

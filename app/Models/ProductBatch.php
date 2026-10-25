@@ -580,6 +580,28 @@ class ProductBatch extends Model
         return $this->return_status === 'Fail to Return';
     }
 
+    /**
+     * Has this batch missed its return window, by the rule the Inventory
+     * "Fail to Return" tab lists (Product::getFailedReturnAttribute)?
+     * Medicine: return_status says Fail to Return (under 90 days left, or
+     * expired). Everything else: expired stock still on the shelf.
+     *
+     * Added 2026-10-25: the bell's "Return window missed" alert counted the
+     * medicine half only (120 batches) while linking to that tab (185
+     * products) -- a badge promising one number and opening another. The
+     * product accessor and this one are twins; change one, change the other.
+     */
+    public function getMissedReturnAttribute(): bool
+    {
+        if ($this->quantity <= 0 || ! $this->product) {
+            return false;
+        }
+
+        return $this->product->is_medicine
+            ? $this->failed_return
+            : (! $this->returned_at && $this->is_expired);
+    }
+
     public function getIsReturnedAttribute(): bool
     {
         return $this->return_status === 'Successfully Returned';
