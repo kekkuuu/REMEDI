@@ -2287,7 +2287,16 @@ the page agreeing with the figure recomputed from SQL. View-only (`forecast/show
 request: "why does it say FORECAST even though it is already past").** The record ends in June, so Jul–Oct 2026 have
 only the model's figures. On both forecast pages the tooltip names them that way (`forecastTooltip()` /
 `trendTooltip()`, boundary = the next actionable month), hides the forecast at the join month where it only repeats
-the actual, and the product page's Monthly forecast table tags those rows "month already passed".
+the actual, and the product page's Monthly forecast table tags those rows "month already passed". **And the
+Actual line now carries the till's own sales for months after the record ends (same evening, at the user's request:
+"make the forecasting the actual")**: `SalesHistory::posMonthly()` for every month the till ran in (a product's month
+with no sale = 0; July 2026, before the till, stays a gap), labelled "Actual (till sales)" in the tooltip beside the
+estimate. DISPLAY ONLY: the models still train on the record alone while `forecast.include_pos` is off, and the line
+drops sharply after June (Aug 2,727 units against an estimate of 34,116) because the till is far smaller than the record.
+**Labels simplified later the same evening, at the user's request:** the brackets went, and "Estimate" became
+"Forecast" again, so the tooltip reads plain "Actual" / "Forecast" in every month. What remains of the above is the
+join-month rule (the forecast hidden only where it repeats the actual), the till's sales on the Actual line, and the
+"month already passed" tag in the product table.
 
 **`App\Support\ForecastHorizon` is the one definition of when a forecast becomes actionable.** The
 boundary used to exist three times over: `scopeNextMonthOnly()` on both forecast models (dead code,

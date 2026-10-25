@@ -13,7 +13,16 @@
     // dashed line starts exactly where the solid one ends.
     $months = $trend['actualUnits']->keys()->merge($trend['forecastUnits']->keys())->unique()->sort()->values();
 
-    $actualUnitsSeries = $months->map(fn ($m) => $trend['actualUnits'][$m] ?? null);
+    // The till's own sales for the months AFTER the sales record ends
+    // (2026-10-25, at the user's request: "make the forecasting the actual"),
+    // drawn on the Actual line so Aug-Oct 2026 show what really sold. Display
+    // only: the models still learn from the record alone while
+    // config('forecast.include_pos') is off. A month the till did not run in
+    // (July 2026) stays a gap.
+    $tillAfterRecord = config('forecast.include_pos') ? collect()
+        : \App\Models\SalesHistory::posMonthly()->filter(fn ($v, $ym) => $ym > $trend['lastActualMonth']);
+
+    $actualUnitsSeries = $months->map(fn ($m) => $trend['actualUnits'][$m] ?? ($tillAfterRecord[$m]['units'] ?? null));
     $forecastUnitsSeries = $months->map(function ($m) use ($trend) {
         if (array_key_exists($m, $trend['forecastUnits']->toArray())) {
             return (float) $trend['forecastUnits'][$m];
@@ -21,7 +30,7 @@
         return $m === $trend['lastActualMonth'] ? (float) $trend['actualUnits'][$m] : null;
     });
 
-    $actualRevenueSeries = $months->map(fn ($m) => $trend['actualRevenue'][$m] ?? null);
+    $actualRevenueSeries = $months->map(fn ($m) => $trend['actualRevenue'][$m] ?? (isset($tillAfterRecord[$m]) ? round($tillAfterRecord[$m]['revenue'], 2) : null));
     $forecastRevenueSeries = $months->map(function ($m) use ($trend) {
         if (array_key_exists($m, $trend['forecastRevenue']->toArray())) {
             return (float) $trend['forecastRevenue'][$m];
@@ -496,12 +505,16 @@ const firstAhead = (() => {
     const at = trendLabels.indexOf(key);
     return at >= 0 ? at : (trendLabels.length && key < trendLabels[0] ? 0 : trendLabels.length);
 })();
+const recordEnd = @json($trend['lastActualMonth']);
 function trendTooltip(fmt) {
     return {
+        // The forecast is hidden only where it repeats the actual (the join).
         filter: (item) => item.dataset.label === 'Actual' || (item.dataset.label === 'Forecast'
-            && item.chart.data.datasets.find((d) => d.label === 'Actual').data[item.dataIndex] == null),
+            && item.chart.data.datasets.find((d) => d.label === 'Actual').data[item.dataIndex] !== item.parsed.y),
         label: (c) => (c.dataset.label === 'Forecast' && c.dataIndex < firstAhead
-            ? 'Estimate (month already passed)' : c.dataset.label) + ': ' + fmt(c.parsed.y),
+            ? 'Forecast'
+            : (c.dataset.label === 'Actual' && trendLabels[c.dataIndex] > recordEnd ? 'Actual' : c.dataset.label))
+            + ': ' + fmt(c.parsed.y),
     };
 }
 const unitsTrendTip = trendTooltip((v) => Math.round(v).toLocaleString());

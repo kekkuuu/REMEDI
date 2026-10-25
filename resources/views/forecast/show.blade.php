@@ -32,7 +32,20 @@
         ->filter(fn ($m) => $firstForecastMonth === null || $m < $firstForecastMonth)
         ->last();
 
-    $actualSeries = $months->map(fn ($m) => $actual[$m] ?? null);
+    // The till's own sales for the months AFTER the sales record ends
+    // (2026-10-25, at the user's request: "make the forecasting the actual"):
+    // every month the till ran in counts, a month this product did not sell
+    // in as 0; a month the till did not run in (July 2026) stays a gap.
+    // Display only -- the model still learns from the record alone while
+    // config('forecast.include_pos') is off. Revenue at the current price,
+    // like every other revenue figure here.
+    $tillMonths = config('forecast.include_pos') ? collect()
+        : \App\Models\SalesHistory::posMonthly()->keys()->filter(fn ($ym) => $lastActualMonth === null || $ym > $lastActualMonth)->values();
+    $tillForProduct = $tillMonths->isEmpty() ? collect() : \App\Models\SalesHistory::posMonthly($product_sku);
+    $tillUnits = $tillMonths->mapWithKeys(fn ($ym) => [$ym => (int) ($tillForProduct[$ym]['units'] ?? 0)]);
+    $tillRevenue = $tillMonths->mapWithKeys(fn ($ym) => [$ym => round((float) ($tillForProduct[$ym]['revenue'] ?? 0), 2)]);
+
+    $actualSeries = $months->map(fn ($m) => $actual[$m] ?? ($tillUnits[$m] ?? null));
 
     // $joinMonth is tested BEFORE the forecast lookup in all three, so the
     // stitch always wins over a forecast row for the same month.
@@ -128,7 +141,7 @@
             ->filter(fn ($m) => $sfFirstForecastMonth === null || $m < $sfFirstForecastMonth)
             ->last();
 
-        $sfActualRevenueSeries = $sfMonths->map(fn ($m) => $salesForecast['actualRevenue'][$m] ?? null);
+        $sfActualRevenueSeries = $sfMonths->map(fn ($m) => $salesForecast['actualRevenue'][$m] ?? ($tillRevenue[$m] ?? null));
         $sfForecastRevenueSeries = $sfMonths->map(function ($m) use ($sfForecastByMonth, $sfJoinMonth, $salesForecast) {
             if ($m === $sfJoinMonth) {
                 return (float) ($salesForecast['actualRevenue'][$m] ?? 0);
@@ -409,13 +422,17 @@ function bandFromNextMonth(labels, lower, upper, forecast) {
    is already over or in progress is the model's ESTIMATE for a month the sales
    record does not reach yet, so it says so; and at the join month the forecast
    only repeats the actual value, so the tooltip shows the actual alone. */
+const recordEnd = @json($lastActualMonth);
 function forecastTooltip(labels, fmt) {
     const first = firstAheadIndex(labels);
     return {
+        // The forecast is hidden only where it repeats the actual (the join).
         filter: (item) => item.dataset.label === 'Actual' || (item.dataset.label === 'Forecast'
-            && item.chart.data.datasets.find((d) => d.label === 'Actual').data[item.dataIndex] == null),
+            && item.chart.data.datasets.find((d) => d.label === 'Actual').data[item.dataIndex] !== item.parsed.y),
         label: (item) => (item.dataset.label === 'Forecast' && first >= 0 && item.dataIndex < first
-            ? 'Estimate (month already passed)' : item.dataset.label) + ': ' + fmt(item.parsed.y),
+            ? 'Forecast'
+            : (item.dataset.label === 'Actual' && recordEnd && labels[item.dataIndex] > recordEnd ? 'Actual' : item.dataset.label))
+            + ': ' + fmt(item.parsed.y),
     };
 }
 const unitsTip = forecastTooltip(L, (v) => Math.round(v).toLocaleString());
