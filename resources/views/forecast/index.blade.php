@@ -485,6 +485,28 @@
 
 <script>
 
+/* Tooltip wording (2026-10-25, at the user's request): a forecast point in a
+   month already over or in progress is the model's ESTIMATE for a month the
+   sales record does not reach yet; at the join month the forecast only repeats
+   the actual, so the tooltip shows the actual alone. Same rule as the product
+   page (forecast/show). */
+const trendLabels = @json($months);
+const firstAhead = (() => {
+    const key = @json($actionableMonthKey);
+    const at = trendLabels.indexOf(key);
+    return at >= 0 ? at : (trendLabels.length && key < trendLabels[0] ? 0 : trendLabels.length);
+})();
+function trendTooltip(fmt) {
+    return {
+        filter: (item) => item.dataset.label === 'Actual' || (item.dataset.label === 'Forecast'
+            && item.chart.data.datasets.find((d) => d.label === 'Actual').data[item.dataIndex] == null),
+        label: (c) => (c.dataset.label === 'Forecast' && c.dataIndex < firstAhead
+            ? 'Estimate (month already passed)' : c.dataset.label) + ': ' + fmt(c.parsed.y),
+    };
+}
+const unitsTrendTip = trendTooltip((v) => Math.round(v).toLocaleString());
+const revenueTrendTip = trendTooltip((v) => '₱' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+
 new Chart(document.getElementById('unitsTrendChart'), {
     type: 'line',
     data: {
@@ -542,8 +564,8 @@ new Chart(document.getElementById('unitsTrendChart'), {
             tooltip: {
                 mode: 'index',
                 intersect: false,
-                filter: (item) => item.dataset.label === 'Actual' || item.dataset.label === 'Forecast',
-                callbacks: { label: (c) => `${c.dataset.label}: ${Math.round(c.parsed.y).toLocaleString()}` },
+                filter: unitsTrendTip.filter,
+                callbacks: { label: unitsTrendTip.label },
             },
         },
         scales: {
@@ -608,10 +630,9 @@ new Chart(document.getElementById('revenueTrendChart'), {
             tooltip: {
                 mode: 'index',
                 intersect: false,
-                filter: (item) => item.dataset.label === 'Actual' || item.dataset.label === 'Forecast',
-                // Two decimals, not Math.round(): this axis is pesos. The units
-                // chart above rounds on purpose -- that one counts boxes.
-                callbacks: { label: (c) => c.dataset.label + ': ₱' + c.parsed.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
+                // Two decimals for pesos; the units chart above rounds on purpose.
+                filter: revenueTrendTip.filter,
+                callbacks: { label: revenueTrendTip.label },
             },
         },
         scales: {

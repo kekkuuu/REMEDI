@@ -293,7 +293,13 @@
         <tbody>
             @foreach ($forecast as $row)
                 <tr>
-                    <td>{{ $row->forecast_date->format('F Y') }}</td>
+                    <td>
+                        {{ $row->forecast_date->format('F Y') }}
+                        @if ($row->forecast_date->format('Y-m') < $nextMonthKey)
+                            {{-- Over or in progress, and not in the sales record yet. --}}
+                            <span style="margin-left:6px; padding:1px 8px; border-radius:999px; background:#f1f5f9; color:#64748b; font-size:11px;">month already passed</span>
+                        @endif
+                    </td>
                     <td><strong>{{ number_format($row->forecast_value) }}</strong></td>
                     <td>
                         @if ($row->lower_ci !== null && $row->upper_ci !== null)
@@ -398,6 +404,22 @@ function bandFromNextMonth(labels, lower, upper, forecast) {
    line, so the dash pattern -- like the shade -- marks what is still ahead.
    The segment into the next month is the first dashed one. The dataset keeps
    borderDash so the legend still shows the forecast as a dashed line. */
+/* Tooltip wording (2026-10-25, at the user's request: "why does it say
+   FORECAST even though it is already past"). A forecast point in a month that
+   is already over or in progress is the model's ESTIMATE for a month the sales
+   record does not reach yet, so it says so; and at the join month the forecast
+   only repeats the actual value, so the tooltip shows the actual alone. */
+function forecastTooltip(labels, fmt) {
+    const first = firstAheadIndex(labels);
+    return {
+        filter: (item) => item.dataset.label === 'Actual' || (item.dataset.label === 'Forecast'
+            && item.chart.data.datasets.find((d) => d.label === 'Actual').data[item.dataIndex] == null),
+        label: (item) => (item.dataset.label === 'Forecast' && first >= 0 && item.dataIndex < first
+            ? 'Estimate (month already passed)' : item.dataset.label) + ': ' + fmt(item.parsed.y),
+    };
+}
+const unitsTip = forecastTooltip(L, (v) => Math.round(v).toLocaleString());
+
 function dashFromNextMonth(labels) {
     const first = firstAheadIndex(labels);
     return (ctx) => (first >= 0 && ctx.p1DataIndex >= first ? [5, 4] : []);
@@ -471,10 +493,8 @@ new Chart(document.getElementById('productForecastChart'), {
                 // parks the tooltip mid-air between the lines; 'nearest' puts
                 // it on the peak you are actually pointing at.
                 position: 'nearest',
-                filter: (item) => item.dataset.label === 'Actual' || item.dataset.label === 'Forecast',
-                callbacks: {
-                    label: (item) => `${item.dataset.label}: ${Math.round(item.parsed.y)}`,
-                },
+                filter: unitsTip.filter,
+                callbacks: { label: unitsTip.label },
             },
         },
         scales: {
@@ -487,6 +507,7 @@ new Chart(document.getElementById('productForecastChart'), {
 });
 
 @if ($hasSalesForecast)
+const revenueTip = forecastTooltip(@json($sfMonths), (v) => '₱' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const [sfBandLower, sfBandUpper] = bandFromNextMonth(@json($sfMonths), @json($sfRevenueLowerSeries), @json($sfRevenueUpperSeries), @json($sfForecastRevenueSeries));
 new Chart(document.getElementById('productSalesForecastChart'), {
     type: 'line',
@@ -546,10 +567,8 @@ new Chart(document.getElementById('productSalesForecastChart'), {
                 mode: 'index',
                 intersect: false,
                 position: 'nearest',
-                filter: (item) => item.dataset.label === 'Actual' || item.dataset.label === 'Forecast',
-                callbacks: {
-                    label: (item) => `${item.dataset.label}: ₱${item.parsed.y.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
-                },
+                filter: revenueTip.filter,
+                callbacks: { label: revenueTip.label },
             },
         },
         scales: {

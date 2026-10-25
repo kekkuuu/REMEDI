@@ -502,7 +502,10 @@ Covered by `Feature\Inventory\ReturnCountsAgreeTest` and a `DashboardKpiTest` ca
 - **The dashboard's quarterly Sales Summary read 2026 as Q1 49% / Q2 49% / Q3 1% / Q4 0%** (same day, at the user's
   request): Q3–Q4 held only the till's small sales after the record ended in June. `quarterlyRevenue()` now counts the
   record's latest year up to `lastCompleteMonth()` (2026: ₱11.83M, Q1 50% / Q2 50%) and returns `covered` (quarters the
-  record reaches); the legend reads "—" for the rest. Cache key `_v3`.
+  record reaches); the legend reads "—" for the rest. Cache key `_v3`. **REVERSED the same evening, at the user's
+  request ("put the pos sales back in q3 and q4")**: the ring counts the latest calendar year from BOTH records again
+  (2026: ₱11,989,860.04, Q1 49% / Q2 50% / Q3 1% / Q4 0%), `covered` is always 4, cache key `_v4`. The `covered`
+  plumbing in the legend stays, unused, in case a quarter ever needs "—" again.
 
 **Second pass the same day, all matching:** the Sales Report for Jun–Aug 2026 (₱2,357,043.22 = ₱2,211,830.73 imported +
 ₱145,212.49 till; Average / Day ₱51,240.07 over 46 trading days; ATV ₱180.39 over 805 till sales; 32,185 units; its
@@ -2279,6 +2282,12 @@ It was next month's forecast + reorder level − sellable stock, so on the 25th 
 before next month ends. Now (this month's forecast × the share of its days left, today included) + next month's
 forecast + reorder level − sellable stock. Changed the figure on 1,310 products that day; 3D MASK DISPOSABLE X10 104 → 130,
 the page agreeing with the figure recomputed from SQL. View-only (`forecast/show.blade.php`), so not in the sqlite suite.
+
+**A forecast point in a month already over reads "Estimate (month already passed)" (2026-10-25, at the user's
+request: "why does it say FORECAST even though it is already past").** The record ends in June, so Jul–Oct 2026 have
+only the model's figures. On both forecast pages the tooltip names them that way (`forecastTooltip()` /
+`trendTooltip()`, boundary = the next actionable month), hides the forecast at the join month where it only repeats
+the actual, and the product page's Monthly forecast table tags those rows "month already passed".
 
 **`App\Support\ForecastHorizon` is the one definition of when a forecast becomes actionable.** The
 boundary used to exist three times over: `scopeNextMonthOnly()` on both forecast models (dead code,
