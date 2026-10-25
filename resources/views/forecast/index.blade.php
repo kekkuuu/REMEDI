@@ -100,10 +100,6 @@
     <h2 style="margin-top:0; margin-bottom:4px; font-size:20px; font-weight:500;">
         Forecasting
     </h2>
-    <p style="font-size:13px; color:#64748b; margin:0 0 18px;">
-        Store-wide sales trend, per-product demand, and per-product sales forecast, all modeled from the same sales
-        history. Click a product below to see its demand and sales forecast together.
-    </p>
 
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; margin-bottom:18px;">
         <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
@@ -113,9 +109,6 @@
                  alone while config('forecast.include_pos') is off. --}}
             <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast learned from sales through</p>
             <p style="font-size:22px; font-weight:500; margin:0;">{{ $trend['lastActualMonth'] ?? '—' }}</p>
-            @unless(config('forecast.include_pos'))
-                <p style="font-size:11.5px; color:#94a3b8; margin:4px 0 0;">the imported sales record; the till's own sales are not used</p>
-            @endunless
         </div>
         <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
             <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast total, units ({{ $forecastMonths }}-month)</p>
@@ -131,12 +124,10 @@
         </div>
     </div>
 
-    <p style="font-size:13px; color:#64748b; margin:0 0 8px;">Units sold — actual vs. forecast, with 80% confidence band</p>
     <div style="position:relative; width:100%; height:230px; margin-bottom:24px;">
         <canvas id="unitsTrendChart" role="img" aria-label="Line chart of total units sold per month, actual with a dashed forecast continuation"></canvas>
     </div>
 
-    <p style="font-size:13px; color:#64748b; margin:0 0 8px;">Revenue — actual vs. forecast, with 80% confidence band</p>
     <div style="position:relative; width:100%; height:230px;">
         <canvas id="revenueTrendChart" role="img" aria-label="Line chart of total revenue per month, actual with a dashed forecast continuation"></canvas>
     </div>

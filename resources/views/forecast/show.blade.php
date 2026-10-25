@@ -212,21 +212,9 @@
             <p style="font-size:22px; font-weight:500; margin:0;">
                 {{ $recommendedReorderQty !== null ? number_format($recommendedReorderQty) : '—' }}
             </p>
-            <p style="font-size:11px; color:#94a3b8; margin:4px 0 0;">
-                @if ($recommendedReorderQty === null)
-                    no actionable forecast yet
-                @elseif ($recommendedReorderQty === 0)
-                    current stock covers the rest of this month, next month + buffer
-                @else
-                    covers the rest of this month, next month's demand + reorder buffer
-                @endif
-            </p>
         </div>
     </div>
 
-    <p style="font-size:13px; color:#64748b; margin:0 0 8px;">
-        Units sold — actual vs. forecast, with 80% confidence band. Complete months only — the month in progress is excluded, so a half-month does not read as a fall.
-    </p>
     <div style="position:relative; width:100%; height:320px;">
         <canvas id="productForecastChart" role="img" aria-label="Line chart of actual units sold with a dashed forecast continuation and shaded confidence band"></canvas>
     </div>
@@ -243,9 +231,6 @@
     <h2 style="margin-top:0; margin-bottom:4px; font-size:20px; font-weight:500;">
         Sales Forecast
     </h2>
-    <p style="font-size:13px; color:#64748b; margin:0 0 18px;">
-        Revenue forecast for this product, from the same sales history as the demand forecast above.
-    </p>
 
     @if ($hasSalesForecast)
         <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom:18px;">
@@ -265,7 +250,6 @@
             </div>
         </div>
 
-        <p style="font-size:13px; color:#64748b; margin:0 0 8px;">Revenue — actual vs. forecast, with 80% confidence band</p>
         <div style="position:relative; width:100%; height:260px;">
             <canvas id="productSalesForecastChart" role="img" aria-label="Line chart of actual revenue with a dashed forecast continuation and shaded confidence band"></canvas>
         </div>
@@ -281,9 +265,6 @@
     <h2 style="margin-top:0; margin-bottom:4px; font-size:20px; font-weight:500;">
         Seasonal Pattern
     </h2>
-    <p style="font-size:13px; color:#64748b; margin:0 0 14px;">
-        Average units sold per calendar month, based on this product's sales history
-    </p>
     @if ($seasonal->isNotEmpty())
         <canvas id="productSeasonalChart" height="90"></canvas>
     @else
