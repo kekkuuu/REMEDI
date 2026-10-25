@@ -107,8 +107,15 @@
 
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; margin-bottom:18px;">
         <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
-            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Last month with sales</p>
+            {{-- Not "last month with sales" (2026-10-25): the till records sales
+                 after it, which the dashboard shows. It is the last month of the
+                 sales record the forecast learns from -- the imported record
+                 alone while config('forecast.include_pos') is off. --}}
+            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast learned from sales through</p>
             <p style="font-size:22px; font-weight:500; margin:0;">{{ $trend['lastActualMonth'] ?? '—' }}</p>
+            @unless(config('forecast.include_pos'))
+                <p style="font-size:11.5px; color:#94a3b8; margin:4px 0 0;">the imported sales record; the till's own sales are not used</p>
+            @endunless
         </div>
         <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
             <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast total, units ({{ $forecastMonths }}-month)</p>

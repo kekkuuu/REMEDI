@@ -487,6 +487,17 @@ detail pages. Three were wrong, all fixed:
   Seasonal Trends keeps `$monthlySales`, where no-data months stay blank on purpose.
 Covered by `Feature\Inventory\ReturnCountsAgreeTest` and a `DashboardKpiTest` case.
 
+**Second pass the same day, all matching:** the Sales Report for Jun–Aug 2026 (₱2,357,043.22 = ₱2,211,830.73 imported +
+₱145,212.49 till; Average / Day ₱51,240.07 over 46 trading days; ATV ₱180.39 over 805 till sales; 32,185 units; its
+46 rows sum to the footer and each row's imported + till = total), the Analytics report for June (top 5 and all ten
+category totals, which sum to the Sales Report's June), the Inventory report's stock value (₱7,636,349.55), the
+Forecasting totals (Nov + Dec 65,517 units / ₱4,805,326.25), the dashboard expiry overview (123 + 32 + 49 + 2,329 =
+2,533 batches, 100%), the Stock Reports badge, and a receipt. One label was untrue and is fixed: the Forecasting card
+said **"Last month with sales: 2026-06"** (and the detail page "Last complete month") while the till has sales in
+Aug–Oct 2026 that the dashboard shows. It is where the record the forecast learns from ends -- the imported record
+alone while `forecast.include_pos` is off -- so both now read **"Forecast learned from sales through"**, and the list
+page adds "the imported sales record; the till's own sales are not used" while that setting is off.
+
 ### Laravel 10-style skeleton on Laravel 12
 `bootstrap/app.php` binds `App\Http\Kernel` / `App\Console\Kernel`; middleware aliases live in
 `app/Http/Kernel.php` and the scheduler in `app/Console/Kernel.php::schedule()` (`forecast:generate`

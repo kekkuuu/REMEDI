@@ -181,7 +181,10 @@
 
     <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(160px, 1fr)); gap:12px; margin-bottom:18px;">
         <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
-            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Last complete month</p>
+            {{-- Same wording as the Forecasting page (2026-10-25): later months
+                 can be complete too; this is where the record the model uses
+                 ends. --}}
+            <p style="font-size:13px; color:#64748b; margin:0 0 4px;">Forecast learned from sales through</p>
             <p style="font-size:22px; font-weight:500; margin:0;">{{ $lastActualMonth ?? '—' }}</p>
         </div>
         <div style="background:#f8fafc; border-radius:8px; padding:1rem; min-width:0;">
