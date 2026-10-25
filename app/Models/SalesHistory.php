@@ -37,7 +37,7 @@ class SalesHistory extends Model
     public const CACHE_TTL_HOURS = 24;
 
     /** Every key this model caches, so callers can invalidate in one go. */
-    public const QUARTER_CACHE_KEY = 'sales_history_quarterly_revenue_v4';
+    public const QUARTER_CACHE_KEY = 'sales_history_quarterly_revenue_v5';
 
     public const CACHE_KEYS = [self::MONTHLY_CACHE_KEY, self::DEMAND_CACHE_KEY, self::QUARTER_CACHE_KEY];
 
@@ -289,10 +289,23 @@ class SalesHistory extends Model
                     'quarters' => array_map(fn ($v) => round($v, 2), $quarters),
                     'total' => round($total, 2),
                     'covered' => $covered,
+                    // One record = one product sold on one date, from BOTH
+                    // records like the total above it: the till's lines count
+                    // the same way (a product on a day, however many sales).
                     'records' => (int) DB::table('sales_history')
                         ->whereYear('sale_date', $year)
                         ->where('sale_date', '<=', self::reportableThrough())
-                        ->count(),
+                        ->count()
+                        + (int) DB::query()->fromSub(
+                            DB::table('sale_items')
+                                ->join('sales', 'sales.id', '=', 'sale_items.sale_id')
+                                ->where('sales.payment_voided', false)
+                                ->whereYear('sales.created_at', $year)
+                                ->whereDate('sales.created_at', '<=', self::reportableThrough())
+                                ->selectRaw('sale_items.product_id, DATE(sales.created_at) AS d')
+                                ->distinct(),
+                            't'
+                        )->count(),
                 ];
             }
         );

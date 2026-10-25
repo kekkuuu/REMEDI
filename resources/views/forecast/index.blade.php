@@ -20,7 +20,9 @@
     // config('forecast.include_pos') is off. A month the till did not run in
     // (July 2026) stays a gap.
     $tillAfterRecord = config('forecast.include_pos') ? collect()
-        : \App\Models\SalesHistory::posMonthly()->filter(fn ($v, $ym) => $ym > $trend['lastActualMonth']);
+        : \App\Models\SalesHistory::posMonthly()
+            // Complete months only: the month in progress would read as a fall.
+            ->filter(fn ($v, $ym) => $ym > $trend['lastActualMonth'] && $ym < now()->format('Y-m'));
 
     $actualUnitsSeries = $months->map(fn ($m) => $trend['actualUnits'][$m] ?? ($tillAfterRecord[$m]['units'] ?? null));
     $forecastUnitsSeries = $months->map(function ($m) use ($trend) {
@@ -494,27 +496,16 @@
 
 <script>
 
-/* Tooltip wording (2026-10-25, at the user's request): a forecast point in a
-   month already over or in progress is the model's ESTIMATE for a month the
-   sales record does not reach yet; at the join month the forecast only repeats
-   the actual, so the tooltip shows the actual alone. Same rule as the product
-   page (forecast/show). */
-const trendLabels = @json($months);
-const firstAhead = (() => {
-    const key = @json($actionableMonthKey);
-    const at = trendLabels.indexOf(key);
-    return at >= 0 ? at : (trendLabels.length && key < trendLabels[0] ? 0 : trendLabels.length);
-})();
-const recordEnd = @json($trend['lastActualMonth']);
+/* Tooltips read plain "Actual" / "Forecast" (2026-10-25, at the user's
+   request). At the JOIN month (the record's last month) the forecast only
+   repeats the actual, so the tooltip shows the actual alone there -- and only
+   there. Same rule as the product page (forecast/show). */
+const trendJoin = @json($months).indexOf(@json($trend['lastActualMonth']));
 function trendTooltip(fmt) {
     return {
-        // The forecast is hidden only where it repeats the actual (the join).
-        filter: (item) => item.dataset.label === 'Actual' || (item.dataset.label === 'Forecast'
-            && item.chart.data.datasets.find((d) => d.label === 'Actual').data[item.dataIndex] !== item.parsed.y),
-        label: (c) => (c.dataset.label === 'Forecast' && c.dataIndex < firstAhead
-            ? 'Forecast'
-            : (c.dataset.label === 'Actual' && trendLabels[c.dataIndex] > recordEnd ? 'Actual' : c.dataset.label))
-            + ': ' + fmt(c.parsed.y),
+        filter: (item) => item.dataset.label === 'Actual'
+            || (item.dataset.label === 'Forecast' && item.dataIndex !== trendJoin),
+        label: (c) => c.dataset.label + ': ' + fmt(c.parsed.y),
     };
 }
 const unitsTrendTip = trendTooltip((v) => Math.round(v).toLocaleString());

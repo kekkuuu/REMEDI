@@ -504,7 +504,9 @@ Covered by `Feature\Inventory\ReturnCountsAgreeTest` and a `DashboardKpiTest` ca
   record's latest year up to `lastCompleteMonth()` (2026: ₱11.83M, Q1 50% / Q2 50%) and returns `covered` (quarters the
   record reaches); the legend reads "—" for the rest. Cache key `_v3`. **REVERSED the same evening, at the user's
   request ("put the pos sales back in q3 and q4")**: the ring counts the latest calendar year from BOTH records again
-  (2026: ₱11,989,860.04, Q1 49% / Q2 50% / Q3 1% / Q4 0%), `covered` is always 4, cache key `_v4`. The `covered`
+  (2026: ₱11,989,860.04, Q1 49% / Q2 50% / Q3 1% / Q4 0%), `covered` is always 4, cache key `_v5` (2026-10-26: "Sales Records" beside it counted the record's rows alone while
+the total includes the till; it now adds the till's product-days, 65,448 + 1,160 = 66,608, and the tooltip uses the
+legend's decimals and pesos under ₱1M -- Q4 read "₱0.00M (0.0%)"). The `covered`
   plumbing in the legend stays, unused, in case a quarter ever needs "—" again.
 
 **Second pass the same day, all matching:** the Sales Report for Jun–Aug 2026 (₱2,357,043.22 = ₱2,211,830.73 imported +
@@ -2296,7 +2298,10 @@ drops sharply after June (Aug 2,727 units against an estimate of 34,116) because
 **Labels simplified later the same evening, at the user's request:** the brackets went, and "Estimate" became
 "Forecast" again, so the tooltip reads plain "Actual" / "Forecast" in every month. What remains of the above is the
 join-month rule (the forecast hidden only where it repeats the actual), the till's sales on the Actual line, and the
-"month already passed" tag in the product table.
+"month already passed" tag in the product table. **Logic pass, 2026-10-26:** the tooltip hid the forecast wherever it
+EQUALLED the actual (a forecast of 0 against a till month of 0 vanished) -- it now hides it at the join INDEX only; the
+till's months on the Actual line stop before the month in progress (complete months only, like the record); and the
+current month is tagged "this month", not "already passed".
 
 **`App\Support\ForecastHorizon` is the one definition of when a forecast becomes actionable.** The
 boundary used to exist three times over: `scopeNextMonthOnly()` on both forecast models (dead code,

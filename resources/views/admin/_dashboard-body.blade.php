@@ -1936,6 +1936,18 @@
         const total = data.reduce((a, b) => a + b, 0);
         // Quarters past the end of the sales record read "—", not 0%.
         const covered = @json($quarterSummary['covered'] ?? 4);
+        // One share format for the legend AND the tooltip (2026-10-25, at the
+        // user's request): whole percent rounded October's till sales to "0%",
+        // read as no sales at all. One decimal from 1% up, two below it;
+        // "<0.01" only for a sliver that is not 0.
+        const quarterShare = (v) => {
+            const share = total > 0 ? (v / total) * 100 : 0;
+            return share >= 1 ? share.toFixed(1) : (v > 0 && share < 0.01 ? '<0.01' : share.toFixed(2));
+        };
+        // Millions read "₱0.00M" for a quarter of a few pesos; small amounts in pesos.
+        const quarterPesos = (v) => v >= 1000000
+            ? '₱' + (v / 1000000).toFixed(2) + 'M'
+            : '₱' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
         new Chart(el, {
             type: 'doughnut',
@@ -1963,13 +1975,7 @@
                             // nothing about how the year actually split.
                             generateLabels: (chart) => chart.data.labels.map((label, i) => {
                                 const v = chart.data.datasets[0].data[i];
-                                // Decimals (2026-10-25, at the user's request): whole
-                                // percent rounded October's till sales to "0%", read
-                                // as no sales at all. One decimal from 1% up, two
-                                // below it; "<0.01" only for a sliver that is not 0.
-                                const share = total > 0 ? (v / total) * 100 : 0;
-                                const pct = share >= 1 ? share.toFixed(1)
-                                    : (v > 0 && share < 0.01 ? '<0.01' : share.toFixed(2));
+                                const pct = quarterShare(v);
                                 return {
                                     text: label + '  ' + (i < covered ? pct + '%' : '—'),
                                     fillStyle: chart.data.datasets[0].backgroundColor[i],
@@ -1982,10 +1988,7 @@
                     },
                     tooltip: {
                         callbacks: {
-                            label: (c) => {
-                                const pct = total > 0 ? ((c.parsed / total) * 100).toFixed(1) : '0.0';
-                                return ' ' + c.label + ': ₱' + (c.parsed / 1000000).toFixed(2) + 'M (' + pct + '%)';
-                            },
+                            label: (c) => ' ' + c.label + ': ' + quarterPesos(c.parsed) + ' (' + quarterShare(c.parsed) + '%)',
                         },
                     },
                 },

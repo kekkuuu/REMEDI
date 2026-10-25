@@ -40,7 +40,11 @@
     // config('forecast.include_pos') is off. Revenue at the current price,
     // like every other revenue figure here.
     $tillMonths = config('forecast.include_pos') ? collect()
-        : \App\Models\SalesHistory::posMonthly()->keys()->filter(fn ($ym) => $lastActualMonth === null || $ym > $lastActualMonth)->values();
+        : \App\Models\SalesHistory::posMonthly()->keys()
+            // Complete months only, like the record: the month in progress
+            // would read as a fall.
+            ->filter(fn ($ym) => ($lastActualMonth === null || $ym > $lastActualMonth) && $ym < now()->format('Y-m'))
+            ->values();
     $tillForProduct = $tillMonths->isEmpty() ? collect() : \App\Models\SalesHistory::posMonthly($product_sku);
     $tillUnits = $tillMonths->mapWithKeys(fn ($ym) => [$ym => (int) ($tillForProduct[$ym]['units'] ?? 0)]);
     $tillRevenue = $tillMonths->mapWithKeys(fn ($ym) => [$ym => round((float) ($tillForProduct[$ym]['revenue'] ?? 0), 2)]);
@@ -308,9 +312,11 @@
                 <tr>
                     <td>
                         {{ $row->forecast_date->format('F Y') }}
-                        @if ($row->forecast_date->format('Y-m') < $nextMonthKey)
-                            {{-- Over or in progress, and not in the sales record yet. --}}
+                        @if ($row->forecast_date->format('Y-m') < now()->format('Y-m'))
+                            {{-- Over, and not in the sales record yet. --}}
                             <span style="margin-left:6px; padding:1px 8px; border-radius:999px; background:#f1f5f9; color:#64748b; font-size:11px;">month already passed</span>
+                        @elseif ($row->forecast_date->format('Y-m') < $nextMonthKey)
+                            <span style="margin-left:6px; padding:1px 8px; border-radius:999px; background:#f1f5f9; color:#64748b; font-size:11px;">this month</span>
                         @endif
                     </td>
                     <td><strong>{{ number_format($row->forecast_value) }}</strong></td>
@@ -417,30 +423,24 @@ function bandFromNextMonth(labels, lower, upper, forecast) {
    line, so the dash pattern -- like the shade -- marks what is still ahead.
    The segment into the next month is the first dashed one. The dataset keeps
    borderDash so the legend still shows the forecast as a dashed line. */
-/* Tooltip wording (2026-10-25, at the user's request: "why does it say
-   FORECAST even though it is already past"). A forecast point in a month that
-   is already over or in progress is the model's ESTIMATE for a month the sales
-   record does not reach yet, so it says so; and at the join month the forecast
-   only repeats the actual value, so the tooltip shows the actual alone. */
-const recordEnd = @json($lastActualMonth);
-function forecastTooltip(labels, fmt) {
-    const first = firstAheadIndex(labels);
-    return {
-        // The forecast is hidden only where it repeats the actual (the join).
-        filter: (item) => item.dataset.label === 'Actual' || (item.dataset.label === 'Forecast'
-            && item.chart.data.datasets.find((d) => d.label === 'Actual').data[item.dataIndex] !== item.parsed.y),
-        label: (item) => (item.dataset.label === 'Forecast' && first >= 0 && item.dataIndex < first
-            ? 'Forecast'
-            : (item.dataset.label === 'Actual' && recordEnd && labels[item.dataIndex] > recordEnd ? 'Actual' : item.dataset.label))
-            + ': ' + fmt(item.parsed.y),
-    };
-}
-const unitsTip = forecastTooltip(L, (v) => Math.round(v).toLocaleString());
-
 function dashFromNextMonth(labels) {
     const first = firstAheadIndex(labels);
     return (ctx) => (first >= 0 && ctx.p1DataIndex >= first ? [5, 4] : []);
 }
+
+/* Tooltips read plain "Actual" / "Forecast" (2026-10-25, at the user's
+   request). At the JOIN month the forecast only repeats the actual, so the
+   tooltip shows the actual alone there -- and only there: a forecast that
+   happens to equal a later actual (0 against a till month of 0) still shows. */
+function forecastTooltip(labels, joinKey, fmt) {
+    const join = labels.indexOf(joinKey);
+    return {
+        filter: (item) => item.dataset.label === 'Actual'
+            || (item.dataset.label === 'Forecast' && item.dataIndex !== join),
+        label: (item) => item.dataset.label + ': ' + fmt(item.parsed.y),
+    };
+}
+const unitsTip = forecastTooltip(L, @json($joinMonth), (v) => Math.round(v).toLocaleString());
 
 const [bandLower, bandUpper] = bandFromNextMonth(L, @json($lowerSeries), @json($upperSeries), @json($forecastSeries));
 
@@ -524,7 +524,7 @@ new Chart(document.getElementById('productForecastChart'), {
 });
 
 @if ($hasSalesForecast)
-const revenueTip = forecastTooltip(@json($sfMonths), (v) => '₱' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const revenueTip = forecastTooltip(@json($sfMonths), @json($sfJoinMonth), (v) => '₱' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const [sfBandLower, sfBandUpper] = bandFromNextMonth(@json($sfMonths), @json($sfRevenueLowerSeries), @json($sfRevenueUpperSeries), @json($sfForecastRevenueSeries));
 new Chart(document.getElementById('productSalesForecastChart'), {
     type: 'line',
