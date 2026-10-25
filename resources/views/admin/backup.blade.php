@@ -156,7 +156,8 @@ document.querySelectorAll('.backup-form').forEach(function (form) {
         if (btn) btn.disabled = true;
         if (label) label.textContent = 'Preparing the file…';
         setTimeout(function () {
-            form.querySelectorAll('input[type=password]').forEach(function (i) { i.value = ''; });
+            // .pw-auto > input: a password shown with the eye is type="text".
+            form.querySelectorAll('input[type=password], .pw-auto > input').forEach(function (i) { i.value = ''; });
         }, 0);
         setTimeout(function () {
             if (btn) btn.disabled = false;

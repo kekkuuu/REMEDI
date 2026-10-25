@@ -423,7 +423,8 @@
         .forgot-row a:hover { text-decoration: underline; }
 
         input[type="email"],
-        input[type="password"] {
+        input[type="password"],
+        .pw-auto > input {  /* a shown password is type="text" (pw-reveal.js) */
             width: 100%;
             padding: 12px 14px;
             font-size: 15px;
