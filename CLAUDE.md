@@ -486,6 +486,10 @@ detail pages. Three were wrong, all fixed:
   continuousMonths()` fills every month between the first and last at ₱0 into `$monthlySalesSeries` for that chart;
   Seasonal Trends keeps `$monthlySales`, where no-data months stay blank on purpose.
 Covered by `Feature\Inventory\ReturnCountsAgreeTest` and a `DashboardKpiTest` case.
+- **The dashboards' "Inventory Overview" ring counted only products holding stock** while captioned "Total products"
+  and linking each row to that category's full Inventory list: 2,530 against a catalogue of 2,637 (Medicine 1,343 on
+  the ring, 1,393 on the list). `computeStockSnapshot()` now counts every active product per category from the loaded
+  catalogue; units are still what is on the shelf. Ring 2,637, every row equal to its list. `CategoryBreakdownTest`.
 
 **Second pass the same day, all matching:** the Sales Report for Jun–Aug 2026 (₱2,357,043.22 = ₱2,211,830.73 imported +
 ₱145,212.49 till; Average / Day ₱51,240.07 over 46 trading days; ATV ₱180.39 over 805 till sales; 32,185 units; its

@@ -626,19 +626,24 @@ class DashboardController extends Controller
         // admin and staff dashboards. Derived from the $activeBatches
         // collection already loaded above (product+category eager-loaded),
         // so this costs zero extra queries.
-        $categoryBreakdown = $onShelf
-            ->filter(fn ($b) => $b->product && $b->product->category)
-            ->groupBy(fn ($b) => $b->product->category->name)
-            ->map(fn ($batches, $categoryName) => [
+        //
+        // Products are counted from the catalogue, not from the batches on the
+        // shelf (2026-10-25): the ring is captioned "Total products" and each
+        // row links to Inventory for that category, which lists every active
+        // product -- counting only the ones holding stock read 2,530 against a
+        // catalogue of 2,637 (Medicine 1,343 here, 1,393 on the list it opens).
+        // Units stay what is on the shelf.
+        $categoryBreakdown = $productsById
+            ->filter(fn ($p) => $p->category)
+            ->groupBy(fn ($p) => $p->category->name)
+            ->map(fn ($products, $categoryName) => [
                 'name' => $categoryName,
                 // Carried so the legend rows can link to Inventory filtered to
                 // this category. Grouping is by name (that is what the chart
-                // labels), and the id is not derivable from it — read off the
-                // first batch's already-eager-loaded category, so still no
-                // extra query.
-                'id' => $batches->first()->product->category->id,
-                'stock' => (int) $batches->sum('quantity'),
-                'products' => $batches->pluck('product_id')->unique()->count(),
+                // labels), and the id is not derivable from it.
+                'id' => $products->first()->category->id,
+                'stock' => (int) $products->sum(fn ($p) => $batchesByProduct->get($p->id, collect())->sum('quantity')),
+                'products' => $products->count(),
             ])
             ->sortByDesc('stock')
             ->values();
