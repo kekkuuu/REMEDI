@@ -499,6 +499,10 @@ Covered by `Feature\Inventory\ReturnCountsAgreeTest` and a `DashboardKpiTest` ca
   read low and October was "slowest" on ₱2.10. `SalesHistory::seasonalTrends()` now stops at `lastCompleteMonth()`
   (the forecast's boundary, June 2026 while `forecast.include_pos` is off): all 12 months, 4 years each. Feeds the
   Analytics report and the admin dashboard. Sales History's date pickers also start at `dateBounds()[0]` (1 Jul 2022).
+- **The dashboard's quarterly Sales Summary read 2026 as Q1 49% / Q2 49% / Q3 1% / Q4 0%** (same day, at the user's
+  request): Q3–Q4 held only the till's small sales after the record ended in June. `quarterlyRevenue()` now counts the
+  record's latest year up to `lastCompleteMonth()` (2026: ₱11.83M, Q1 50% / Q2 50%) and returns `covered` (quarters the
+  record reaches); the legend reads "—" for the rest. Cache key `_v3`.
 
 **Second pass the same day, all matching:** the Sales Report for Jun–Aug 2026 (₱2,357,043.22 = ₱2,211,830.73 imported +
 ₱145,212.49 till; Average / Day ₱51,240.07 over 46 trading days; ATV ₱180.39 over 805 till sales; 32,185 units; its

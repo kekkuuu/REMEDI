@@ -1934,6 +1934,8 @@
 
         const data = @json($quarterSummary['quarters']);
         const total = data.reduce((a, b) => a + b, 0);
+        // Quarters past the end of the sales record read "—", not 0%.
+        const covered = @json($quarterSummary['covered'] ?? 4);
 
         new Chart(el, {
             type: 'doughnut',
@@ -1963,7 +1965,7 @@
                                 const v = chart.data.datasets[0].data[i];
                                 const pct = total > 0 ? ((v / total) * 100).toFixed(0) : 0;
                                 return {
-                                    text: label + '  ' + pct + '%',
+                                    text: label + '  ' + (i < covered ? pct + '%' : '—'),
                                     fillStyle: chart.data.datasets[0].backgroundColor[i],
                                     strokeStyle: chart.data.datasets[0].backgroundColor[i],
                                     lineWidth: 0,
