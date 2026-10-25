@@ -1307,6 +1307,12 @@ null expiry is never "expired", i.e. permanently sellable), gets `after:received
 the value actually changes** (73 seeded batches violate it and must stay editable so they can be
 zeroed), and the audit entry names the before/after — flagging `— BATCH WAS EXPIRED` when an expiry
 is moved on already-expired stock. Correcting a receipt typo is legitimate; doing it invisibly is not.
+**Both batch forms post `expected_quantity`, the figure they were drawn with (2026-10-25).** They post an ABSOLUTE
+quantity, so a sale rung up while Manage Product sat open was undone by the next save, even a cost-only one, and the
+stock card logged a delta nobody made. Now an untouched quantity keeps whatever the batch holds at save time, a typed
+one is refused when stock moved meanwhile ("now holds N… reload"), and the delta is taken from the locked row. A
+RETURNED batch's quantity cannot be changed at all (shown as plain text; the endpoint refuses), same reason as the void
+fix: stock on it could never be sold or returned. Covered by two `StockMovementTest` cases.
 
 **`markBatchReturned` writes off stock, so it must check eligibility itself.** It sets `quantity` to
 0. Both Return buttons were already gated on `is_returnable` -- the inventory row picks the earliest

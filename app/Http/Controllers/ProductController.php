@@ -508,7 +508,18 @@ class ProductController extends Controller
         $oldDrNo = $batch->dr_no;
         $oldSupplier = $batch->supplier;
 
+        // The quantity the form was drawn with (2026-10-25). The forms post an
+        // ABSOLUTE quantity, so without it a sale rung up while the page sat
+        // open was undone by the next save -- even a save of the cost alone,
+        // which re-posts the old figure -- and the stock card logged a delta
+        // nobody made. Old forms without the field fall back to the stored one.
+        $baseline = is_numeric($request->input('expected_quantity'))
+            ? (int) $request->input('expected_quantity')
+            : $oldQuantity;
+        $changesQuantity = (int) $request->input('quantity') !== $baseline;
+
         $rules = [
+            'expected_quantity' => 'nullable|integer|min:0|max:'.self::MAX_COUNT,
             'quantity' => 'required|integer|min:0|max:'.self::MAX_COUNT,
             // required, not nullable. A batch with no expiry date can never be
             // judged expired (is_expired returns false for null), so clearing
@@ -525,9 +536,7 @@ class ProductController extends Controller
             // is: it's either a manual count correction or a pull-out, and
             // the stock card (below) is only worth having if every entry on
             // it says why.
-            'reason' => ['nullable', 'string', 'max:255', Rule::requiredIf(
-                fn () => (int) $request->input('quantity') !== $oldQuantity
-            )],
+            'reason' => ['nullable', 'string', 'max:255', Rule::requiredIf(fn () => $changesQuantity)],
         ];
 
         // The date rule applies ONLY when the expiry is actually being changed.
@@ -546,7 +555,15 @@ class ProductController extends Controller
         // Not a column -- pulled out before update() and used only to label
         // the ledger entry below.
         $reason = $validated['reason'] ?? null;
-        unset($validated['reason']);
+        unset($validated['reason'], $validated['expected_quantity']);
+
+        // A returned batch went back to the supplier: stock put on it could
+        // never be sold (the till skips returned batches) or returned again.
+        if ($changesQuantity && $batch->returned_at) {
+            return $this->actionFailed($request,
+                "Batch {$batch->batch_number} was returned to the supplier, so its quantity cannot be changed. "
+                .'Add the units with Add New Batch if they are on the shelf.', 'quantity');
+        }
 
         // Lock the row before writing: unlocked, two admins editing the same
         // batch at once (one correcting a receipt-count typo, another marking
@@ -557,16 +574,33 @@ class ProductController extends Controller
         // lockForUpdate() inside a transaction serialises the two writes
         // instead, the same pattern already used for the batch-number and
         // transaction-number races.
-        DB::transaction(function () use ($batch, $validated, $oldQuantity, $reason) {
-            ProductBatch::whereKey($batch->getKey())->lockForUpdate()->first();
+        $moved = DB::transaction(function () use ($batch, &$validated, &$oldQuantity, $reason, $baseline, $changesQuantity) {
+            $current = (int) ProductBatch::whereKey($batch->getKey())->lockForUpdate()->value('quantity');
+
+            if (! $changesQuantity) {
+                // Quantity untouched in the form: keep whatever is there NOW.
+                $validated['quantity'] = $current;
+            } elseif ($current !== $baseline) {
+                return $current;   // stock moved since the page was opened
+            }
+
+            $oldQuantity = $current;
             $batch->update($validated);
 
-            $delta = (int) $validated['quantity'] - $oldQuantity;
+            $delta = (int) $validated['quantity'] - $current;
 
             if ($delta !== 0) {
                 StockMovement::record($batch, StockMovement::TYPE_ADJUSTMENT, $delta, $reason);
             }
+
+            return null;
         });
+
+        if ($moved !== null) {
+            return $this->actionFailed($request,
+                "Batch {$batch->batch_number} now holds {$moved}, not {$baseline}: stock moved since this page "
+                .'was opened. Reload the page and enter the new quantity again.', 'quantity');
+        }
 
         // Record WHAT changed, not just that something did.
         //

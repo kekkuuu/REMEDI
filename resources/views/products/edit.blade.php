@@ -337,9 +337,15 @@
                          actually changes (ProductController::updateBatch) — so
                          leaving it blank while only nudging other fields
                          through the second form below still works. --}}
+                    {{-- A returned batch went back to the supplier; its quantity
+                         is not editable (updateBatch refuses it too). --}}
+                    @if($batch->returned_at)
+                        <span>{{ number_format($batch->quantity) }}</span>
+                    @else
                     <form method="POST" action="{{ route('batches.update', $batch) }}" style="display:flex; gap:4px; align-items:center; flex-wrap:wrap;">
                         @csrf
                         @method('PUT')
+                        <input type="hidden" name="expected_quantity" value="{{ $batch->quantity }}">
                         <input type="number" name="quantity" value="{{ $batch->quantity }}" min="0" style="width:70px; padding:4px; border:1px solid #d1d5db; border-radius:4px;">
                         <input type="hidden" name="expiry_date" value="{{ $batch->expiry_date?->format('Y-m-d') }}">
                         <input type="hidden" name="unit_cost" value="{{ $batch->unit_cost }}">
@@ -348,6 +354,7 @@
                         <input type="text" name="reason" placeholder="Reason if changing qty" style="width:130px; padding:4px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;">
                         <button type="submit" class="btn btn-info" style="padding:4px 8px;">Update</button>
                     </form>
+                    @endif
                 </td>
                 <td>
                     {{-- Same route, this form's own hidden quantity/expiry keep
@@ -357,6 +364,7 @@
                     <form method="POST" action="{{ route('batches.update', $batch) }}" style="display:flex; flex-direction:column; gap:3px;">
                         @csrf
                         @method('PUT')
+                        <input type="hidden" name="expected_quantity" value="{{ $batch->quantity }}">
                         <input type="hidden" name="quantity" value="{{ $batch->quantity }}">
                         <input type="hidden" name="expiry_date" value="{{ $batch->expiry_date?->format('Y-m-d') }}">
                         <input type="number" name="unit_cost" value="{{ $batch->unit_cost }}" min="0" step="0.01" placeholder="Cost" style="width:90px; padding:3px; border:1px solid #d1d5db; border-radius:4px; font-size:12px;">

@@ -183,6 +183,75 @@ class StockMovementTest extends TestCase
         $this->assertSame(0, StockMovement::where('product_batch_id', $batch->id)->count());
     }
 
+    public function test_a_sale_made_while_the_edit_page_was_open_is_not_undone(): void
+    {
+        $product = $this->product();
+        $batch = $this->batch($product, 20, now()->addYear()->toDateString());
+
+        // The page was drawn at 20; a cashier then sells 4.
+        $batch->decrement('quantity', 4);
+
+        // Saving only the cost re-posts 20: the 16 now on the shelf stays.
+        $this->actingAs($this->admin())
+            ->put('/batches/'.$batch->id, [
+                'expected_quantity' => 20, 'quantity' => 20,
+                'expiry_date' => $batch->expiry_date->toDateString(), 'unit_cost' => '2.00',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame(16, (int) $batch->fresh()->quantity);
+        $this->assertSame(0, StockMovement::where('product_batch_id', $batch->id)->count());
+
+        // Typing a new count over the old figure is refused, nothing written.
+        $this->actingAs($this->admin())
+            ->put('/batches/'.$batch->id, [
+                'expected_quantity' => 20, 'quantity' => 18, 'reason' => 'Recount',
+                'expiry_date' => $batch->expiry_date->toDateString(),
+            ])
+            ->assertSessionHasErrors('quantity');
+
+        $this->assertSame(16, (int) $batch->fresh()->quantity);
+
+        // From the reloaded page (drawn at 16) the same count goes through.
+        $this->actingAs($this->admin())
+            ->put('/batches/'.$batch->id, [
+                'expected_quantity' => 16, 'quantity' => 18, 'reason' => 'Recount',
+                'expiry_date' => $batch->expiry_date->toDateString(),
+            ])
+            ->assertSessionHasNoErrors();
+
+        $movement = StockMovement::where('product_batch_id', $batch->id)->sole();
+        $this->assertSame(2, $movement->quantity_change);
+        $this->assertSame(18, $movement->balance_after);
+    }
+
+    public function test_a_returned_batchs_quantity_cannot_be_changed(): void
+    {
+        $product = $this->product();
+        $batch = $this->batch($product, 0, now()->addYear()->toDateString());
+        $admin = $this->admin();
+        $batch->update(['returned_at' => now(), 'returned_by' => $admin->id]);
+
+        $this->actingAs($admin)
+            ->put('/batches/'.$batch->id, [
+                'expected_quantity' => 0, 'quantity' => 5, 'reason' => 'Found more',
+                'expiry_date' => $batch->expiry_date->toDateString(),
+            ])
+            ->assertSessionHasErrors('quantity');
+
+        $this->assertSame(0, (int) $batch->fresh()->quantity);
+
+        // Its other fields still save.
+        $this->actingAs($admin)
+            ->put('/batches/'.$batch->id, [
+                'expected_quantity' => 0, 'quantity' => 0,
+                'expiry_date' => $batch->expiry_date->toDateString(), 'supplier' => 'Acme',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('Acme', $batch->fresh()->supplier);
+    }
+
     public function test_the_stock_card_page_lists_movements_newest_first_with_a_running_balance(): void
     {
         $product = $this->product();
