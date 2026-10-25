@@ -92,8 +92,18 @@
     // stock doesn't fall through that buffer before next month is over.
     // Null (not zero) when there is no actionable forecast to base it on --
     // a zero here would read as "you have enough," which is not measured.
+    //
+    // The stock on hand has to last the REST OF THIS MONTH first (2026-10-25,
+    // at the user's request): next month alone said "covered" on the 25th for
+    // a product that would run out before next month was over. The current
+    // month's forecast counts by the share of its days still to come, today
+    // included; a month with no forecast row adds nothing.
+    $currentMonthRow = $forecastByMonth->get(now()->format('Y-m'));
+    $restOfMonthShare = (now()->daysInMonth - now()->day + 1) / now()->daysInMonth;
+    $restOfMonthDemand = $currentMonthRow ? (float) $currentMonthRow->forecast_value * $restOfMonthShare : 0.0;
+
     $recommendedReorderQty = ($product && $nextMonth)
-        ? max(0, (int) round($nextMonth->forecast_value + $product->reorder_level - $product->sellable_stock))
+        ? max(0, (int) round($restOfMonthDemand + $nextMonth->forecast_value + $product->reorder_level - $product->sellable_stock))
         : null;
 @endphp
 
@@ -206,9 +216,9 @@
                 @if ($recommendedReorderQty === null)
                     no actionable forecast yet
                 @elseif ($recommendedReorderQty === 0)
-                    current stock covers next month + buffer
+                    current stock covers the rest of this month, next month + buffer
                 @else
-                    covers next month's demand + reorder buffer
+                    covers the rest of this month, next month's demand + reorder buffer
                 @endif
             </p>
         </div>

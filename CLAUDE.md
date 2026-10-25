@@ -2242,6 +2242,12 @@ from the next month on** (`dashFromNextMonth()`, Chart.js `segment.borderDash`):
 over or in progress draw solid like the actual line; the dataset keeps `borderDash` so the legend still
 shows the forecast as dashed.
 
+**The detail page's "Recommended reorder qty" covers the rest of THIS month too (2026-10-25, at the user's request).**
+It was next month's forecast + reorder level − sellable stock, so on the 25th it read "covered" for stock that runs out
+before next month ends. Now (this month's forecast × the share of its days left, today included) + next month's
+forecast + reorder level − sellable stock. Changed the figure on 1,310 products that day; 3D MASK DISPOSABLE X10 104 → 130,
+the page agreeing with the figure recomputed from SQL. View-only (`forecast/show.blade.php`), so not in the sqlite suite.
+
 **`App\Support\ForecastHorizon` is the one definition of when a forecast becomes actionable.** The
 boundary used to exist three times over: `scopeNextMonthOnly()` on both forecast models (dead code,
 never called) plus two hand-rolled copies of the same Carbon expression in the service and the detail
