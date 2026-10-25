@@ -1197,7 +1197,11 @@ rather than restocking it twice, the same race `markBatchReturned` already guard
 returned to the supplier after the sale (2026-10-25, at the user's request: voided items go back on the shelf)** is put
 on an on-shelf row of the same lot (`SaleController::shelfCopyOf()`: same batch number, expiry and cost, quantity
 starting at 0, reused by a later void of that lot) and recorded as a `void` movement, never a `stock_in`; restocked
-onto the returned row, the units counted as stock the till could never sell or return. The reason
+onto the returned row, the units counted as stock the till could never sell or return. **The same for a batch ARCHIVED
+ON ITS OWN (2026-10-26)**: the four duplicate OPENING batches carry 11 live sales, and a void put the units back on the
+archived row, hidden from the till and every stock figure. A batch archived WITH its product (same `archived_at`) is
+restocked in place, so restoring the product brings the units back; the shelf copy takes the product's archive stamp
+for the same reason. Two `VoidTest` cases. The reason
 is picked IN the confirm dialog, not before it — `data-confirm-reasons` (a JSON `{value: label}` map)
 swaps the shared confirm modal's single generic Confirm button for one button per reason (see "Every
 state-changing action answers in two shapes" below), the same mechanism `User::ARCHIVE_REASONS` uses

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AuditTrail;
+use App\Models\Product;
 use App\Models\ProductBatch;
 use App\Models\Sale;
 use App\Models\SalesHistory;
@@ -274,7 +275,14 @@ class SaleController extends Controller
                 // the shelf again, so they go onto an on-shelf row of the SAME
                 // lot (number, expiry, cost) -- recorded as a void below, not as
                 // a delivery. A later void of the same lot reuses that row.
-                if ($batch->returned_at) {
+                //
+                // Same for a batch ARCHIVED ON ITS OWN since the sale
+                // (2026-10-26: the four duplicate OPENING batches carry 11 live
+                // sales): archived rows are hidden from the till and every
+                // stock figure, so units put back there vanished. A batch
+                // archived WITH its product keeps them -- restoring the product
+                // brings both back.
+                if ($batch->returned_at || ($batch->trashed() && $batch->archived_at->toDateTimeString() !== $this->productArchivedAt($batch))) {
                     $batch = $this->shelfCopyOf($batch);
                 }
 
@@ -330,14 +338,22 @@ class SaleController extends Controller
         );
     }
 
-    /** The on-shelf row of a returned batch's lot, created empty on first use. */
-    private function shelfCopyOf(ProductBatch $returned): ProductBatch
+    /**
+     * The on-shelf row of a returned (or separately archived) batch's lot,
+     * created empty on first use. "On the shelf" means as visible as its
+     * product: not archived, or archived WITH the product (same timestamp), so
+     * restoring the product brings it back.
+     */
+    private function shelfCopyOf(ProductBatch $source): ProductBatch
     {
+        $archivedAt = $this->productArchivedAt($source);
+
         $copy = ProductBatch::withTrashed()
-            ->where('product_id', $returned->product_id)
-            ->where('batch_number', $returned->batch_number)
-            ->whereDate('expiry_date', $returned->expiry_date)
+            ->where('product_id', $source->product_id)
+            ->where('batch_number', $source->batch_number)
+            ->whereDate('expiry_date', $source->expiry_date)
             ->whereNull('returned_at')
+            ->where('archived_at', $archivedAt)
             ->lockForUpdate()
             ->first();
 
@@ -345,12 +361,21 @@ class SaleController extends Controller
             return $copy;
         }
 
-        $copy = $returned->replicate(['returned_at', 'returned_by']);
+        $copy = $source->replicate(['returned_at', 'returned_by']);
         $copy->quantity = 0;
         $copy->qty_received = 0;
+        $copy->archived_at = $archivedAt;
         $copy->save();
 
         return $copy;
+    }
+
+    /** The batch's product's archive stamp, or null while the product is active. */
+    private function productArchivedAt(ProductBatch $batch): ?string
+    {
+        $at = Product::withTrashed()->whereKey($batch->product_id)->value('archived_at');
+
+        return $at === null ? null : Carbon::parse($at)->toDateTimeString();
     }
 
     /**

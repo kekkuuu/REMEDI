@@ -153,6 +153,41 @@ class VoidTest extends TestCase
         $this->assertSame(2, ProductBatch::where('product_id', $product->id)->count());
     }
 
+    public function test_a_void_after_the_batch_was_archived_puts_the_units_where_they_can_be_sold(): void
+    {
+        [$product, $batch] = $this->checkoutProduct(10);
+        $admin = $this->admin();
+        $sale = $this->checkout($admin, $product, 3, 30);
+
+        // The batch alone is archived (a duplicate row, say); the product stays.
+        $batch->delete();
+
+        $this->actingAs($admin)->patch("/sales/{$sale->id}/void", ['reason' => 'cashier_error']);
+
+        // The archived row keeps what it held; the 3 units are on a visible row of the lot.
+        $this->assertSame(7, ProductBatch::withTrashed()->find($batch->id)->quantity);
+        $shelf = ProductBatch::where('product_id', $product->id)->sole();
+        $this->assertSame($batch->batch_number, $shelf->batch_number);
+        $this->assertSame(3, $shelf->quantity);
+        $this->assertSame(3, $product->fresh()->sellable_stock);
+    }
+
+    public function test_a_void_after_the_product_was_archived_restocks_the_batch_it_came_back_with(): void
+    {
+        [$product, $batch] = $this->checkoutProduct(10);
+        $admin = $this->admin();
+        $sale = $this->checkout($admin, $product, 3, 30);
+
+        // Archived with its product: restoring the product brings the batch back.
+        $this->actingAs($admin)->delete("/products/{$product->id}");
+        $this->assertTrue($batch->fresh() === null || ProductBatch::withTrashed()->find($batch->id)->trashed());
+
+        $this->actingAs($admin)->patch("/sales/{$sale->id}/void", ['reason' => 'cashier_error']);
+
+        $this->assertSame(10, ProductBatch::withTrashed()->find($batch->id)->quantity);
+        $this->assertSame(1, ProductBatch::withTrashed()->where('product_id', $product->id)->count());
+    }
+
     public function test_staff_cannot_void_without_a_passcode_set_at_all(): void
     {
         [$product] = $this->checkoutProduct();
