@@ -1963,11 +1963,13 @@
                             // nothing about how the year actually split.
                             generateLabels: (chart) => chart.data.labels.map((label, i) => {
                                 const v = chart.data.datasets[0].data[i];
-                                // A quarter with sales that rounds to 0% reads "<1"
-                                // (2026-10-25, at the user's request): "0%" looked
-                                // like no sales at all.
+                                // Decimals (2026-10-25, at the user's request): whole
+                                // percent rounded October's till sales to "0%", read
+                                // as no sales at all. One decimal from 1% up, two
+                                // below it; "<0.01" only for a sliver that is not 0.
                                 const share = total > 0 ? (v / total) * 100 : 0;
-                                const pct = v > 0 && share < 0.5 ? '<1' : share.toFixed(0);
+                                const pct = share >= 1 ? share.toFixed(1)
+                                    : (v > 0 && share < 0.01 ? '<0.01' : share.toFixed(2));
                                 return {
                                     text: label + '  ' + (i < covered ? pct + '%' : '—'),
                                     fillStyle: chart.data.datasets[0].backgroundColor[i],
