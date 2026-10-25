@@ -131,12 +131,12 @@
         </div>
     </div>
 
-    <p style="font-size:13px; color:#64748b; margin:0 0 8px;">Units sold — actual vs. forecast, with 80% confidence band</p>
+    <p style="font-size:13px; color:#64748b; margin:0 0 8px;">Units sold — actual vs. forecast</p>
     <div style="position:relative; width:100%; height:230px; margin-bottom:24px;">
         <canvas id="unitsTrendChart" role="img" aria-label="Line chart of total units sold per month, actual with a dashed forecast continuation"></canvas>
     </div>
 
-    <p style="font-size:13px; color:#64748b; margin:0 0 8px;">Revenue — actual vs. forecast, with 80% confidence band</p>
+    <p style="font-size:13px; color:#64748b; margin:0 0 8px;">Revenue — actual vs. forecast</p>
     <div style="position:relative; width:100%; height:230px;">
         <canvas id="revenueTrendChart" role="img" aria-label="Line chart of total revenue per month, actual with a dashed forecast continuation"></canvas>
     </div>
