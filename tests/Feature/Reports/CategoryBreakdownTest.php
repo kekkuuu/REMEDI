@@ -20,6 +20,26 @@ class CategoryBreakdownTest extends TestCase
 {
     use RefreshDatabase;
 
+    public function test_the_expiry_overview_counts_each_product_once_by_its_soonest_stock(): void
+    {
+        $care = Category::create(['name' => 'Personal Care']);
+        $expired = $this->product($care, 'Old Soap', 5);
+        ProductBatch::where('product_id', $expired->id)->update(['expiry_date' => now()->subDay()->toDateString()]);
+        // A product with an expired batch AND a good one is "expired" -- one row, not two.
+        ProductBatch::create(['batch_number' => 'B-extra', 'product_id' => $expired->id, 'quantity' => 4, 'qty_received' => 4,
+            'expiry_date' => now()->addYear()->toDateString(), 'received_date' => now()->subDay()->toDateString()]);
+        $soon = $this->product($care, 'Soon Lotion', 2);
+        ProductBatch::where('product_id', $soon->id)->update(['expiry_date' => now()->addDays(10)->toDateString()]);
+        $this->product($care, 'Fresh Shampoo', 8);
+        $this->product($care, 'Empty Comb', 0);
+
+        $snapshot = (new \ReflectionMethod(DashboardController::class, 'computeStockSnapshot'))->invoke(null);
+        $overview = $snapshot['scalars']['expiryOverview'];
+
+        $this->assertSame(['expired' => 1, 'soon' => 1, 'mid' => 0, 'good' => 1, 'none' => 1], $overview);
+        $this->assertSame($snapshot['scalars']['totalProducts'], array_sum($overview));
+    }
+
     private function product(Category $category, string $name, int $qty): Product
     {
         $product = Product::create([

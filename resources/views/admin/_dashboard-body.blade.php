@@ -980,12 +980,13 @@
                     ['key' => 'soon',    'label' => 'Expiring (<= 30d)',  'colour' => '#f97316'],
                     ['key' => 'mid',     'label' => 'Expiring (31-60d)',  'colour' => '#eab308'],
                     ['key' => 'good',    'label' => 'Good (> 60d)',       'colour' => '#10b981'],
+                    ['key' => 'none',    'label' => 'No stock',           'colour' => '#334155'],
                 ] as $seg)
                     @php $pct = $expTotal > 0 ? ($expiryOverview[$seg['key']] / $expTotal) * 100 : 0; @endphp
                     @if($pct > 0)
                         <span class="expiry-bar-seg"
                               style="width: {{ $pct }}%; background: {{ $seg['colour'] }};"
-                              title="{{ $seg['label'] }}: {{ number_format($expiryOverview[$seg['key']]) }} batches"></span>
+                              title="{{ $seg['label'] }}: {{ number_format($expiryOverview[$seg['key']]) }} products"></span>
                     @endif
                 @endforeach
             </div>
@@ -996,6 +997,7 @@
                     ['key' => 'soon',    'label' => 'Expiring (<= 30d)', 'colour' => '#f97316'],
                     ['key' => 'mid',     'label' => 'Expiring (31-60d)', 'colour' => '#eab308'],
                     ['key' => 'good',    'label' => 'Good (> 60d)',      'colour' => '#10b981'],
+                    ['key' => 'none',    'label' => 'No stock',          'colour' => '#334155'],
                 ] as $seg)
                     <span class="expiry-legend-item">
                         <span class="dot" style="background: {{ $seg['colour'] }};"></span>
@@ -1007,10 +1009,10 @@
             </div>
 
             <p style="margin:12px 0 0; font-size:12px; color:#94a3b8;">
-                {{ number_format($expTotal) }} in-stock batches carry an expiry date.
+                {{ number_format($expTotal) }} products, each counted once by its soonest-expiring stock on the shelf.
             </p>
         @else
-            <p class="expiry-empty" style="color:#94a3b8;">No in-stock batches carry an expiry date.</p>
+            <p class="expiry-empty" style="color:#94a3b8;">No products yet.</p>
         @endif
     </div>
 

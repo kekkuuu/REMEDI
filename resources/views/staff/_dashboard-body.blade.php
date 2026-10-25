@@ -624,6 +624,7 @@
                         ['k' => 'soon',    'c' => '#f97316'],
                         ['k' => 'mid',     'c' => '#eab308'],
                         ['k' => 'good',    'c' => '#10b981'],
+                        ['k' => 'none',    'c' => '#334155'],
                     ] as $seg)
                         @php $pct = ($expiryOverview[$seg['k']] / $sExpTotal) * 100; @endphp
                         @if($pct > 0)
@@ -637,6 +638,7 @@
                         ['k' => 'soon',    'l' => 'Expiring (<= 30d)', 'c' => '#f97316'],
                         ['k' => 'mid',     'l' => 'Expiring (31-60d)', 'c' => '#eab308'],
                         ['k' => 'good',    'l' => 'Good (> 60d)',      'c' => '#10b981'],
+                        ['k' => 'none',    'l' => 'No stock',          'c' => '#334155'],
                     ] as $seg)
                         <span class="item">
                             <span class="dot" style="background: {{ $seg['c'] }};"></span>
@@ -647,7 +649,7 @@
                     @endforeach
                 </div>
             @else
-                <p class="staff-empty">No in-stock batches carry an expiry date.</p>
+                <p class="staff-empty">No products yet.</p>
             @endif
         </div>
 

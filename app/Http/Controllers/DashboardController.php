@@ -651,17 +651,33 @@ class DashboardController extends Controller
         // Expiry Overview: every in-stock batch that has an expiry date, split
         // into the three horizons the app already works in. Derived from
         // $activeBatches, so no extra query.
-        $datedBatches = $onShelf->filter(fn ($b) => $b->expiry_date);
+        //
+        // Counted in PRODUCTS since 2026-10-25 (at the user's request), like the
+        // rest of the dashboard: it counted batches (2,530) beside a catalogue of
+        // 2,637 products. Each product lands once, by its SOONEST-expiring stock
+        // on the shelf -- so "Expired" is exactly the Inventory Expired tab --
+        // and a product with nothing on the shelf is "none" (the Out of Stock
+        // tab), so the five add up to the catalogue.
         $soonCutoff = today()->addDays(ProductBatch::EXPIRY_SOON_DAYS);
         $midCutoff = today()->addDays(60);
 
-        $expiryOverview = [
-            'expired' => $datedBatches->filter(fn ($b) => $b->is_expired)->count(),
-            'soon' => $datedBatches->filter(fn ($b) => ! $b->is_expired && $b->expiry_date <= $soonCutoff)->count(),
-            'mid' => $datedBatches->filter(fn ($b) => ! $b->is_expired
-                && $b->expiry_date > $soonCutoff && $b->expiry_date <= $midCutoff)->count(),
-            'good' => $datedBatches->filter(fn ($b) => ! $b->is_expired && $b->expiry_date > $midCutoff)->count(),
-        ];
+        $expiryOverview = ['expired' => 0, 'soon' => 0, 'mid' => 0, 'good' => 0, 'none' => 0];
+        foreach ($productsById as $product) {
+            $shelf = $batchesByProduct->get($product->id, collect());
+
+            if ($shelf->isEmpty()) {
+                $expiryOverview['none']++;
+            } elseif ($shelf->contains(fn ($b) => $b->is_expired)) {
+                $expiryOverview['expired']++;
+            } else {
+                $soonest = $shelf->filter(fn ($b) => $b->expiry_date)->min('expiry_date');
+                $expiryOverview[match (true) {
+                    $soonest === null || $soonest > $midCutoff => 'good',
+                    $soonest > $soonCutoff => 'mid',
+                    default => 'soon',
+                }]++;
+            }
+        }
 
         return [
             'scalars' => [
