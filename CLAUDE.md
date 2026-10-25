@@ -490,6 +490,10 @@ Covered by `Feature\Inventory\ReturnCountsAgreeTest` and a `DashboardKpiTest` ca
   and linking each row to that category's full Inventory list: 2,530 against a catalogue of 2,637 (Medicine 1,343 on
   the ring, 1,393 on the list). `computeStockSnapshot()` now counts every active product per category from the loaded
   catalogue; units are still what is on the shelf. Ring 2,637, every row equal to its list. `CategoryBreakdownTest`.
+- **The Expiry Overview card counted BATCHES (2,530) beside a catalogue of 2,637 products** (same day, at the user's
+  request). It now counts each product once, by its SOONEST-expiring stock on the shelf, plus a graphite "No stock"
+  group: 123 expired (= the Inventory Expired tab) / 32 ≤ 30 days / 49 at 31–60 / 2,326 good / 107 no stock (= the
+  Out of Stock tab) = 2,637. Both dashboards; the batch figures in the second-pass note below are from before this.
 
 **Second pass the same day, all matching:** the Sales Report for Jun–Aug 2026 (₱2,357,043.22 = ₱2,211,830.73 imported +
 ₱145,212.49 till; Average / Day ₱51,240.07 over 46 trading days; ATV ₱180.39 over 805 till sales; 32,185 units; its
@@ -2946,6 +2950,12 @@ silhouettes chosen from the destination link (`data-shape="list"` for the table 
 shape otherwise) — one generic shape was what made every tab look like it glitched on click. Keep it
 mirroring the dashboard's real proportions. **The login page has no skeleton, deliberately**; its
 submit button disables itself and relabels instead, after the browser has serialised the form.
+
+**The header bar stays at the top while a page scrolls (2026-10-25, at the user's request).** `.topbar` was always
+`position: sticky`, but its parent `.main-content` had `overflow: hidden`, which makes a scroll container that a sticky
+child sticks to instead of the page, so it scrolled away. It is `overflow: clip` now: same clipping, no scroll
+container. Do not put `overflow: hidden/auto` back on any ancestor of `.topbar`. The Forecasting product table also
+has a `#` column, numbered across pages (`firstItem()`).
 
 **Every page raises a "Loading <destination>…" pill in the header while a navigation is in flight**,
 built by `showNavigating()` from the sidebar item's own text. **Two pills, two owners:** the dashboard

@@ -801,7 +801,11 @@
             display: flex;
             flex-direction: column;
             min-height: 100vh;
-            overflow: hidden;
+            /* clip, not hidden (2026-10-25): `hidden` makes this a scroll
+               container, and a sticky child sticks to the nearest one -- so the
+               .topbar below scrolled away with the page. `clip` cuts overflow
+               off the same way without being one. */
+            overflow: clip;
         }
 
         .topbar {

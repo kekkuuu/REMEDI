@@ -6,6 +6,7 @@
     <div class="table-scroll"><table class="remedi-table">
         <thead>
             <tr>
+                <th style="width:48px;">#</th>
                 <th>Product</th>
                 <th>SKU</th>
                 <th>Category</th>
@@ -15,6 +16,8 @@
             </tr>
         </thead>
         <tbody>
+            {{-- Numbered across pages (page 2 starts at 51), like the audit trail. --}}
+            @php $rowStart = method_exists($forecasts, 'firstItem') ? (int) $forecasts->firstItem() : 1; @endphp
             @foreach ($forecasts as $forecast)
                 {{-- data-href, not an inline onclick. `onclick="window.location=..."`
                      fired on ANY click inside the row, including the one that ends
@@ -24,6 +27,7 @@
                      skeleton. The delegated handler below applies the same guards
                      every other link in the app gets. --}}
                 <tr class="clickable-row" data-href="{{ route('forecast.show', $forecast->product_sku) }}">
+                    <td style="color:#94a3b8;">{{ number_format($rowStart + $loop->index) }}</td>
                     <td>
                         <a href="{{ route('forecast.show', $forecast->product_sku) }}">{{ $forecast->product_name ?? '—' }}</a>
                         @if ($forecast->archived ?? false)
