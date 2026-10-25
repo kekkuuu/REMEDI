@@ -626,7 +626,7 @@
                         ['k' => 'good',    'c' => '#10b981'],
                         ['k' => 'none',    'c' => '#334155'],
                     ] as $seg)
-                        @php $pct = ($expiryOverview[$seg['k']] / $sExpTotal) * 100; @endphp
+                        @php $pct = (($expiryOverview[$seg['k']] ?? 0) / $sExpTotal) * 100; @endphp
                         @if($pct > 0)
                             <span style="width: {{ $pct }}%; background: {{ $seg['c'] }};"></span>
                         @endif
@@ -643,8 +643,8 @@
                         <span class="item">
                             <span class="dot" style="background: {{ $seg['c'] }};"></span>
                             {{ $seg['l'] }}
-                            <strong>{{ number_format($expiryOverview[$seg['k']]) }}</strong>
-                            <small>({{ number_format(($expiryOverview[$seg['k']] / $sExpTotal) * 100, 1) }}%)</small>
+                            <strong>{{ number_format(($expiryOverview[$seg['k']] ?? 0)) }}</strong>
+                            <small>({{ number_format((($expiryOverview[$seg['k']] ?? 0) / $sExpTotal) * 100, 1) }}%)</small>
                         </span>
                     @endforeach
                 </div>

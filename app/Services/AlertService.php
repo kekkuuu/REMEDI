@@ -792,6 +792,11 @@ class AlertService
      */
     public static function dashboardStockKey(): string
     {
-        return 'dashboard_stock:'.today()->toDateString();
+        // v2 (2026-10-25): the snapshot's shape changed (expiryOverview gained
+        // 'none', categoryBreakdown counts every product). A snapshot cached in
+        // the OLD shape -- by the pre-deploy code, or another deployment on the
+        // same database -- answered the live dashboard with a 500 ("Undefined
+        // array key none"). Bump this whenever the snapshot's shape changes.
+        return 'dashboard_stock_v2:'.today()->toDateString();
     }
 }

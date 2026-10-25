@@ -982,11 +982,11 @@
                     ['key' => 'good',    'label' => 'Good (> 60d)',       'colour' => '#10b981'],
                     ['key' => 'none',    'label' => 'No stock',           'colour' => '#334155'],
                 ] as $seg)
-                    @php $pct = $expTotal > 0 ? ($expiryOverview[$seg['key']] / $expTotal) * 100 : 0; @endphp
+                    @php $pct = $expTotal > 0 ? (($expiryOverview[$seg['key']] ?? 0) / $expTotal) * 100 : 0; @endphp
                     @if($pct > 0)
                         <span class="expiry-bar-seg"
                               style="width: {{ $pct }}%; background: {{ $seg['colour'] }};"
-                              title="{{ $seg['label'] }}: {{ number_format($expiryOverview[$seg['key']]) }} products"></span>
+                              title="{{ $seg['label'] }}: {{ number_format(($expiryOverview[$seg['key']] ?? 0)) }} products"></span>
                     @endif
                 @endforeach
             </div>
@@ -1002,8 +1002,8 @@
                     <span class="expiry-legend-item">
                         <span class="dot" style="background: {{ $seg['colour'] }};"></span>
                         {{ $seg['label'] }}
-                        <strong>{{ number_format($expiryOverview[$seg['key']]) }}</strong>
-                        <small>({{ number_format(($expiryOverview[$seg['key']] / $expTotal) * 100, 1) }}%)</small>
+                        <strong>{{ number_format(($expiryOverview[$seg['key']] ?? 0)) }}</strong>
+                        <small>({{ number_format((($expiryOverview[$seg['key']] ?? 0) / $expTotal) * 100, 1) }}%)</small>
                     </span>
                 @endforeach
             </div>
