@@ -61,6 +61,24 @@ class CheckoutTest extends TestCase
         return User::factory()->create();
     }
 
+    public function test_a_product_with_no_selling_price_is_not_rung_up_free(): void
+    {
+        $free = $this->product('Unpriced Item', '0.00', [
+            ['qty' => 10, 'expiry' => now()->addYear()->toDateString()],
+        ]);
+
+        $this->actingAs($this->cashier())
+            ->postJson('/pos/checkout', [
+                'items' => [['product_id' => $free->id, 'quantity' => 2]],
+                'amount_paid' => 0,
+            ])
+            ->assertStatus(422)
+            ->assertJsonFragment(['error' => 'Unpriced Item has no selling price set. Ask an admin to set one on Manage Product.']);
+
+        $this->assertSame(0, Sale::count());
+        $this->assertSame(10, (int) $free->batches()->sum('quantity'));
+    }
+
     public function test_checkout_draws_from_the_soonest_expiring_batch_first(): void
     {
         $product = $this->product('FEFO Item', '10.00', [

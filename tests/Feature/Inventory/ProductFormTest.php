@@ -142,6 +142,19 @@ class ProductFormTest extends TestCase
 
     // ── Numeric ceilings ─────────────────────────────────────────────────
 
+    public function test_a_zero_price_is_refused(): void
+    {
+        $this->actingAs(User::factory()->admin()->create())
+            ->post('/products', $this->payload([
+                'name' => 'Free Item',
+                'sku' => 'SKU-ZERO-PRICE',
+                'selling_price' => '0',
+            ]))
+            ->assertSessionHasErrors(['selling_price' => 'Enter a selling price above ₱0.00.']);
+
+        $this->assertDatabaseMissing('products', ['sku' => 'SKU-ZERO-PRICE']);
+    }
+
     public function test_a_price_larger_than_the_column_is_refused(): void
     {
         $this->actingAs(User::factory()->admin()->create())

@@ -53,6 +53,8 @@ class ProductController extends Controller
         'numeric' => 'The :attribute must be a number.',
         'integer' => 'The :attribute must be a whole number.',
         'min.numeric' => 'The :attribute cannot be below :min.',
+        // A ₱0 price rang the item up free at the till (2026-10-25).
+        'selling_price.min' => 'Enter a selling price above ₱0.00.',
         'max.numeric' => 'The :attribute cannot be more than :max.',
         'max.string' => 'The :attribute can be at most :max characters.',
         // An archived product keeps its SKU reserved (see ArchiveTest), so
@@ -133,7 +135,7 @@ class ProductController extends Controller
             // Product::UNITS for why the catalogue had a unit called "20".
             'unit' => ['required', Rule::in(Product::unitOptions())],
             // Bounded by the columns behind them -- see Controller::MAX_MONEY.
-            'selling_price' => 'required|numeric|min:0|max:'.self::MAX_MONEY,
+            'selling_price' => 'required|numeric|min:0.01|max:'.self::MAX_MONEY,
             // Optional, like ProductBatch's own unit_cost -- see the form's
             // own note. Feeds DashboardController::computeTodayProfit().
             'cost_price' => 'nullable|numeric|min:0|max:'.self::MAX_MONEY,
@@ -263,7 +265,7 @@ class ProductController extends Controller
             // row has a unit of "20", and rejecting it here would make that
             // product uneditable until someone noticed why.
             'unit' => ['required', Rule::in(Product::unitOptions($product->unit))],
-            'selling_price' => 'required|numeric|min:0|max:'.self::MAX_MONEY,
+            'selling_price' => 'required|numeric|min:0.01|max:'.self::MAX_MONEY,
             'cost_price' => 'nullable|numeric|min:0|max:'.self::MAX_MONEY,
             'reorder_level' => 'required|integer|min:0|max:'.self::MAX_COUNT,
         ], self::FORM_MESSAGES, self::FORM_FIELDS);

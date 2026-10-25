@@ -34,6 +34,19 @@ class CheckoutService
      * @param  array<int, array{product_id: int, quantity: int}>  $items
      * @return array{total?: float, error?: string}
      */
+    /**
+     * A product with no selling price (₱0.00) is refused (2026-10-25): it rang
+     * up free, so its stock left the shelf with no money taken and nothing
+     * said so. The product form now requires a price above zero; this covers
+     * the rows saved before that.
+     */
+    public static function unpricedError(Product $product): ?string
+    {
+        return (int) round((float) $product->selling_price * 100) <= 0
+            ? "{$product->name} has no selling price set. Ask an admin to set one on Manage Product."
+            : null;
+    }
+
     public function quote(array $items): array
     {
         $requestedByProduct = [];
@@ -48,6 +61,10 @@ class CheckoutService
 
             if ($product->sellable_stock < $quantity) {
                 return ['error' => "Not enough stock for {$product->name}. Available: {$product->sellable_stock}, Requested: {$quantity}"];
+            }
+
+            if ($error = self::unpricedError($product)) {
+                return ['error' => $error];
             }
         }
 
@@ -128,6 +145,10 @@ class CheckoutService
                         return [
                             'error' => "Not enough stock for {$product->name}. Available: {$available}, Requested: {$totalRequested}",
                         ];
+                    }
+
+                    if ($error = self::unpricedError($product)) {
+                        return ['error' => $error];
                     }
                 }
 

@@ -1118,6 +1118,12 @@ price × quantity combinations — "Amount due: 3.15, Received: 3.15". Checkout 
 sum of stored subtotals), and rounds `change_due`. The `decimal(10,2)` columns meant nothing bad was
 ever *stored*; the bug only ever refused good money.
 
+**A product with no selling price is never rung up (2026-10-25).** `selling_price` was `min:0`, and 3 active products
+(BABYFLO TEETHER SILICONE, IV CANNULLA G.18, OFLOXACIN 200MG TAB (FLOXA) X100) sat at ₱0.00 with stock: the till sold
+them free, stock leaving the shelf with no money taken. Both product forms now require at least ₱0.01, and
+`CheckoutService::unpricedError()` refuses a ₱0 line in checkout AND the QR quote ("… has no selling price set").
+Those 3 still need real prices set by hand; nothing invents one. Covered by `CheckoutTest` and `ProductFormTest`.
+
 **Bound every numeric input by the COLUMN behind it, not just by its type.** Money here is
 `decimal(10,2)` and counts are signed ints, and MySQL runs with `STRICT_TRANS_TABLES` — so a value
 past either limit is not clamped, it raises `SQLSTATE[22003]` and the request dies as a **500 with

@@ -108,7 +108,7 @@
                     <span class="form-chip" aria-hidden="true"><i class="ti ti-coin"></i></span>
                     <label for="selling_price">Selling Price (&#8369;)</label>
                 </div>
-                <input type="number" step="0.01" id="selling_price" name="selling_price" value="{{ old('selling_price', $product->selling_price) }}" required data-label="selling price" min="0" max="{{ \App\Http\Controllers\Controller::MAX_MONEY }}" aria-describedby="selling_price-error" @error('selling_price') aria-invalid="true" @enderror>
+                <input type="number" step="0.01" id="selling_price" name="selling_price" value="{{ old('selling_price', $product->selling_price) }}" required data-label="selling price" min="0.01" max="{{ \App\Http\Controllers\Controller::MAX_MONEY }}" aria-describedby="selling_price-error" @error('selling_price') aria-invalid="true" @enderror>
                 @include('products._field-error', ['field' => 'selling_price'])
             </div>
 
