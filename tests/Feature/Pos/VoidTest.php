@@ -117,6 +117,42 @@ class VoidTest extends TestCase
             ->assertSee('Stock was returned to the shelf');
     }
 
+    public function test_a_void_after_the_batch_was_returned_puts_the_units_back_on_the_shelf(): void
+    {
+        [$product, $batch] = $this->checkoutProduct(10);
+        $admin = $this->admin();
+        $first = $this->checkout($admin, $product, 3, 30);
+        $second = $this->checkout($admin, $product, 2, 20);
+
+        // The rest of the lot goes back to the supplier.
+        $batch->update(['quantity' => 0, 'returned_at' => now(), 'returned_by' => $admin->id]);
+
+        $this->actingAs($admin)->patch("/sales/{$first->id}/void", ['reason' => 'cashier_error']);
+
+        // The returned row stays returned and empty...
+        $this->assertSame(0, $batch->fresh()->quantity);
+        $this->assertNotNull($batch->fresh()->returned_at);
+
+        // ...and the 3 units sit on an on-shelf row of the same lot, sellable.
+        $shelf = ProductBatch::where('product_id', $product->id)->whereNull('returned_at')->sole();
+        $this->assertSame($batch->batch_number, $shelf->batch_number);
+        $this->assertSame($batch->expiry_date->toDateString(), $shelf->expiry_date->toDateString());
+        $this->assertSame(3, $shelf->quantity);
+        $this->assertTrue($shelf->is_sellable);
+        $this->assertSame(3, $product->fresh()->sellable_stock);
+
+        $movement = StockMovement::where('sale_id', $first->id)->where('type', StockMovement::TYPE_VOID)->sole();
+        $this->assertSame($shelf->id, $movement->product_batch_id);
+        $this->assertSame(3, (int) $movement->balance_after);
+        $this->assertSame(0, StockMovement::where('type', StockMovement::TYPE_STOCK_IN)->count());
+
+        // A second void of the same lot joins that row rather than making another.
+        $this->actingAs($admin)->patch("/sales/{$second->id}/void", ['reason' => 'cashier_error']);
+
+        $this->assertSame(5, $shelf->fresh()->quantity);
+        $this->assertSame(2, ProductBatch::where('product_id', $product->id)->count());
+    }
+
     public function test_staff_cannot_void_without_a_passcode_set_at_all(): void
     {
         [$product] = $this->checkoutProduct();

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\AuditTrail;
+use App\Models\ProductBatch;
 use App\Models\Sale;
 use App\Models\SalesHistory;
 use App\Models\Setting;
@@ -263,6 +264,16 @@ class SaleController extends Controller
                     continue;
                 }
 
+                // A batch returned to the supplier since the sale cannot take
+                // the units back: the till never sells a returned batch, so they
+                // would count as stock nobody could sell or return. They are on
+                // the shelf again, so they go onto an on-shelf row of the SAME
+                // lot (number, expiry, cost) -- recorded as a void below, not as
+                // a delivery. A later void of the same lot reuses that row.
+                if ($batch->returned_at) {
+                    $batch = $this->shelfCopyOf($batch);
+                }
+
                 $batch->increment('quantity', $item->quantity);
 
                 StockMovement::record(
@@ -313,6 +324,29 @@ class SaleController extends Controller
             "Transaction {$sale->transaction_no} voided. Stock has been returned to the shelf.",
             redirect()->route('sales.show', $sale)
         );
+    }
+
+    /** The on-shelf row of a returned batch's lot, created empty on first use. */
+    private function shelfCopyOf(ProductBatch $returned): ProductBatch
+    {
+        $copy = ProductBatch::withTrashed()
+            ->where('product_id', $returned->product_id)
+            ->where('batch_number', $returned->batch_number)
+            ->whereDate('expiry_date', $returned->expiry_date)
+            ->whereNull('returned_at')
+            ->lockForUpdate()
+            ->first();
+
+        if ($copy) {
+            return $copy;
+        }
+
+        $copy = $returned->replicate(['returned_at', 'returned_by']);
+        $copy->quantity = 0;
+        $copy->qty_received = 0;
+        $copy->save();
+
+        return $copy;
     }
 
     /**

@@ -1160,7 +1160,11 @@ Voiding a completed sale is a full reversal: every line's batch gets its `quanti
 exactly where it came from, and the sale is flagged `payment_voided` / `voided_at` / `voided_by` /
 `void_reason` (`Sale::VOID_REASONS` — Cashier Error / Customer Cancelled / Duplicate Transaction /
 Other). Idempotent: a lock-and-recheck inside the transaction refuses a second void on the same sale
-rather than restocking it twice, the same race `markBatchReturned` already guards against. The reason
+rather than restocking it twice, the same race `markBatchReturned` already guards against. **A line whose batch was
+returned to the supplier after the sale (2026-10-25, at the user's request: voided items go back on the shelf)** is put
+on an on-shelf row of the same lot (`SaleController::shelfCopyOf()`: same batch number, expiry and cost, quantity
+starting at 0, reused by a later void of that lot) and recorded as a `void` movement, never a `stock_in`; restocked
+onto the returned row, the units counted as stock the till could never sell or return. The reason
 is picked IN the confirm dialog, not before it — `data-confirm-reasons` (a JSON `{value: label}` map)
 swaps the shared confirm modal's single generic Confirm button for one button per reason (see "Every
 state-changing action answers in two shapes" below), the same mechanism `User::ARCHIVE_REASONS` uses
