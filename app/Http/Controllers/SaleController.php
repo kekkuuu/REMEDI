@@ -137,7 +137,11 @@ class SaleController extends Controller
             ]);
         }
 
-        return view('sales.index', compact('sales', 'todayTotal', 'todayCount', 'startDate', 'endDate'));
+        // The earliest day either sales record covers (2026-10-25, at the
+        // user's request): the date pickers offer nothing before July 2022.
+        $recordStart = SalesHistory::dateBounds()[0];
+
+        return view('sales.index', compact('sales', 'todayTotal', 'todayCount', 'startDate', 'endDate', 'recordStart'));
     }
 
     public function show(Request $request, Sale $sale)

@@ -494,6 +494,11 @@ Covered by `Feature\Inventory\ReturnCountsAgreeTest` and a `DashboardKpiTest` ca
   request). It now counts each product once, by its SOONEST-expiring stock on the shelf, plus a graphite "No stock"
   group: 123 expired (= the Inventory Expired tab) / 32 ≤ 30 days / 49 at 31–60 / 2,326 good / 107 no stock (= the
   Out of Stock tab) = 2,637. Both dashboards; the batch figures in the second-pass note below are from before this.
+- **Seasonal Trends averaged the till's months in as a fifth "year" for August–October only** (same day, from a
+  review question): Aug ₱145k / Sep ₱17k / Oct ₱2.10 beside ₱0.4–2.2M months of the imported record, so those three
+  read low and October was "slowest" on ₱2.10. `SalesHistory::seasonalTrends()` now stops at `lastCompleteMonth()`
+  (the forecast's boundary, June 2026 while `forecast.include_pos` is off): all 12 months, 4 years each. Feeds the
+  Analytics report and the admin dashboard. Sales History's date pickers also start at `dateBounds()[0]` (1 Jul 2022).
 
 **Second pass the same day, all matching:** the Sales Report for Jun–Aug 2026 (₱2,357,043.22 = ₱2,211,830.73 imported +
 ₱145,212.49 till; Average / Day ₱51,240.07 over 46 trading days; ATV ₱180.39 over 805 till sales; 32,185 units; its
@@ -601,7 +606,10 @@ returns, the category breakdown and the expiry overview no longer load all ~2,60
 is cleared by `AlertService::forget()` — which every stock change already calls — and by Category saves (added to the
 same model hooks). Lists the page only counts are stored as ids and the low-stock chart as its three plotted values:
 stored as models the snapshot was 3.3 MB. **If a dashboard panel needs a new field from these lists, add it to
-`computeStockSnapshot()`'s return** — the view no longer gets the models. Admin and staff body HTML were diffed
+`computeStockSnapshot()`'s return** — the view no longer gets the models. **And when the snapshot's SHAPE changes, bump
+the version in `dashboardStockKey()`** (now `dashboard_stock_v2:`): on 2026-10-25 a snapshot cached in the old shape
+(no `expiryOverview['none']`) answered the LIVE dashboard with a 500 after the deploy that added the key; the views
+also read those figures with `?? 0` now. Admin and staff body HTML were diffed
 before/after: identical. (2) **One query for the last 30 days of sales** answers today/yesterday/7/14/30-day figures,
 and one query both days' profit lines. (3) **The Inventory report's print rows are built in the browser** from the
 screen table (`buildInventoryPrintRows()`, on Print and `beforeprint`); the page was 3.1 MB because it rendered the

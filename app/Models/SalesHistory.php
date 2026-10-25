@@ -303,7 +303,16 @@ class SalesHistory extends Model
      */
     public static function seasonalTrends(): Collection
     {
+        // Complete months of the record the forecast learns from, and no later
+        // (2026-10-25): the till's months (Aug ₱145k, Sep ₱17k, Oct ₱2.10 and
+        // still running, against ₱0.4–2.2M a month in the imported record)
+        // were averaged in as a fifth "year" for August–October only, which
+        // dragged those three down and made October the "slowest" month on
+        // ₱2.10. Same boundary as the forecast charts: lastCompleteMonth().
+        $through = static::lastCompleteMonth();
+
         return static::monthlyRevenue()
+            ->filter(fn ($row) => $through === null || $row['ym'] <= $through)
             ->groupBy(fn ($row) => (int) substr($row['ym'], 5, 2))
             ->map(fn ($rows, $monthNum) => [
                 'month_num' => (int) $monthNum,

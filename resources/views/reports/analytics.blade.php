@@ -410,7 +410,7 @@
             @if($seasonalTrends->isNotEmpty())
                 <canvas id="seasonalTrendsChart" height="90"></canvas>
                 <p style="color:#9ca3af;font-size:11.5px;margin:10px 0 0;">
-                    Each bar averages that calendar month's total sales across every year of history recorded so far (hover a bar to see how many years it's based on).
+                    Each bar averages that calendar month's total sales across every complete year of the sales record, the same record the forecast learns from (hover a bar to see how many years it's based on).
                 </p>
             @else
                 <p style="color:#9ca3af;font-size:13px;text-align:center;padding:12px 0;">Not enough sales history yet to show seasonal patterns.</p>
