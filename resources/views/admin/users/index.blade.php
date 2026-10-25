@@ -231,7 +231,6 @@
     .user-info-field label { display: block; font-size: 13px; font-weight: 500; color: #374151; margin-bottom: 6px; }
     .user-info-field input { width: 100%; cursor: default; }
     .user-info-field input:focus { outline: none; box-shadow: none; }
-    .user-info-field .hint { margin: 6px 0 0; font-size: 12px; color: #64748b; }
     .user-info-locked { position: relative; display: flex; align-items: center; }
     .user-info-locked input { background: #f8fafc; color: #64748b; }
     .user-info-locked i { position: absolute; right: 12px; color: #94a3b8; font-size: 16px; pointer-events: none; }
@@ -416,7 +415,6 @@
             <div class="user-info-field">
                 <label for="ui-personal-email">Personal Email</label>
                 <input id="ui-personal-email" type="text" readonly data-ui="personal_email">
-                <p class="hint">Used to send a password reset code.</p>
             </div>
             <div class="user-info-field">
                 <label for="ui-phone">Phone Number</label>

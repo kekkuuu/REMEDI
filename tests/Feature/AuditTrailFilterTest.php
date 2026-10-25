@@ -266,7 +266,9 @@ class AuditTrailFilterTest extends TestCase
             ->getContent();
 
         $this->assertStringContainsString('Showing activity for', $html);
-        $this->assertStringContainsString($admin->name, $html);
+        // Escaped: the factory's random name sometimes has an apostrophe
+        // ("O'Keefe"), which the page rightly prints as &#039;.
+        $this->assertStringContainsString(e($admin->name), $html);
         // The way back drops user_id but keeps the rest of the query string.
         $this->assertStringContainsString(
             'href="'.e(route('audit.index', ['all' => 1])).'"',

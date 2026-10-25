@@ -57,10 +57,6 @@
                     <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6"
                            id="current_passcode" name="current_passcode" placeholder="6 digits" autocomplete="off" required>
                     @error('current_passcode')<p class="err">{{ $message }}</p>@enderror
-                    <span class="form-field-note">
-                        <i class="ti ti-info-circle" aria-hidden="true"></i>
-                        Forgot it? Use "Email me a code" below and type that code here instead.
-                    </span>
                 </div>
             </div>
         @endif
@@ -154,10 +150,6 @@
                     <input type="password" id="current_backup_password" name="current_backup_password" maxlength="128"
                            autocomplete="current-password" required>
                     @error('current_backup_password')<p class="err">{{ $message }}</p>@enderror
-                    <span class="form-field-note">
-                        <i class="ti ti-info-circle" aria-hidden="true"></i>
-                        Forgot it? Use "Email me a code" below and type that code here instead.
-                    </span>
                 </div>
             </div>
         @endif
@@ -170,10 +162,6 @@
                 </div>
                 <input type="password" id="backup_password" name="backup_password" minlength="{{ $backupPasswordMin }}" maxlength="128"
                        autocomplete="new-password" required>
-                <span class="form-field-note">
-                    <i class="ti ti-info-circle" aria-hidden="true"></i>
-                    At least {{ $backupPasswordMin }} characters. Not your login password.
-                </span>
                 @error('backup_password')<p class="err">{{ $message }}</p>@enderror
             </div>
 

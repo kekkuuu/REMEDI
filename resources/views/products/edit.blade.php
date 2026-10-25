@@ -69,10 +69,6 @@
                      table keyed on the SKU (ProductController::update). --}}
                 <input type="text" id="sku" name="sku" value="{{ old('sku', $product->sku) }}" required data-label="SKU / barcode" maxlength="50" autocomplete="off" data-scan-field aria-describedby="sku-error" @error('sku') aria-invalid="true" @enderror>
                 @include('products._field-error', ['field' => 'sku'])
-                <span class="form-field-note">
-                    <i class="ti ti-info-circle" aria-hidden="true"></i>
-                    The barcode printed on the box. Changing it keeps the product's sales history and forecasts.
-                </span>
             </div>
 
             <div class="form-field">
@@ -129,10 +125,6 @@
                 </div>
                 <input type="number" step="0.01" id="cost_price" name="cost_price" value="{{ old('cost_price', $product->cost_price) }}" data-label="default cost price" min="0" max="{{ \App\Http\Controllers\Controller::MAX_MONEY }}" aria-describedby="cost_price-error" @error('cost_price') aria-invalid="true" @enderror>
                 @include('products._field-error', ['field' => 'cost_price'])
-                <span class="form-field-note">
-                    <i class="ti ti-info-circle" aria-hidden="true"></i>
-                    Optional. Used to work out today's profit on the dashboard -- separate from a batch's own delivery cost below.
-                </span>
             </div>
 
             <div class="form-field">
@@ -142,10 +134,6 @@
                 </div>
                 <input type="number" id="reorder_level" name="reorder_level" value="{{ old('reorder_level', $product->reorder_level) }}" required data-label="reorder level" min="0" max="{{ \App\Http\Controllers\Controller::MAX_COUNT }}" step="1" aria-describedby="reorder_level-error" @error('reorder_level') aria-invalid="true" @enderror>
                 @include('products._field-error', ['field' => 'reorder_level'])
-                <span class="form-field-note">
-                    <i class="ti ti-info-circle" aria-hidden="true"></i>
-                    Alerts fire when sellable stock falls to this level.
-                </span>
             </div>
 
         </div>
@@ -220,10 +208,6 @@
                 @error('batch_number')
                     <p id="batch_number-error" class="batch-number-hint" style="color:#b91c1c;">{{ $message }}</p>
                 @enderror
-                <p class="batch-number-hint">
-                    Type the supplier's lot number, or leave it blank to get one automatically:
-                    {{ \App\Models\ProductBatch::batchNameCode($product) }} (from the product name), the received date, and a number for that day.
-                </p>
             </div>
 
             <div class="form-field">

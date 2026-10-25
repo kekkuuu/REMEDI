@@ -55,10 +55,6 @@
                 <input type="text" id="sku" name="sku" value="{{ old('sku', is_string(request('sku')) ? request('sku') : '') }}"
                        placeholder="Scan the box's barcode or type the product code" required data-label="SKU / barcode" maxlength="50" autocomplete="off" data-scan-field aria-describedby="sku-error" @error('sku') aria-invalid="true" @enderror>
                 @include('products._field-error', ['field' => 'sku'])
-                <span class="form-field-note">
-                    <i class="ti ti-info-circle" aria-hidden="true"></i>
-                    Use the barcode printed on the box, so a scan finds this product.
-                </span>
             </div>
 
             <div class="form-field">
@@ -121,10 +117,6 @@
                 <input type="number" step="0.01" id="cost_price" name="cost_price"
                        value="{{ old('cost_price') }}" placeholder="0.00" data-label="default cost price" min="0" max="{{ \App\Http\Controllers\Controller::MAX_MONEY }}" aria-describedby="cost_price-error" @error('cost_price') aria-invalid="true" @enderror>
                 @include('products._field-error', ['field' => 'cost_price'])
-                <span class="form-field-note">
-                    <i class="ti ti-info-circle" aria-hidden="true"></i>
-                    Optional. Used to work out today's profit on the dashboard.
-                </span>
             </div>
 
             <div class="form-field">
@@ -135,10 +127,6 @@
                 <input type="number" id="reorder_level" name="reorder_level"
                        value="{{ old('reorder_level', 10) }}" required data-label="reorder level" min="0" max="{{ \App\Http\Controllers\Controller::MAX_COUNT }}" step="1" aria-describedby="reorder_level-error" @error('reorder_level') aria-invalid="true" @enderror>
                 @include('products._field-error', ['field' => 'reorder_level'])
-                <span class="form-field-note">
-                    <i class="ti ti-info-circle" aria-hidden="true"></i>
-                    Alerts fire when sellable stock falls to this level.
-                </span>
             </div>
         </div>
 

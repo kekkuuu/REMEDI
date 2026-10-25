@@ -62,11 +62,7 @@
                             <label for="backup_password">Backup password</label>
                         </div>
                         <input type="password" id="backup_password" name="password" required maxlength="128"
-                               autocomplete="off" aria-describedby="backup_password_note">
-                        <span class="form-field-note" id="backup_password_note">
-                            <i class="ti ti-info-circle" aria-hidden="true"></i>
-                            The file is locked with this password.
-                        </span>
+                               autocomplete="off">
                         @error('password')<p class="err">{{ $message }}</p>@enderror
                     </div>
                     <div class="form-actions">

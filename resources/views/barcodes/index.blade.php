@@ -14,7 +14,6 @@
     @media (max-width: 1000px) { .bc-layout { grid-template-columns: 1fr; } }
     .bc-controls { display: flex; flex-direction: column; gap: 18px; }
     .bc-block > label, .bc-block > .bc-label { display: block; font-weight: 600; font-size: 13px; color: #334155; margin-bottom: 6px; }
-    .bc-hint { font-size: 12px; color: #64748b; margin-top: 4px; }
     .bc-search { position: relative; }
     .bc-search input, .bc-row-inline select { width: 100%; padding: 9px 11px; border: 1px solid #d1d5db; border-radius: 8px; font-size: 14px; background: #fff; }
     .bc-suggest { position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 30; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; box-shadow: 0 10px 24px rgba(15, 23, 42, .12); max-height: 300px; overflow-y: auto; }
@@ -117,7 +116,6 @@
                 </select>
                 <button type="button" class="btn btn-secondary" id="bcAddCategory">Add all</button>
             </div>
-            <div class="bc-hint">Up to {{ number_format($maxProducts) }} products at a time.</div>
         </div>
 
         <div class="bc-block">
@@ -127,7 +125,6 @@
                 <label><input type="radio" name="bcSize" value="medium" checked> Medium</label>
                 <label><input type="radio" name="bcSize" value="large"> Large</label>
             </div>
-            <div class="bc-hint">Small fits 5 across an A4 page, Medium 3, Large 2.</div>
         </div>
 
         <div class="bc-block">

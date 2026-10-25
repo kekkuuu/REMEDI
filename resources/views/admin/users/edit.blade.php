@@ -20,7 +20,6 @@
     .form-card.is-compact .form-field input[type="email"],
     .form-card.is-compact .form-field input[type="password"],
     .form-card.is-compact .form-field select { padding: 8px 11px; font-size: 13.5px; border-radius: 9px; }
-    .form-card.is-compact .form-field .hint { margin-top: 4px; font-size: 12px; }
     .form-card.is-compact .form-actions { margin-top: 16px; padding-top: 14px; }
     .form-card.is-compact .form-actions .btn-lg { padding: 9px 18px; font-size: 14px; }
 </style>
@@ -90,10 +89,6 @@
                 </select>
                 @if($user->id === auth()->id())
                     <input type="hidden" name="role" value="{{ $user->role }}">
-                    <span class="form-field-note">
-                        <i class="ti ti-info-circle" aria-hidden="true"></i>
-                        You cannot change your own role.
-                    </span>
                 @endif
             </div>
 
@@ -108,7 +103,6 @@
                 <input type="email" id="personal_email" name="personal_email"
                        value="{{ old('personal_email', $user->personal_email) }}"
                        placeholder="Enter personal email" autocomplete="off">
-                <p class="hint">Optional. If left blank, the user is asked for it when they sign in.</p>
                 @error('personal_email')<p class="err">{{ $message }}</p>@enderror
             </div>
 
@@ -143,7 +137,6 @@
                     <div class="pw-strength-bar"><span></span></div>
                     <span class="pw-strength-label"></span>
                 </div>
-                <p class="hint">Leave blank to keep the current password.</p>
                 @error('password')<p class="err">{{ $message }}</p>@enderror
             </div>
 

@@ -812,9 +812,6 @@
                     <input id="personal_email" type="email" name="personal_email"
                            value="{{ old('personal_email', $user->personal_email) }}"
                            placeholder="name@gmail.com" autocomplete="off" required>
-                    <p class="hint" style="margin:6px 0 0; font-size:12px; color:#64748b;">
-                        Required. Used to send you a password reset code.
-                    </p>
                     @error('personal_email')<p class="err">{{ $message }}</p>@enderror
                 </div>
 
