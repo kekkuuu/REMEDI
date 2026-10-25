@@ -565,6 +565,8 @@
             <p class="panel-label"><i class="ti ti-trending-down"></i> Low Demand Product</p>
             @if ($lowDemandProducts->isNotEmpty())
                 <div class="chart-box" style="height:220px;"><canvas id="staffLowDemandChart"></canvas></div>
+            @elseif ($topProducts->isNotEmpty())
+                <p class="staff-empty">Too few products sold in the last 30 days to list separate low sellers.</p>
             @else
                 <p class="staff-empty">No sales yet this period.</p>
             @endif

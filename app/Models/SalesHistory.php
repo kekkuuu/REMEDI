@@ -28,7 +28,7 @@ class SalesHistory extends Model
      */
     public const MONTHLY_CACHE_KEY = 'sales_history_monthly_revenue';
 
-    public const DEMAND_CACHE_KEY = 'sales_history_recent_demand';
+    public const DEMAND_CACHE_KEY = 'sales_history_recent_demand_v2';
 
     // Long TTL on purpose: the underlying rows only change when data is
     // imported, and SalesHistorySeeder calls forgetCaches() when that
@@ -404,9 +404,15 @@ class SalesHistory extends Model
                     'total_qty' => (float) $qty,
                 ])->values();
 
+                // The low list never repeats a top product (2026-10-25): with
+                // fewer than topN + lowN products sold in the window both came
+                // off the same short list, and one product -- the only one sold
+                // in the last 30 days -- was shown as highest AND lowest demand.
+                $top = $sorted->take($topN);
+
                 return [
-                    'top' => $shape($sorted->take($topN)),
-                    'low' => $shape($sorted->reverse()->take($lowN)),
+                    'top' => $shape($top),
+                    'low' => $shape($sorted->reverse()->reject(fn ($qty, $sku) => $top->has($sku))->take($lowN)),
                 ];
             }
         );

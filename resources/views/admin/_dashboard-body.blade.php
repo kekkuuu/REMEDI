@@ -887,6 +887,8 @@
                 </div>
                 @if ($lowDemandProducts->isNotEmpty())
                     <div class="chart-box" style="height:220px;"><canvas id="lowDemandChart"></canvas></div>
+                @elseif ($topProducts->isNotEmpty())
+                    <p style="color:#94a3b8; font-size:13px;">Too few products sold in the last 30 days to list separate low sellers.</p>
                 @else
                     <p style="color:#94a3b8; font-size:13px;">No sales yet this period.</p>
                 @endif

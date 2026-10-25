@@ -104,6 +104,19 @@ class RecentDemandTest extends TestCase
         $this->assertTrue($top->contains(fn ($row) => $row->name === 'Imported Favourite'));
     }
 
+    public function test_a_product_is_never_both_highest_and_lowest_demand(): void
+    {
+        // One product sold in the window: it is the top seller, and there is
+        // nothing left to call a low seller.
+        $only = $this->product('Only Seller');
+        $this->sellOnTerminal($only, 2, now()->subDays(2)->toDateString().' 10:00:00');
+
+        $demand = SalesHistory::recentDemand(30);
+
+        $this->assertSame(['Only Seller'], $demand['top']->pluck('name')->all());
+        $this->assertCount(0, $demand['low']);
+    }
+
     public function test_a_sale_older_than_the_window_is_left_out(): void
     {
         $stale = $this->product('Last Season');
