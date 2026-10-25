@@ -24,7 +24,7 @@
         <h3><i class="ti ti-bell-ringing" style="font-size:18px;vertical-align:-2px;margin-right:7px;"></i>Stock Reports</h3>
         <p>
             @if(auth()->user()->isAdmin())
-                Low or expired stock reported by staff. Approve to authorise the fix: reorder it, or pull the expired units.
+                Out-of-stock, low or expired stock reported by staff. Approve to authorise the fix: reorder it, or pull the expired units.
             @else
                 What you have reported to the admin, and their answer. Report a product from its row in Inventory.
             @endif
@@ -139,7 +139,7 @@
                     @if(auth()->user()->isAdmin())
                         No stock reports{{ $status ? ' with this status' : '' }}.
                     @else
-                        You have not reported anything{{ $status ? ' with this status' : '' }}. Use "Notify admin" on a low or expired product in Inventory.
+                        You have not reported anything{{ $status ? ' with this status' : '' }}. Use a "Notify" button on an out-of-stock, low or expired product in Inventory.
                     @endif
                 </td>
             </tr>
