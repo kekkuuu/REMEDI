@@ -793,5 +793,6 @@
             });
         })();
     </script>
+<script src="{{ \App\Support\StaticAsset::url('assets/pw-reveal.js') }}" defer></script>
 </body>
 </html>

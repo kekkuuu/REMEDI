@@ -1123,6 +1123,8 @@ ever *stored*; the bug only ever refused good money.
 them free, stock leaving the shelf with no money taken. Both product forms now require at least ₱0.01, and
 `CheckoutService::unpricedError()` refuses a ₱0 line in checkout AND the QR quote ("… has no selling price set").
 Those 3 still need real prices set by hand; nothing invents one. Covered by `CheckoutTest` and `ProductFormTest`.
+The till refuses it at the CART too (same day): `addToCart()` in `pos/index.blade.php` shows "No selling price" and
+adds nothing, so a cashier is not told only at checkout; a scan's status line names the reason (`lastAddRefusal`).
 
 **Bound every numeric input by the COLUMN behind it, not just by its type.** Money here is
 `decimal(10,2)` and counts are signed ints, and MySQL runs with `STRICT_TRANS_TABLES` — so a value
@@ -2807,6 +2809,12 @@ there rather than an `@json` in the file. Wherever this file says a rule "lives 
 handler (`.is-loading` / `.is-navigating`, title swap, bfcache restore, and click guards for
 modified/middle clicks, `target=_blank`, `#`, cross-origin), the notification bell and its poll loop,
 the confirm dialog, `#logoutModal`, the date-placeholder script, and the password reveal toggle.
+**Every password field has a show / hide eye (2026-10-25, at the user's request)**: `public/assets/pw-reveal.js`,
+loaded by the app layout, the guest layout AND `welcome.blade.php`, wraps any `input[type=password]` not already in a
+`.pw-wrap` (Add User / Edit User keep their own) and adds the button, drawing its own SVG eye because the guest pages
+do not load Tabler; a MutationObserver catches fields added later, `data-no-reveal` opts one out, and the field's
+margins move to the wrapper so the eye stays centred. The strength meter in `remedi.js` still updates while a field is
+revealed (type="text"). Covered by `Feature\Auth\PasswordRevealTest`.
 **REMEDI.md "Frontend" and the sections after it explain why each of these exists** — every rule
 below is stated there with the measurement and the reproduction behind it.
 

@@ -657,7 +657,9 @@
 
         document.addEventListener('input', function (e) {
             var input = e.target;
-            if (input.tagName !== 'INPUT' || input.type !== 'password' || !input.id) return;
+            // A revealed field is type="text" (the eye button) and still counts.
+            if (input.tagName !== 'INPUT' || !input.id) return;
+            if (input.type !== 'password' && !input.closest('.pw-wrap, .pw-auto')) return;
             var meter = document.querySelector('[data-pw-strength-for="' + input.id + '"]');
             if (!meter) return;
 
