@@ -3,6 +3,14 @@
 @section('title', 'Safeguard')
 
 @section('content')
+<style>
+    .safeguard-forgot { margin: 14px 0 0; }
+    .safeguard-forgot-link {
+        display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none;
+        color: var(--brand-dark, #047857); font: inherit; font-size: 13.5px; cursor: pointer;
+    }
+    .safeguard-forgot-link:hover { text-decoration: underline; }
+</style>
 <div class="page-head">
     <div class="page-head-text">
         <h3>Safeguard</h3>
@@ -38,6 +46,25 @@
         @csrf
         @method('PUT')
 
+        {{-- Replacing a code asks for the current one first (2026-10-25). --}}
+        @if($voidPasscodeSet)
+            <div class="form-grid" style="margin-bottom:16px;">
+                <div class="form-field">
+                    <div class="form-field-head">
+                        <span class="form-chip"><i class="ti ti-lock" aria-hidden="true"></i></span>
+                        <label for="current_passcode">Current passcode</label>
+                    </div>
+                    <input type="password" inputmode="numeric" pattern="[0-9]*" maxlength="6"
+                           id="current_passcode" name="current_passcode" placeholder="6 digits" autocomplete="off" required>
+                    @error('current_passcode')<p class="err">{{ $message }}</p>@enderror
+                    <span class="form-field-note">
+                        <i class="ti ti-info-circle" aria-hidden="true"></i>
+                        Forgot it? Use "Email me a code" below and type that code here instead.
+                    </span>
+                </div>
+            </div>
+        @endif
+
         <div class="form-grid">
             <div class="form-field">
                 <div class="form-field-head">
@@ -65,6 +92,22 @@
             </button>
         </div>
     </form>
+
+    {{-- "Forgot the current one?" -- outside the form above (forms cannot nest).
+         Emails a one-time code to the admin's personal address that the
+         Current box accepts once (SettingsController::sendForgotCode). --}}
+    @if($voidPasscodeSet)
+        <form method="POST" action="{{ route('safeguard.forgot', 'passcode') }}" class="js-confirm safeguard-forgot"
+              data-confirm-tone="neutral" data-confirm-icon="ti-mail"
+              data-confirm-title="Email a code for the POS void passcode?"
+              data-confirm-body="A 6-digit code goes to your personal email. Type it in the Current box within {{ $forgotTtl }} minutes to set a new POS void passcode."
+              data-confirm-label="Email me a code" data-on-success="none">
+            @csrf
+            <button type="submit" class="safeguard-forgot-link">
+                <i class="ti ti-mail" aria-hidden="true"></i> Forgot the current POS void passcode? Email me a code
+            </button>
+        </form>
+    @endif
 </div>
 
 {{-- Backup password (2026-10-15, at the user's request). Every full backup
@@ -101,6 +144,24 @@
         @csrf
         @method('PUT')
 
+        @if($backupPasswordSet)
+            <div class="form-grid" style="margin-bottom:16px;">
+                <div class="form-field">
+                    <div class="form-field-head">
+                        <span class="form-chip"><i class="ti ti-lock" aria-hidden="true"></i></span>
+                        <label for="current_backup_password">Current backup password</label>
+                    </div>
+                    <input type="password" id="current_backup_password" name="current_backup_password" maxlength="128"
+                           autocomplete="current-password" required>
+                    @error('current_backup_password')<p class="err">{{ $message }}</p>@enderror
+                    <span class="form-field-note">
+                        <i class="ti ti-info-circle" aria-hidden="true"></i>
+                        Forgot it? Use "Email me a code" below and type that code here instead.
+                    </span>
+                </div>
+            </div>
+        @endif
+
         <div class="form-grid">
             <div class="form-field">
                 <div class="form-field-head">
@@ -132,5 +193,21 @@
             </button>
         </div>
     </form>
+
+    {{-- "Forgot the current one?" -- outside the form above (forms cannot nest).
+         Emails a one-time code to the admin's personal address that the
+         Current box accepts once (SettingsController::sendForgotCode). --}}
+    @if($backupPasswordSet)
+        <form method="POST" action="{{ route('safeguard.forgot', 'backup') }}" class="js-confirm safeguard-forgot"
+              data-confirm-tone="neutral" data-confirm-icon="ti-mail"
+              data-confirm-title="Email a code for the backup password?"
+              data-confirm-body="A 6-digit code goes to your personal email. Type it in the Current box within {{ $forgotTtl }} minutes to set a new backup password."
+              data-confirm-label="Email me a code" data-on-success="none">
+            @csrf
+            <button type="submit" class="safeguard-forgot-link">
+                <i class="ti ti-mail" aria-hidden="true"></i> Forgot the current backup password? Email me a code
+            </button>
+        </form>
+    @endif
 </div>
 @endsection

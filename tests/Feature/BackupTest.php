@@ -278,6 +278,14 @@ class BackupTest extends TestCase
         // Changing it is logged as a change, and the old one stops working.
         $this->actingAs($admin)->withSession($this->confirmed())
             ->put('/safeguard/backup-password', ['backup_password' => 'another-long-password', 'backup_password_confirmation' => 'another-long-password'])
+            ->assertSessionHasErrors(['current_backup_password' => 'Enter the current backup password.']);
+        $this->actingAs($admin)->withSession($this->confirmed())
+            ->put('/safeguard/backup-password', ['current_backup_password' => 'not-the-password', 'backup_password' => 'another-long-password', 'backup_password_confirmation' => 'another-long-password'])
+            ->assertSessionHasErrors(['current_backup_password' => 'The current backup password is incorrect.']);
+        $this->assertTrue(Setting::checkBackupPassword(self::PASSWORD), 'a refused change leaves the old password working');
+
+        $this->actingAs($admin)->withSession($this->confirmed())
+            ->put('/safeguard/backup-password', ['current_backup_password' => self::PASSWORD, 'backup_password' => 'another-long-password', 'backup_password_confirmation' => 'another-long-password'])
             ->assertSessionHasNoErrors();
         $this->assertFalse(Setting::checkBackupPassword(self::PASSWORD));
         $this->assertTrue(Setting::checkBackupPassword('another-long-password'));

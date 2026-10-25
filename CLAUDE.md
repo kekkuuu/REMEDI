@@ -1216,7 +1216,17 @@ passcode (`Setting::VOID_PASSCODE_KEY`) is its first and so far only user, store
 password first.** Both routes (`safeguard.edit`, `safeguard.void-passcode.update`) sit behind Laravel's
 `password.confirm` middleware, so a signed-in admin screen left open at the counter is not enough to
 change the code that authorises voids; confirmation lasts `auth.password_timeout` (3 hours) per session.
-`/settings` is a `Route::redirect` for old bookmarks. **The prompt is a POP-UP, never a separate
+`/settings` is a `Route::redirect` for old bookmarks. **Replacing either code asks for the CURRENT one first
+(2026-10-25, at the user's request)**: "Current passcode" / "Current backup password" appear once a code is set,
+`SettingsController::checkCurrent()` refuses a missing or wrong one (the old code keeps working) and limits wrong
+guesses per admin (`CURRENT_MAX_ATTEMPTS` 5 per 15 minutes, shared by both forms). Setting the FIRST code needs none.
+**A forgotten current code (same day, at the user's request)**: "Forgot the current … ? Email me a code" under each
+form (`POST /safeguard/forgot/{passcode|backup}`, `SettingsController::sendForgotCode()`, `SafeguardCodeMail`) emails a
+6-digit code to the admin's PERSONAL address; the matching "Current" box accepts it ONCE in place of the forgotten one.
+Only its hash is kept, in the session, for `FORGOT_CODE_TTL_MINUTES` (10); a passcode code does not work for the backup
+password; sending is limited (3 per 10 minutes); wrong guesses share `checkCurrent()`'s limit; the audit trail records
+"Safeguard code sent" and "(with an emailed code)", never the code. Railway cannot send mail (SMTP blocked), so use the
+Vercel site for this. Covered by `Feature\SafeguardForgotCodeTest`. **The prompt is a POP-UP, never a separate
 sign-in screen** (asked for explicitly): `#passwordGateModal` in `layouts/app.blade.php`. The sidebar
 link carries `data-password-gate="required|confirmed"` from the session's confirmation stamp; a
 CAPTURE-phase click handler opens the dialog for `required` — capture, because the navigation-skeleton

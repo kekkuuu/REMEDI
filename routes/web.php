@@ -120,6 +120,10 @@ Route::middleware(['auth', 'active', 'must_change_password', 'personal_email'])-
             Route::get('/safeguard', [SettingsController::class, 'edit'])->name('safeguard.edit');
             Route::put('/safeguard/void-passcode', [SettingsController::class, 'updateVoidPasscode'])->name('safeguard.void-passcode.update');
             Route::put('/safeguard/backup-password', [SettingsController::class, 'updateBackupPassword'])->name('safeguard.backup-password.update');
+            // "Forgot the current one?" -- emails a one-time code (2026-10-25).
+            Route::post('/safeguard/forgot/{which}', [SettingsController::class, 'sendForgotCode'])
+                ->whereIn('which', array_keys(SettingsController::FORGOT_TARGETS))
+                ->name('safeguard.forgot');
 
             // The backup streams the `users` table -- password hashes, reset-code
             // hashes, personal emails. One click from any admin screen left open

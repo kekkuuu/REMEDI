@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Http\Controllers\SettingsController;
 use App\Models\Setting;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -181,6 +182,7 @@ class SettingsTest extends TestCase
 
         $this->actingAs(User::factory()->admin()->create())->withSession($this->confirmed())
             ->put('/safeguard/void-passcode', [
+                'current_passcode' => '111111',
                 'passcode' => '222222',
                 'passcode_confirmation' => '222222',
             ])
@@ -188,6 +190,53 @@ class SettingsTest extends TestCase
 
         $this->assertFalse(Setting::checkVoidPasscode('111111'));
         $this->assertTrue(Setting::checkVoidPasscode('222222'));
+    }
+
+    public function test_replacing_the_passcode_needs_the_current_one(): void
+    {
+        Setting::setVoidPasscode('111111');
+        $admin = User::factory()->admin()->create();
+        $new = ['passcode' => '222222', 'passcode_confirmation' => '222222'];
+
+        $this->actingAs($admin)->withSession($this->confirmed())
+            ->put('/safeguard/void-passcode', $new)
+            ->assertSessionHasErrors(['current_passcode' => 'Enter the current passcode.']);
+
+        $this->actingAs($admin)->withSession($this->confirmed())
+            ->put('/safeguard/void-passcode', $new + ['current_passcode' => '999999'])
+            ->assertSessionHasErrors(['current_passcode' => 'The current passcode is incorrect.']);
+
+        $this->assertTrue(Setting::checkVoidPasscode('111111'), 'a refused change leaves the old code working');
+        $this->assertFalse(Setting::checkVoidPasscode('222222'));
+
+        // The Safeguard page asks for it only once a code exists.
+        $this->actingAs($admin)->withSession($this->confirmed())
+            ->get('/safeguard')->assertSee('Current passcode');
+    }
+
+    public function test_wrong_current_codes_are_limited(): void
+    {
+        Setting::setVoidPasscode('111111');
+        $admin = User::factory()->admin()->create();
+        $new = ['passcode' => '222222', 'passcode_confirmation' => '222222'];
+
+        for ($i = 0; $i < SettingsController::CURRENT_MAX_ATTEMPTS; $i++) {
+            $this->actingAs($admin)->withSession($this->confirmed())
+                ->put('/safeguard/void-passcode', $new + ['current_passcode' => '99999'.$i]);
+        }
+
+        // Even the right code is refused while locked out.
+        $this->actingAs($admin)->withSession($this->confirmed())
+            ->put('/safeguard/void-passcode', $new + ['current_passcode' => '111111'])
+            ->assertSessionHasErrors('current_passcode');
+
+        $this->assertTrue(Setting::checkVoidPasscode('111111'));
+    }
+
+    public function test_the_first_passcode_needs_no_current_one(): void
+    {
+        $this->actingAs(User::factory()->admin()->create())->withSession($this->confirmed())
+            ->get('/safeguard')->assertDontSee('Current passcode');
     }
 
     /**
