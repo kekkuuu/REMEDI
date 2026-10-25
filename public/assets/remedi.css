@@ -360,7 +360,10 @@
            ("Medicine / Pharmaceutical") cannot push its count out of the panel. */
         .nav-sublink .nav-sub-name {
             min-width: 0;
-            overflow-wrap: anywhere;
+            /* Break between words, or hyphenate a word that cannot fit --
+               `anywhere` split "Confectionery" mid-word on a narrow sidebar. */
+            overflow-wrap: break-word;
+            hyphens: auto;
         }
 
         .nav-sublink .nav-sub-count {
@@ -806,6 +809,12 @@
                .topbar below scrolled away with the page. `clip` cuts overflow
                off the same way without being one. */
             overflow: clip;
+            /* And min-width: 0, which `hidden` used to imply: a flex item that
+               is not a scroll container cannot shrink below its widest child,
+               so with `clip` alone a wide table stretched this whole column
+               (and the header's bell) past the screen edge -- 1,614px on a
+               1,440px screen on Products. Tables scroll in .table-scroll. */
+            min-width: 0;
         }
 
         .topbar {
@@ -3204,6 +3213,11 @@
                labels to icons only. */
             .sidebar { --sb-w: 216px; }
             .sidebar a, .nav-link-btn { font-size: 14px; padding: 10px 12px; }
+            /* The rule above also caught the category links (`.sidebar a`
+               outranks `.nav-sublink`) and made them LARGER than on a wide
+               screen in a narrower sidebar, so names broke mid-word. */
+            .sidebar .nav-sublink { font-size: 12.5px; padding: 7px 8px; gap: 6px; }
+            .nav-submenu-inner { margin-left: 16px; padding-left: 8px; }
             .sidebar .brand { padding: 22px 14px 14px; }
 
             .kpi-grid { grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px; }

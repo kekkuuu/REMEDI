@@ -2962,7 +2962,12 @@ submit button disables itself and relabels instead, after the browser has serial
 **The header bar stays at the top while a page scrolls (2026-10-25, at the user's request).** `.topbar` was always
 `position: sticky`, but its parent `.main-content` had `overflow: hidden`, which makes a scroll container that a sticky
 child sticks to instead of the page, so it scrolled away. It is `overflow: clip` now: same clipping, no scroll
-container. Do not put `overflow: hidden/auto` back on any ancestor of `.topbar`. The Forecasting product table also
+container. Do not put `overflow: hidden/auto` back on any ancestor of `.topbar`. **It also needs `min-width: 0`**
+(same day, found by a screen-size sweep): `hidden` had implied it, and without it a wide table stretched the whole
+column past the screen at 768–1,440px (Products 1,614px on a 1,440px screen, the bell off the right edge). A sweep of
+26 pages at 375 / 768 / 1,024 / 1,440px then found nothing past the screen edge. The narrow-sidebar rule `.sidebar a`
+also made the category links 14px (larger than the 13.5px desktop size), so names broke mid-word; `.sidebar
+.nav-sublink` now sets 12.5px there, and names break between words or hyphenate. The Forecasting product table also
 has a `#` column, numbered across pages (`firstItem()`).
 
 **Every page raises a "Loading <destination>…" pill in the header while a navigation is in flight**,
