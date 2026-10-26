@@ -1191,7 +1191,9 @@ and `sales/show.blade.php` both group on `product_id|price` (price too, so rows 
 rates can never merge). The `sale_items` rows are untouched: batch traceability stays in the data,
 it just isn't shown. Add a Batch column if that detail is ever wanted on the internal view. **The dashboard's
 Recent Sales "Items" column too (2026-10-26)**: it was `withCount('items')`, the batch rows, so a FEFO split counted one
-product twice; it counts product|price lines now, newest first with an id tie-break. Payment
+product twice; it counts product|price lines now, newest first with an id tie-break. So does the Sales Report's printed
+"Line items" table when scoped to a category or product (`$scopedItems`, grouped per sale|product|price, quantities
+and subtotals summed so every total is unchanged). Payment
 must cover the total; the old supervisor-passcode bypass that could mark a sale voided at the point of
 sale was removed deliberately — `checkout()` always writes `payment_voided => false`.
 

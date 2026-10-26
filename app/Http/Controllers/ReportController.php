@@ -538,6 +538,24 @@ class ReportController extends Controller
                 $scopedItems = $scopedItems->filter(fn ($item) => $item->sale->user_id === $scopeCashier->id)->values();
             }
 
+            // One line per product and price within a sale, like the receipt
+            // (2026-10-26): FEFO writes a sale_items row per batch drawn from,
+            // so a product taken from two batches printed as two "line items".
+            // Quantities and subtotals are summed, so every total is unchanged.
+            $scopedItems = $scopedItems
+                ->groupBy(fn ($item) => $item->sale_id.'|'.$item->product_id.'|'.$item->price)
+                ->map(function ($rows) {
+                    $line = $rows->first()->replicate();
+                    $line->setRelation('sale', $rows->first()->sale);
+                    $line->setRelation('product', $rows->first()->product);
+                    $line->quantity = (int) $rows->sum('quantity');
+                    $line->subtotal = round((float) $rows->sum('subtotal'), 2);
+                    $line->sale_id = $rows->first()->sale_id;
+
+                    return $line;
+                })
+                ->values();
+
             $allScopedItems = $scopedItems;
 
             // "Transactions" here means distinct sales that INCLUDED this
