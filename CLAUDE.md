@@ -1866,7 +1866,10 @@ no transaction, no time-of-day and no cashier to read any of them from.** It's a
 units sold per day; there was nobody signed into anything before this terminal existed, and a row
 carries a date, never a time. `ReportController::atvAtc()` (static, pure — see the DashboardKpiTest
 entry above) divides the Sales Report's `posTotal`/`totalTransactions` for ATV and
-`totalTransactions` by the whole period length (not just days that had a sale) for ATC. The dashboard
+`totalTransactions` by the whole period length (not just days that had a sale) for ATC -- counted from the till's FIRST
+day when the range starts before it (2026-10-26): all-time read 0.6 a day by spreading ~880 till sales over the four
+years of the imported record; it reads 12.8, and the card says "since the till started (Aug 16, 2026)". A range wholly
+before the till keeps its own days and reads 0. The dashboard
 carries its own pair, `DashboardController::computeAtv()`/`computeAtc()` — ATV off TODAY's sales,
 ATC off the TRAILING 7 DAYS' transaction count divided by 7 — deliberately not the same function,
 since the two describe different windows for a different purpose (a KPI tile vs. a report's selected

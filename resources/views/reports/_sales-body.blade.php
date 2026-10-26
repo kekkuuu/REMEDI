@@ -114,7 +114,7 @@
                 <span class="kpi-label">Avg. Transaction Count</span>
             </div>
             <span class="kpi-value">{{ number_format($atc, 1) }}</span>
-            <span class="kpi-sub">{{ $scopeCashier ? $scopeCashier->name.'\'s ' : '' }}POS transactions/day over the range</span>
+            <span class="kpi-sub">{{ $scopeCashier ? $scopeCashier->name.'\'s ' : '' }}POS transactions/day {{ ($atcFrom ?? null) ? 'since the till started ('.\Carbon\Carbon::parse($atcFrom)->format('M j, Y').')' : 'over the range' }}</span>
         </div>
         @endunless
 

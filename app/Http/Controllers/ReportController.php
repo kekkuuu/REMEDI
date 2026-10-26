@@ -588,6 +588,7 @@ class ReportController extends Controller
             $salesForPrint = collect();
             $atv = null;
             $atc = 0.0;
+            $atcFrom = null;
             $hourlyBreakdown = collect();
         } else {
             $scopedItems = collect();
@@ -654,7 +655,18 @@ class ReportController extends Controller
             // Off $listedPosTotal, not $posTotal: when a cashier is picked,
             // ATV/ATC should answer "this cashier's average", not the whole
             // till's -- $totalTransactions is already narrowed the same way.
-            [$atv, $atc] = self::atvAtc($listedPosTotal, $totalTransactions, $start, $end);
+            //
+            // ATC's days start at the till's FIRST day when the range begins
+            // before it (2026-10-26): days before the till existed are not quiet
+            // days at the till, and all-time divided ~880 sales over the 4+ years
+            // of the imported record (0.6 a day) instead of the till's ~70 days.
+            $tillStart = ($first = Sale::min('created_at')) ? Carbon::parse($first)->toDateString() : null;
+            // Only when the till started INSIDE the range; a range wholly before
+            // it keeps its own days (and reads 0).
+            $atcStart = $tillStart && $tillStart > $start && $tillStart <= $end ? $tillStart : $start;
+            [$atv, $atc] = self::atvAtc($listedPosTotal, $totalTransactions, $atcStart, $end);
+            // Named on the card when the days were counted from the till's start.
+            $atcFrom = $atcStart !== $start ? $atcStart : null;
 
             // Hourly sales / transaction volume — POS-only, for the same reason
             // ATV/ATC are: sales_history has a DATE per row, never a time, so an
@@ -687,7 +699,7 @@ class ReportController extends Controller
             'sales', 'start', 'end', 'totalSales', 'totalTransactions',
             'dailyBreakdown', 'months', 'month', 'totalUnits', 'activeDays',
             'dataStart', 'dataEnd', 'granularity', 'posTotal', 'historyTotal', 'posByBucket',
-            'salesForPrint', 'atv', 'atc', 'hourlyBreakdown', 'listedPosTotal',
+            'salesForPrint', 'atv', 'atc', 'atcFrom', 'hourlyBreakdown', 'listedPosTotal',
             'scopeCategory', 'scopeProduct', 'isScoped', 'scopeLabel', 'scopedItems', 'scopedItemsForPrint',
             'scopeCashier', 'defaultStart', 'defaultEnd'
         ) + ['group' => $chosenGroup, 'isFiltered' => (bool) $isFiltered];
