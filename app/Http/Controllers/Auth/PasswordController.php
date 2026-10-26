@@ -27,7 +27,13 @@ class PasswordController extends Controller
             // 'bail' + 'string': see ProfileController::destroy -- an array
             // reached password_verify() and threw.
             'current_password' => ['bail', 'required', 'string', 'current_password'],
-            'password' => ['required', Password::defaults(), 'confirmed'],
+            // different: the forced change after staff123 or an admin-set
+            // password (must_change_password) was satisfied by typing the SAME
+            // password again, which lifted the lock while the password stayed
+            // one the admin knows (2026-10-26).
+            'password' => ['required', Password::defaults(), 'confirmed', 'different:current_password'],
+        ], [
+            'password.different' => 'Choose a new password, not the one you use now.',
         ]);
 
         // must_change_password cleared here, not just set false by default --

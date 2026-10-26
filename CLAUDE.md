@@ -881,7 +881,8 @@ clean), and a save that changed nothing writes nothing. The wording contains "us
 `AlertService`'s `$isAccount` predicate files it with the other account changes.
 The flag is cleared in exactly one place, `PasswordController::update()`, so the account holder's
 current password IS the temporary one and they type it as `current_password` like anyone else
-changing their password. `/profile`
+changing their password. **The new one must DIFFER from it (2026-10-26, `different:current_password`)**: typing the
+temporary password again as the "new" one lifted the lock while the password stayed one the admin knows. `/profile`
 carries an amber banner (`session('status') === 'must-change-password'`) that also auto-opens the
 Change Password dialog. **The AJAX success handler REMOVES that banner** (it is the one element
 carrying `data-open-password-change`): the request that just succeeded is the request that cleared

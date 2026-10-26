@@ -48,4 +48,21 @@ class PasswordUpdateTest extends TestCase
             ->assertSessionHasErrorsIn('updatePassword', 'current_password')
             ->assertRedirect('/profile');
     }
+
+    /** A forced change cannot be "done" by typing the temporary password again. */
+    public function test_the_new_password_must_differ_from_the_current_one(): void
+    {
+        $user = User::factory()->create(['must_change_password' => true]);
+
+        $this->actingAs($user)
+            ->from('/profile')
+            ->put('/password', [
+                'current_password' => 'password',
+                'password' => 'password',
+                'password_confirmation' => 'password',
+            ])
+            ->assertSessionHasErrorsIn('updatePassword', 'password');
+
+        $this->assertTrue((bool) $user->fresh()->must_change_password, 'still locked');
+    }
 }
