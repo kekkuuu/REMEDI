@@ -1639,7 +1639,8 @@ cut back to the day before the terminal went live, the anchor froze there and th
 High/Low Demand cards described the thirty days ending at the handoff, blind to 918 terminal sales
 across eighteen days. Nothing failed and nothing errored; the cards were full of plausible products
 that were quietly three weeks out of date. It anchors on `reportableThrough()` (today) now and spans
-both records. **If you add a window, anchor it on today and clamp it — never on the last row of one
+both records, and is exactly `$days` long counting today (2026-10-26: `subDays(30)` with inclusive ends was 31 days
+under a "last 30 days" heading; cache key `_v3`). **If you add a window, anchor it on today and clamp it — never on the last row of one
 table.**
 
 **Derived caches inherit their source's invalidation.** `quarterlyRevenue()` is computed from

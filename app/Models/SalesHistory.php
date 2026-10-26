@@ -28,7 +28,7 @@ class SalesHistory extends Model
      */
     public const MONTHLY_CACHE_KEY = 'sales_history_monthly_revenue';
 
-    public const DEMAND_CACHE_KEY = 'sales_history_recent_demand_v2';
+    public const DEMAND_CACHE_KEY = 'sales_history_recent_demand_v3';
 
     // Long TTL on purpose: the underlying rows only change when data is
     // imported, and SalesHistorySeeder calls forgetCaches() when that
@@ -391,7 +391,10 @@ class SalesHistory extends Model
                 // there for -- no window may include days that have not
                 // happened.
                 $through = self::reportableThrough();
-                $since = Carbon::parse($through)->subDays($days)->toDateString();
+                // $days INCLUDING today: subDays($days) with whereBetween's
+                // inclusive ends was 31 days under a "last 30 days" heading
+                // (2026-10-26).
+                $since = Carbon::parse($through)->subDays($days - 1)->toDateString();
 
                 $history = DB::table('sales_history')
                     ->whereBetween('sale_date', [$since, $through])

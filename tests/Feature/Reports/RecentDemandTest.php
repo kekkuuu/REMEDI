@@ -132,6 +132,21 @@ class RecentDemandTest extends TestCase
             'a window anchored on today cannot reach back two months');
     }
 
+    /** "Last 30 days" is 30 days counting today, not 31. */
+    public function test_the_window_is_exactly_thirty_days_including_today(): void
+    {
+        $edge = $this->product('Day Thirty');
+        $this->sellOnTerminal($edge, 7, now()->subDays(29)->toDateString().' 10:00:00');
+
+        $outside = $this->product('Day Thirty One');
+        $this->sellOnTerminal($outside, 9, now()->subDays(30)->toDateString().' 10:00:00');
+
+        $names = SalesHistory::recentDemand(30)['top']->pluck('name')->all();
+
+        $this->assertContains('Day Thirty', $names);
+        $this->assertNotContains('Day Thirty One', $names);
+    }
+
     /** A checkout has to retire the cards, or they describe the sale before it. */
     public function test_a_checkout_retires_the_cached_window(): void
     {
