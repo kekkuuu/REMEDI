@@ -272,7 +272,12 @@ class DashboardController extends Controller
             // panel now scrolls inside a capped box (see .dash-lower-main
             // .list-scroll), so more rows cost no page height and the panel
             // stops being a six-row teaser.
-            'recentSales' => Sale::withCount('items')->latest()->take(15)->get(),
+            // Items = products on the receipt, not sale_items rows (2026-10-26):
+            // FEFO writes one row per batch drawn from, so 8 units taken 5 + 3
+            // from two batches counted as 2 items for one product.
+            'recentSales' => Sale::with('items:id,sale_id,product_id,price')->latest()->latest('id')->take(15)->get()
+                ->each(fn ($sale) => $sale->setAttribute('items_count',
+                    $sale->items->unique(fn ($i) => $i->product_id.'|'.$i->price)->count())),
 
             // Sales Summary: quarterly revenue for the latest year that has
             // data, from sales_history (the POS table holds only this
