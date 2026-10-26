@@ -592,7 +592,7 @@ class SalesHistory extends Model
         // the history is imported or the till records or voids a sale, and both
         // bump a stamp. Every report view ran these two scans otherwise.
         return Cache::memo()->remember(
-            static::rangeKey('bounds', [today()->toDateString()], dependsOnPos: true),
+            static::rangeKey('bounds_v2', [today()->toDateString()], dependsOnPos: true),
             static::cacheUntil(),
             fn () => static::computeDateBounds()
         );
@@ -604,7 +604,11 @@ class SalesHistory extends Model
             ->selectRaw('MIN(sale_date) AS mn, MAX(sale_date) AS mx')
             ->first();
 
+        // Voided sales do not count (2026-10-26), like everywhere else a sale is
+        // counted: 28 voided test sales on Oct 22-23 stretched "all time" past
+        // the last sale that is in any figure (Oct 2 on this install).
         $pos = DB::table('sales')
+            ->where('payment_voided', false)
             ->selectRaw('MIN(DATE(created_at)) AS mn, MAX(DATE(created_at)) AS mx')
             ->first();
 

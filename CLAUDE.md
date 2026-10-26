@@ -1682,7 +1682,9 @@ bumped by checkout) so a sale doesn't retire the expensive history-only keys. Th
 
 **The seeded history runs into the future** — it fills its final month to that month's last day
 regardless of the calendar — so every aggregate must stop at `SalesHistory::reportableThrough()`
-(today), or it counts sales that have not happened. `dateBounds()` clamps the default range. The
+(today), or it counts sales that have not happened. `dateBounds()` clamps the default range, and leaves VOIDED till
+sales out (2026-10-26, key `bounds_v2`): 28 voided test sales on Oct 22-23 stretched the reports' "all time" past the
+last sale in any figure (Oct 2 locally). The
 fixed-key aggregates expire at `min(TTL, end of day)` via `cacheUntil()`, so a finished day isn't
 held out of the chart until tomorrow. Clamp, never delete: those days come back into range as the
 calendar reaches them.
