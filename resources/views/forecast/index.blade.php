@@ -112,10 +112,12 @@
     // demand" chart. Hidden, not deleted -- flip either flag to bring them back;
     // the controller still computes them. The other Top 5 chart, "Top 5 sales
     // forecast by sales product", followed on 2026-10-24, also at the user's
-    // request -- the page now has no Top 5 chart at all.
+    // request. Both Top 5 charts are SHOWN again (2026-10-26, at the user's
+    // request: "revert the top 5 items in demand ... and the other top 5 sales
+    // forecast by sales product").
     $showAccuracyMetrics = false;
-    $showTopDemand = false;
-    $showTopSales = false;
+    $showTopDemand = true;
+    $showTopSales = true;
 @endphp
 
 <div class="card" style="margin-bottom:18px;">
