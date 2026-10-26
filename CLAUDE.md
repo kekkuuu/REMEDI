@@ -747,7 +747,8 @@ A signed-out account (any role -- the login page's "Forgot your password?" link 
 distinguish) posts its email; `PasswordResetRequestController::store()` validates it against an
 ACTIVE, non-archived user (`Rule::exists('users','email')->whereNull('archived_at')`, the same
 "validate against a row that can still be acted on" rule checkout and category validation already
-follow) and stamps `users.password_reset_requested_at`, idempotently -- a second click while one is
+follow; a DEACTIVATED account is refused with `auth.deactivated` since 2026-10-26 -- it was emailed a code the next
+step refused, or flagged for an admin) and stamps `users.password_reset_requested_at`, idempotently -- a second click while one is
 already pending touches nothing and writes no second audit row, so the page always answers with one
 generic message regardless. `AuditTrail::log('Requested', "Password reset requested: {name}")`
 - 'Requested' and 'Reset' are new entries in `AuditTrail::ACTIONS` - is what actually notifies an

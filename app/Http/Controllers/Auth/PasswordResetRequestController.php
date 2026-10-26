@@ -89,6 +89,15 @@ class PasswordResetRequestController extends Controller
         $email = (string) $request->input('email');
         $user = User::where('email', $email)->first();
 
+        // A DEACTIVATED account cannot sign in whatever its password
+        // (2026-10-26): it was emailed a code the next step then refused as
+        // "not valid or has expired" (pendingUser() needs is_active), or put an
+        // admin to resetting a password nobody can use. Same words as the
+        // login page.
+        if (! $user->is_active) {
+            throw ValidationException::withMessages(['email' => trans('auth.deactivated')]);
+        }
+
         // Anyone with a PERSONAL address on file proves themselves by emailed
         // code, staff and admins alike; everyone else asks an admin. The
         // address is what makes the code path possible at all.

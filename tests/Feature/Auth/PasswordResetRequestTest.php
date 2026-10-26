@@ -59,6 +59,25 @@ class PasswordResetRequestTest extends TestCase
             ->assertSessionHasErrors('email');
     }
 
+    /** Deactivated: no code emailed, no admin asked -- told why, as the login page does. */
+    public function test_requesting_a_reset_for_a_deactivated_account_is_refused(): void
+    {
+        \Illuminate\Support\Facades\Mail::fake();
+        $withEmail = User::factory()->inactive()->create(['personal_email' => 'someone@gmail.com']);
+        $withoutEmail = User::factory()->inactive()->create(['personal_email' => null]);
+
+        foreach ([$withEmail, $withoutEmail] as $user) {
+            $this->post('/forgot-password', ['email' => $user->email])
+                ->assertSessionHasErrors(['email' => trans('auth.deactivated')]);
+
+            $this->assertNull($user->fresh()->password_reset_requested_at);
+            $this->assertNull($user->fresh()->password_otp_hash);
+        }
+
+        \Illuminate\Support\Facades\Mail::assertNothingSent();
+        $this->assertSame(0, AuditTrail::where('action', 'Requested')->count());
+    }
+
     public function test_a_second_request_does_not_duplicate_the_audit_entry(): void
     {
         // No personal email: the ask-an-admin path, not the emailed code.
