@@ -30,11 +30,11 @@
          happened, so those dates are not selectable. Without it the picker
          offered future days that could only ever return an empty list. --}}
     <input type="date" name="start_date" id="start-date-input" value="{{ $startDate ?? request('start_date') }}"
-           min="{{ $recordStart }}" max="{{ now()->toDateString() }}"
+           @if($recordStart) min="{{ $recordStart }}" @endif max="{{ now()->toDateString() }}"
            style="padding: 9px 12px; border: 0.5px solid #d1d5db; border-radius: 7px; font-size: 15px; font-family: inherit;">
 
     <input type="date" name="end_date" id="end-date-input" value="{{ $endDate ?? request('end_date') }}"
-           min="{{ $recordStart }}" max="{{ now()->toDateString() }}"
+           @if($recordStart) min="{{ $recordStart }}" @endif max="{{ now()->toDateString() }}"
            style="padding: 9px 12px; border: 0.5px solid #d1d5db; border-radius: 7px; font-size: 15px; font-family: inherit;">
 
     {{-- No Apply button: the search box debounces and both dates re-run on

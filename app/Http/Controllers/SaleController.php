@@ -138,9 +138,11 @@ class SaleController extends Controller
             ]);
         }
 
-        // The earliest day either sales record covers (2026-10-25, at the
-        // user's request): the date pickers offer nothing before July 2022.
-        $recordStart = SalesHistory::dateBounds()[0];
+        // The date pickers start at the till's FIRST sale (2026-10-26, at the
+        // user's request). For a day they started at July 2022, the start of the
+        // imported record, but this list shows the till's own sales only, so
+        // every day before its first sale (2026-08-16 here) could only be empty.
+        $recordStart = ($first = Sale::min('created_at')) ? Carbon::parse($first)->toDateString() : null;
 
         return view('sales.index', compact('sales', 'todayTotal', 'todayCount', 'startDate', 'endDate', 'recordStart'));
     }

@@ -498,7 +498,7 @@ Covered by `Feature\Inventory\ReturnCountsAgreeTest` and a `DashboardKpiTest` ca
   review question): Aug ₱145k / Sep ₱17k / Oct ₱2.10 beside ₱0.4–2.2M months of the imported record, so those three
   read low and October was "slowest" on ₱2.10. `SalesHistory::seasonalTrends()` now stops at `lastCompleteMonth()`
   (the forecast's boundary, June 2026 while `forecast.include_pos` is off): all 12 months, 4 years each. Feeds the
-  Analytics report and the admin dashboard. Sales History's date pickers also start at `dateBounds()[0]` (1 Jul 2022).
+  Analytics report and the admin dashboard. Sales History's date pickers start at the till's first sale (`Sale::min('created_at')`, 2026-08-16 here) since 2026-10-26, at the user's request -- for a day they started at `dateBounds()[0]` (1 Jul 2022), but that list shows till sales only.
 - **The dashboard's quarterly Sales Summary read 2026 as Q1 49% / Q2 49% / Q3 1% / Q4 0%** (same day, at the user's
   request): Q3–Q4 held only the till's small sales after the record ended in June. `quarterlyRevenue()` now counts the
   record's latest year up to `lastCompleteMonth()` (2026: ₱11.83M, Q1 50% / Q2 50%) and returns `covered` (quarters the
