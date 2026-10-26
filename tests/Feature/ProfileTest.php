@@ -110,6 +110,22 @@ class ProfileTest extends TestCase
         $this->assertNull($admin->email_verified_at);
     }
 
+    /** Folded like Add User / Edit User, not refused by the `lowercase` rule. */
+    public function test_an_admins_own_email_is_folded_to_lowercase(): void
+    {
+        $admin = User::factory()->admin()->create();
+
+        $this->actingAs($admin)
+            ->patch('/profile', [
+                'personal_email' => 'someone@gmail.com',
+                'name' => $admin->name,
+                'email' => '  Test.Admin@Example.com ',
+            ])
+            ->assertSessionHasNoErrors();
+
+        $this->assertSame('test.admin@example.com', $admin->fresh()->email);
+    }
+
     /**
      * Every other account mutation logs; a person editing their OWN profile
      * used to leave no trace at all. The entry names the fields, never the

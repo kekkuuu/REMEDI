@@ -78,6 +78,11 @@ class RegisteredUserController extends Controller
             'password' => Hash::make($validated['password']),
         ]);
 
+        // The admin typed this password, so -- like one set in Edit user
+        // (UserController::update) -- the account holder chooses their own at
+        // first sign-in (2026-10-26).
+        $user->forceFill(['must_change_password' => true])->save();
+
         event(new Registered($user));
 
         // This route is the admin "Add User" form, not public signup, so account
@@ -90,6 +95,6 @@ class RegisteredUserController extends Controller
         // No Auth::login() — admin stays logged in
         // No redirect to dashboard — go back to user list
 
-        return $this->actionOk($request, "User \"{$user->name}\" added successfully.", redirect()->route('users.index'));
+        return $this->actionOk($request, "User \"{$user->name}\" added successfully. They will be asked to set their own password the first time they sign in.", redirect()->route('users.index'));
     }
 }

@@ -62,6 +62,9 @@ class RegistrationTest extends TestCase
 
         // Still the admin, not the new account.
         $this->assertAuthenticatedAs($admin);
+
+        // The admin typed the password, so the new account sets its own first.
+        $this->assertTrue((bool) User::where('email', 'test@example.com')->value('must_change_password'));
     }
 
     /**

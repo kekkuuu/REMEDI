@@ -9,6 +9,19 @@ use Illuminate\Validation\Rule;
 class ProfileUpdateRequest extends FormRequest
 {
     /**
+     * Trim and lower-case the address before validating (2026-10-26), as Add
+     * User and Edit User already do: the `lowercase` rule REFUSES "Admin@remedi.com"
+     * rather than folding it, so an admin's own profile was the one form where
+     * a capital letter was an error. A non-string is left for 'string' to refuse.
+     */
+    protected function prepareForValidation(): void
+    {
+        if (is_string($this->input('email'))) {
+            $this->merge(['email' => strtolower(trim($this->input('email')))]);
+        }
+    }
+
+    /**
      * Get the validation rules that apply to the request.
      *
      * Staff may only change their own NAME and PHONE NUMBER. Everything else on
