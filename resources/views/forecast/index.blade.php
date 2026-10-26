@@ -23,10 +23,17 @@
     // drawn (2026-10-26, at the user's request: "hide the line, not the value")
     // -- see actualLineToRecordEnd() in the script below.
     $showTillOnActual = true;
+    // The month IN PROGRESS counts too (2026-10-26, at the user's request: "if
+    // you were at that month display the actual value and keep adding until the
+    // month finish"): month-to-date, so its figure grows with every sale until
+    // the month ends, then the next month starts the same way. It reads 0 until
+    // the month's first sale.
     $tillAfterRecord = (! $showTillOnActual || config('forecast.include_pos')) ? collect()
         : \App\Models\SalesHistory::posMonthly()
-            // Complete months only: the month in progress would read as a fall.
-            ->filter(fn ($v, $ym) => $ym > $trend['lastActualMonth'] && $ym < now()->format('Y-m'));
+            ->filter(fn ($v, $ym) => $ym > $trend['lastActualMonth']);
+    if ($tillAfterRecord->isNotEmpty() && ! $tillAfterRecord->has(now()->format('Y-m'))) {
+        $tillAfterRecord[now()->format('Y-m')] = ['units' => 0, 'revenue' => 0.0];
+    }
 
     $actualUnitsSeries = $months->map(fn ($m) => $trend['actualUnits'][$m] ?? ($tillAfterRecord[$m]['units'] ?? null));
     $forecastUnitsSeries = $months->map(function ($m) use ($trend) {

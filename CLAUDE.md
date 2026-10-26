@@ -2324,7 +2324,10 @@ current month is tagged "this month", not "already passed". **Only the LINE thro
 (2026-10-26, at the user's request: "hide the line of the actual... only the line, not the value")**: the Actual line
 ends with the record (June 2026) and the till's months after it show their value in the tooltip only -- no line,
 and no dots either ("and also the dots") (`actualLineToRecordEnd`: a transparent segment and point radius 0 past the
-record's last month). **And the product
+record's last month). **The month IN PROGRESS counts too (same day, at the user's request: "display the actual value
+and keep adding until the month finish")**: month-to-date till sales (`posMonthly()` stops at today), 0 until the first
+sale, growing with each one; the next month starts the same way when it comes. This reverses the "complete months only"
+rule for the till's months (the record's own months are still complete only). **And the product
 page's legend toggles each series whole (same day)**: "Forecast" hides / shows the forecast line together with its
 80% band ("Lower bound" + "Confidence band", kept out of the legend) and the shaded "ahead" region
 (`forecastLegendClick`); "Actual" the actual line. The default toggled the dashed line alone and left the band.

@@ -43,12 +43,16 @@
     // drawn (2026-10-26, at the user's request: "hide the line, not the value")
     // -- see actualLineToRecordEnd() in the script below.
     $showTillOnActual = true;
-    $tillMonths = (! $showTillOnActual || config('forecast.include_pos')) ? collect()
-        : \App\Models\SalesHistory::posMonthly()->keys()
-            // Complete months only, like the record: the month in progress
-            // would read as a fall.
-            ->filter(fn ($ym) => ($lastActualMonth === null || $ym > $lastActualMonth) && $ym < now()->format('Y-m'))
-            ->values();
+    // The month IN PROGRESS counts too (2026-10-26, at the user's request: "if
+    // you were at that month display the actual value and keep adding until the
+    // month finish"): month-to-date, growing with every sale until the month
+    // ends, then the next month the same way; 0 until this product sells in it.
+    $posMonths = (! $showTillOnActual || config('forecast.include_pos')) ? collect()
+        : \App\Models\SalesHistory::posMonthly()->keys();
+    $tillMonths = $posMonths->isEmpty() ? collect()
+        : $posMonths->filter(fn ($ym) => $lastActualMonth === null || $ym > $lastActualMonth)
+            ->push(now()->format('Y-m'))
+            ->unique()->sort()->values();
     $tillForProduct = $tillMonths->isEmpty() ? collect() : \App\Models\SalesHistory::posMonthly($product_sku);
     $tillUnits = $tillMonths->mapWithKeys(fn ($ym) => [$ym => (int) ($tillForProduct[$ym]['units'] ?? 0)]);
     $tillRevenue = $tillMonths->mapWithKeys(fn ($ym) => [$ym => round((float) ($tillForProduct[$ym]['revenue'] ?? 0), 2)]);
