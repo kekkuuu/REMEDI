@@ -288,16 +288,18 @@ class CheckoutService
                     // moving between the check and this loop, e.g. a second
                     // register selling the same product concurrently.
                     //
-                    // Returning an error rolls the whole DB::transaction back, so
-                    // the sale, its line items and every decrement are undone
-                    // together. Previously the loop just ended and the customer was
-                    // charged the full amount for a partial delivery.
+                    // THROWN, so DB::transaction() rolls the sale, its line items
+                    // and every decrement back together (2026-10-26). It used to
+                    // RETURN the error, and a closure that returns normally
+                    // COMMITS: the half-written sale stayed while the cashier read
+                    // "Nothing was charged", and the retry sold it a second time.
+                    // Turned back into ['error'] below, outside the transaction.
                     if ($remainingQty > 0) {
-                        return [
-                            'error' => "Stock for {$line['product']->name} changed during checkout. "
+                        throw new CheckoutRefused(
+                            "Stock for {$line['product']->name} changed during checkout. "
                                 .'Available: '.($line['quantity'] - $remainingQty).', Requested: '.$line['quantity']
-                                .'. Nothing was charged — please retry.',
-                        ];
+                                .'. Nothing was charged — please retry.'
+                        );
                     }
                 }
 
@@ -315,6 +317,8 @@ class CheckoutService
 
                 return ['sale' => $sale];
             }));
+        } catch (CheckoutRefused $e) {
+            return ['error' => $e->getMessage()];
         } catch (QueryException $e) {
             // The other side of the race the pre-check above cannot close on
             // its own: two requests carrying the same key can both pass "does

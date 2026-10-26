@@ -1174,7 +1174,10 @@ check ran per cart line, so a cart naming the same product twice (5 + 5 against 
 both lines, billed for 10, deducted 6, and the loop silently ran out of batches — ₱1,000 charged for
 ₱600 of goods, on a receipt reading "6 × ₱100.00" above "Total ₱1,000.00". Requested quantities are
 now summed per `product_id` before any availability check, and `$remainingQty > 0` after the FEFO
-walk aborts the transaction. Keep both: the aggregate covers duplicate lines, the post-walk assert
+walk aborts the transaction -- by THROWING `App\Services\CheckoutRefused` since 2026-10-26: it RETURNED the error, and a
+`DB::transaction()` closure that returns normally COMMITS, so the half-written sale and its deductions stayed while the
+cashier read "Nothing was charged" (and the retry sold it again). Any refusal after a write inside a transaction must
+throw. `CheckoutTest::test_stock_vanishing_mid_checkout_rolls_the_whole_sale_back`. Keep both: the aggregate covers duplicate lines, the post-walk assert
 covers stock moving mid-checkout (a second register), which no pre-check can.
 
 **POS checkout deducts FEFO** (`PosController::checkout` walks batches `expiry_date ASC`), so one

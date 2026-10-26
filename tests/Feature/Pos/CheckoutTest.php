@@ -61,6 +61,36 @@ class CheckoutTest extends TestCase
         return User::factory()->create();
     }
 
+    /**
+     * Stock that vanishes between the check and the deduction (another till)
+     * must leave NOTHING behind: no sale, no lines, no units taken. The refusal
+     * used to be RETURNED from inside DB::transaction(), which commits.
+     */
+    public function test_stock_vanishing_mid_checkout_rolls_the_whole_sale_back(): void
+    {
+        $product = $this->product('Raced Item', '10.00', [
+            ['qty' => 5, 'expiry' => now()->addMonths(6)->toDateString()],
+            ['qty' => 5, 'expiry' => now()->addYear()->toDateString()],
+        ]);
+        [$first, $second] = $product->batches->sortBy('expiry_date')->values()->all();
+
+        // "Another till" empties the second batch once this sale has started.
+        Sale::created(fn () => ProductBatch::whereKey($second->id)->update(['quantity' => 0]));
+
+        $this->actingAs($this->cashier())
+            ->postJson('/pos/checkout', [
+                'items' => [['product_id' => $product->id, 'quantity' => 8]],
+                'amount_paid' => 80,
+            ])
+            ->assertStatus(422)
+            ->assertJsonFragment(['success' => false]);
+
+        $this->assertSame(0, Sale::count(), 'no half-written sale');
+        $this->assertSame(0, \App\Models\SaleItem::count());
+        $this->assertSame(5, (int) $first->fresh()->quantity, 'nothing taken from the first batch');
+        $this->assertSame(0, \App\Models\StockMovement::count());
+    }
+
     public function test_a_product_with_no_selling_price_is_not_rung_up_free(): void
     {
         $free = $this->product('Unpriced Item', '0.00', [
