@@ -835,16 +835,32 @@
         function close() {
             modal.classList.remove('is-open');
             if (unlock) { unlock(); unlock = null; }
-            okBtn.removeEventListener('click', close);
+            okBtn.removeEventListener('click', onOk);
             modal.removeEventListener('click', onBackdrop);
             document.removeEventListener('keydown', onKey);
             if (lastFocus && lastFocus.focus) lastFocus.focus({ preventScroll: true });
         }
 
+        // The Enter that OPENED it must not close it (2026-10-26): a scanner
+        // gun ends every scan with Enter, the till opens this from that very
+        // keydown, and the listener below -- added while that keydown was still
+        // bubbling -- closed it in the same instant, so a scanned out-of-stock
+        // item showed no pop-up at all. Keys and keyboard "clicks" on OK in the
+        // first moment after opening are ignored (some guns send CR then LF).
+        var openedAt = Date.now();
+        var justOpened = function () { return Date.now() - openedAt < 400; };
         function onBackdrop(e) { if (e.target === modal) close(); }
-        function onKey(e) { if (e.key === 'Escape' || e.key === 'Enter') close(); }
+        function onKey(e) {
+            if (e.key === 'Enter' && justOpened()) { e.preventDefault(); return; }
+            if (e.key === 'Escape' || e.key === 'Enter') close();
+        }
+        function onOk(e) {
+            // e.detail is 0 for a click made by the keyboard, 1+ by a pointer.
+            if (e.detail === 0 && justOpened()) return;
+            close();
+        }
 
-        okBtn.addEventListener('click', close);
+        okBtn.addEventListener('click', onOk);
         modal.addEventListener('click', onBackdrop);
         document.addEventListener('keydown', onKey);
 
@@ -2814,7 +2830,8 @@
 
     /* ── Instant scan: the list of every product's codes, in the page ──
        PosController::scanIndex answers every active product as
-       [id, name, price, sellable stock, sku, barcode|null]; held here as a
+       [id, name, price, sellable stock, sku, barcode|null, units on the
+       shelf]; held here as a
        code -> product map so a scan is matched without a round trip (a lookup
        took 1.5-4 s from the till to the hosting in Europe, 2026-10-22). A page
        opts in by putting data-scan-index="<url>" on its scan field -- POS and
@@ -2846,7 +2863,10 @@
                     if (!data || !Array.isArray(data.products)) return;
                     var next = new Map();
                     data.products.forEach(function (row) {
-                        var product = { id: row[0], name: row[1], price: row[2], stock: row[3] };
+                        // onShelf: everything on the shelf, sellable or not, so
+                        // the till can tell "expired" from "out of stock".
+                        var product = { id: row[0], name: row[1], price: row[2], stock: row[3],
+                            onShelf: row[6] !== undefined ? row[6] : row[3] };
                         next.set(String(row[4]), product);                // SKU
                         if (row[5]) next.set(String(row[5]), product);    // the barcode printed on the box
                     });

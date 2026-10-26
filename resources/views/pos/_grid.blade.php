@@ -17,7 +17,7 @@
                 ? 'badge-danger'
                 : ($product->is_low_stock ? 'badge-warning' : 'badge-success');
         @endphp
-        <div class="card pos-product {{ $sellable <= 0 ? 'is-out' : '' }}" onclick='addToCart({{ $product->id }}, @json($product->name), {{ $product->selling_price }}, {{ $sellable }})'>
+        <div class="card pos-product {{ $sellable <= 0 ? 'is-out' : '' }}" onclick='addToCart({{ $product->id }}, @json($product->name), {{ $product->selling_price }}, {{ $sellable }}, @json((string) $product->sku), {{ (int) $product->batches->where('quantity', '>', 0)->whereNull('returned_at')->sum('quantity') }})'>
             <strong>{{ $product->name }}</strong><br>
             <small>{{ $product->sku }}</small><br>
             <span style="color:#16a34a; font-weight:bold;">&#8369;{{ number_format($product->selling_price, 2) }}</span><br>

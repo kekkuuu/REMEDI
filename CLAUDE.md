@@ -1156,6 +1156,14 @@ them free, stock leaving the shelf with no money taken. Both product forms now r
 Those 3 still need real prices set by hand; nothing invents one. Covered by `CheckoutTest` and `ProductFormTest`.
 The till refuses it at the CART too (same day): `addToCart()` in `pos/index.blade.php` shows "No selling price" and
 adds nothing, so a cashier is not told only at checkout; a scan's status line names the reason (`lastAddRefusal`).
+**Three till fixes (2026-10-26, at the user's request).** (1) **The cart keeps the order items were ADDED** (`cartOrder`):
+`cart` is keyed by product id and JavaScript lists number-like keys in ascending order, so the cart read in id
+(roughly alphabetical) order; a rescan raises the quantity in place. (2) **A scanned item that cannot be sold POPS UP**:
+`REMEDI.showMessage()` closed itself on Enter, and the scanner gun's own Enter -- still bubbling when the till opened the
+pop-up from it -- closed it in the same instant, so only the small status line was left. Enter and keyboard "clicks" on
+OK in the first 400 ms are ignored now. (3) **"Expired stock" is told apart from "Out of stock"**: the scan index carries
+a 7th field (units on the shelf, not returned) and `/pos/lookup` an `on_shelf`, so a product whose units are all
+expired reads "cannot be sold: the 10 on the shelf are expired. Pull them from the shelf." `ScanIndexTest`.
 
 **Bound every numeric input by the COLUMN behind it, not just by its type.** Money here is
 `decimal(10,2)` and counts are signed ints, and MySQL runs with `STRICT_TRANS_TABLES` — so a value

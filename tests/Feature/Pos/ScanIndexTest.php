@@ -68,7 +68,25 @@ class ScanIndexTest extends TestCase
 
         $row = $this->rows(User::factory()->create())[$product->id];
 
-        $this->assertSame([$product->id, 'Scan Row', 12.5, 7, $product->sku, '4806523434980'], $row);
+        $this->assertSame([$product->id, 'Scan Row', 12.5, 7, $product->sku, '4806523434980', 7], $row);
+    }
+
+    /** Units on the shelf the till may not sell (expired) are counted apart, so a scan can say "expired". */
+    public function test_expired_units_on_the_shelf_are_counted_apart_from_sellable_stock(): void
+    {
+        $product = $this->product('All Expired', [], [
+            ['qty' => 10, 'expiry' => now()->subDays(3)->toDateString()],
+            ['qty' => 4, 'expiry' => now()->subDays(40)->toDateString(), 'returned' => now()],
+        ]);
+        $user = User::factory()->create();
+
+        $row = $this->rows($user)[$product->id];
+        $this->assertSame(0, $row[3], 'nothing sellable');
+        $this->assertSame(10, $row[6], 'ten expired units still on the shelf; the returned batch is not');
+
+        $this->actingAs($user)->getJson('/pos/lookup?sku='.$product->sku)
+            ->assertJsonPath('stock', 0)
+            ->assertJsonPath('on_shelf', 10);
     }
 
     /** The same figure lookupBySku() quotes, from the same scope checkout uses. */

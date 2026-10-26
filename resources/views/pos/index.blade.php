@@ -479,6 +479,12 @@
 
 <script>
     let cart = {};
+    // The order products went into the cart (2026-10-26, at the user's request:
+    // "don't be alphabetical"). `cart` is keyed by product id, and JavaScript
+    // lists number-like keys in ASCENDING order, so the cart read in product-id
+    // (roughly alphabetical) order however it was filled. Rendering walks this
+    // instead: the first item added stays first, each new one goes below.
+    let cartOrder = [];
 
     /* Stock refusals go through the app's message modal, not window.alert().
        A browser alert reads as a browser error, blocks the tab, and can only
@@ -516,9 +522,12 @@
                 syncStockBadge(data.id, data.stock);
                 if (cart[data.id]) cart[data.id].maxStock = data.stock;
 
+                const expiredUnits = Math.max(0, (data.on_shelf ?? data.stock) - data.stock);
                 dialog.setDetail(data.stock > 0
                     ? `${data.stock} on hand right now.`
-                    : 'None on hand right now.');
+                    : (expiredUnits > 0
+                        ? `None sellable right now · ${expiredUnits} expired on the shelf.`
+                        : 'None on hand right now.'));
             })
             .catch(() => dialog.setDetail(''));
     }
@@ -542,7 +551,7 @@
     // Why the last addToCart() refused, for the scan status line.
     let lastAddRefusal = '';
 
-    function addToCart(id, name, price, maxStock, sku) {
+    function addToCart(id, name, price, maxStock, sku, onShelf) {
         // A product at PHP 0.00 would ring up free; checkout refuses it too
         // (CheckoutService::unpricedError), this just says so at the scan.
         if (Math.round(Number(price) * 100) <= 0) {
@@ -552,12 +561,22 @@
         }
         lastAddRefusal = 'not enough stock';
         if (maxStock <= 0) {
-            stockMessage('Out of stock', `${name} has no sellable stock.`, sku);
+            // Expired, not empty (2026-10-26): units on the shelf that the till
+            // may not sell are a different problem from an empty shelf -- pull
+            // them, rather than reorder.
+            if (Number(onShelf) > 0) {
+                lastAddRefusal = 'expired stock';
+                stockMessage('Expired stock', `${name} cannot be sold: the ${onShelf} on the shelf are expired. Pull them from the shelf.`, sku);
+            } else {
+                lastAddRefusal = 'out of stock';
+                stockMessage('Out of stock', `${name} has no stock on the shelf.`, sku);
+            }
             return false;
         }
 
         if (!cart[id]) {
             cart[id] = { name, price, qty: 0, maxStock, sku };
+            cartOrder.push(String(id));
         }
         if (cart[id].qty + 1 > maxStock) {
             stockMessage(
@@ -581,6 +600,7 @@
 
     function removeFromCart(id) {
         delete cart[id];
+        cartOrder = cartOrder.filter((k) => k !== String(id));
         clearCartError();
         renderCart();
     }
@@ -655,7 +675,9 @@
         let index = 0;
         let hasItems = false;
 
-        for (const id in cart) {
+        // In the order added, not by product id (see cartOrder).
+        cartOrder = cartOrder.filter((k) => cart[k]);
+        for (const id of cartOrder) {
             hasItems = true;
             const item = cart[id];
             const subtotal = item.price * item.qty;
@@ -1129,6 +1151,7 @@
         }
 
         cart = {};
+        cartOrder = [];
         renderCart();
         fetchProducts(currentProductsUrl, false); // stock just changed
         if (window.REMEDI && REMEDI.scanIndex) REMEDI.scanIndex.reload();
@@ -1421,7 +1444,7 @@
                 // take the fresher figure where the tile is on screen.
                 const badge = document.getElementById('product-stock-' + known.id);
                 const stock = badge ? Number(badge.dataset.trueStock) : known.stock;
-                reportScan(addToCart(known.id, known.name, known.price, stock, code), known.name);
+                reportScan(addToCart(known.id, known.name, known.price, stock, code, known.onShelf), known.name);
                 return;
             }
 
@@ -1434,7 +1457,7 @@
                     if (result.found) {
                         // The till answers out loud: a beep for an item added,
                         // a low double tone for anything else.
-                        reportScan(addToCart(data.id, data.name, data.price, data.stock, code), data.name);
+                        reportScan(addToCart(data.id, data.name, data.price, data.stock, code, data.on_shelf), data.name);
                     } else {
                         if (window.REMEDI && REMEDI.scanBeep) REMEDI.scanBeep(false);
                         barcodeStatus.textContent = '\u274C Product not found for code: ' + code;

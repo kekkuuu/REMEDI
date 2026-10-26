@@ -95,6 +95,9 @@ class PosController extends Controller
             // all expired answered "stock: 10" and the cashier only found out
             // at checkout.
             'stock' => $product->sellable_stock,
+            // Units on the shelf, sellable or not: more than `stock` means the
+            // rest are expired (2026-10-26, for the till's pop-up).
+            'on_shelf' => (int) $product->batches->where('quantity', '>', 0)->whereNull('returned_at')->sum('quantity'),
             'suggested_expiry_date' => $suggestedExpiryDate,
         ]);
     }
@@ -118,6 +121,9 @@ class PosController extends Controller
     {
         $rows = Product::query()
             ->withSum(['batches as sellable_qty' => fn ($q) => $q->sellable()], 'quantity')
+            // Every unit on the shelf, sellable or not (2026-10-26): a scan of a
+            // product whose stock is all expired says so, not "out of stock".
+            ->withSum(['batches as shelf_qty' => fn ($q) => $q->where('quantity', '>', 0)->whereNull('returned_at')], 'quantity')
             ->orderBy('id')
             ->get(['id', 'name', 'selling_price', 'sku', 'barcode'])
             ->map(fn (Product $p) => [
@@ -129,6 +135,7 @@ class PosController extends Controller
                 // Null when there is none or it repeats the SKU, which the seeded
                 // catalogue does for every row -- the browser matches the SKU anyway.
                 $p->barcode !== null && $p->barcode !== '' && $p->barcode !== $p->sku ? (string) $p->barcode : null,
+                (int) $p->shelf_qty,
             ]);
 
         return response()->json(['products' => $rows])
