@@ -963,8 +963,8 @@
 
     <div class="inv-side">
 
-    {{-- Expiry Overview: the same batches the KPI row counts, split across the
-         three horizons the app already works in. A stacked bar rather than a
+    {{-- Expiry Overview: every active PRODUCT once, by its soonest-expiring
+         stock on the shelf (batches until 2026-10-25), plus "No stock". A stacked bar rather than a
          fourth doughnut -- proportions of one whole read better on a bar, and
          the page already has two rings. --}}
     <div class="card" style="margin-top:16px;">
