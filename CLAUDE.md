@@ -3246,7 +3246,9 @@ which are user input. Escape on the way out, never on write — the stored row m
 record. `AuditTrailController::applyFilters()`
 is shared by the table and the CSV export so the two cannot drift; it **validates the filters** (an
 unvalidated bad date resolves to `NULL` in MySQL and fails silently — `date_from` ignored the filter,
-`date_to` matched nothing and exported an empty CSV that still looked valid), the export streams with
+`date_to` matched nothing and exported an empty CSV that still looked valid; a REVERSED pair is swapped since
+2026-10-26 -- it was refused, which the live filter drew as "undefined" / "NaN entries" -- and the JSON carries `range` so
+the date boxes show it; both pickers start at the first entry, 2026-08-16, not any past year), the export streams with
 `lazy()`, and its button carries the current filters. All four of those were bugs. REMEDI.md "Audit trail"
 has the detail, plus a known unfixed CSV formula-injection exposure.
 

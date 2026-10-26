@@ -282,4 +282,24 @@ class AuditTrailFilterTest extends TestCase
 
         $this->assertStringNotContainsString('Showing activity for', $html);
     }
+
+    /** Later date first: the live filter gets rows and the swapped range, not a 422. */
+    public function test_a_reversed_date_range_is_put_in_order(): void
+    {
+        $admin = $this->admin();
+        AuditTrail::log('Updated', 'Something from yesterday');
+        AuditTrail::latest('id')->first()->forceFill(['created_at' => now()->subDay()])->save();
+
+        $from = today()->toDateString();
+        $to = today()->subDays(2)->toDateString();
+
+        $this->actingAs($admin)
+            ->getJson('/audit?date_from='.$from.'&date_to='.$to)
+            ->assertOk()
+            ->assertJsonPath('range', [$to, $from])
+            ->assertJsonPath('total', fn ($n) => $n >= 1);
+
+        // The CSV shares the filter.
+        $this->actingAs($admin)->get('/audit/export?date_from='.$from.'&date_to='.$to)->assertOk();
+    }
 }

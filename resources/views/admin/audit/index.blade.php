@@ -122,17 +122,18 @@
     </select>
 
     {{-- Date range. max=today on both: an audit trail cannot contain the
-         future, so offering it only invites an empty result. --}}
+         future, so offering it only invites an empty result. min=the first
+         entry: nothing was recorded before the app went live. --}}
     <label class="audit-date">
       <span>From</span>
       <input type="date" name="date_from" class="report-select js-audit-filter"
-             value="{{ request('date_from') }}" max="{{ now()->toDateString() }}">
+             value="{{ request('date_from') }}" max="{{ now()->toDateString() }}"@if($firstLogDate) min="{{ $firstLogDate }}"@endif>
     </label>
 
     <label class="audit-date">
       <span>To</span>
       <input type="date" name="date_to" class="report-select js-audit-filter"
-             value="{{ request('date_to') }}" max="{{ now()->toDateString() }}">
+             value="{{ request('date_to') }}" max="{{ now()->toDateString() }}"@if($firstLogDate) min="{{ $firstLogDate }}"@endif>
     </label>
 
     {{-- Presets: the ranges anyone actually asks an audit log for. --}}
@@ -263,18 +264,35 @@
             headers: { 'X-Requested-With': 'XMLHttpRequest', 'Accept': 'application/json' },
             signal: controller.signal,
         })
-            .then(r => r.json())
+            // A refusal (422) has no html: drawing it put "undefined" in the table.
+            .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
             .then(data => {
                 REMEDI.clearListSkeleton(wrapper);
                 wrapper.innerHTML = data.html;
                 restoreScroll();
+
+                // A reversed pair comes back swapped: show the range searched.
+                if (Array.isArray(data.range)) {
+                    const [from, to] = data.range;
+                    if (from && to) {
+                        form.querySelector('[name=date_from]').value = from;
+                        form.querySelector('[name=date_to]').value = to;
+                        url.searchParams.set('date_from', from);
+                        url.searchParams.set('date_to', to);
+                    }
+                }
 
                 if (countEl) {
                     countEl.textContent = Number(data.total).toLocaleString() + ' entries';
                 }
                 if (pushState) window.history.pushState({}, '', url);
             })
-            .catch(err => { if (err.name !== 'AbortError') console.error(err); });
+            .catch(err => {
+                if (err.name === 'AbortError') return;
+                REMEDI.clearListSkeleton(wrapper);
+                restoreScroll();
+                console.error(err);
+            });
     }
 
     search.addEventListener('input', () => {

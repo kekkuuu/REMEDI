@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\AuditTrail;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 
 class AuditTrailController extends Controller
 {
@@ -35,16 +36,25 @@ class AuditTrailController extends Controller
         // available: a well-formed compliance artifact asserting that nothing
         // ever happened.
         //
-        // after_or_equal also rejects a reversed range outright rather than
-        // returning an empty table the user has to work out for themselves.
+        // A reversed range is put in order (2026-10-26), like the sales list,
+        // the stock card and the Inventory expiry window. It used to be refused
+        // with after_or_equal -- and the live filter, which expects {html,
+        // total}, then drew the table as "undefined" and the count as "NaN
+        // entries"; a full page load lost both dates to today's default.
         $request->validate([
             'search' => 'nullable|string|max:255',
             'action' => 'nullable|string|max:50',
             'role' => 'nullable|string|max:20',
             'user_id' => 'nullable|integer',
             'date_from' => 'nullable|date',
-            'date_to' => 'nullable|date|after_or_equal:date_from',
+            'date_to' => 'nullable|date',
         ]);
+
+        if ($request->filled('date_from') && $request->filled('date_to')) {
+            $from = Carbon::parse($request->date_from)->toDateString();
+            $to = Carbon::parse($request->date_to)->toDateString();
+            $request->merge($from > $to ? ['date_from' => $to, 'date_to' => $from] : ['date_from' => $from, 'date_to' => $to]);
+        }
 
         // Exact, not a name LIKE-match against `search` -- a name is
         // free text two different people can share, and `search` also
@@ -139,6 +149,8 @@ class AuditTrailController extends Controller
             return response()->json([
                 'html' => view('admin.audit._rows', compact('logs'))->render(),
                 'total' => $logs->total(),
+                // The range queried, so the date boxes can show a swapped pair.
+                'range' => [$request->input('date_from'), $request->input('date_to')],
             ]);
         }
 
@@ -152,7 +164,12 @@ class AuditTrailController extends Controller
         // a link that filters to them must still be able to name who.
         $filteredUser = $request->filled('user_id') ? User::withTrashed()->find($request->user_id) : null;
 
-        return view('admin.audit.index', compact('logs', 'loginCount', 'logoutCount', 'viewCount', 'filteredUser'));
+        // The first day the trail holds anything (2026-10-26): the pickers
+        // stop there, as Sales History's start at its first sale. The trail
+        // begins when the app went live, long after the imported sales record.
+        $firstLogDate = ($first = AuditTrail::min('created_at')) ? Carbon::parse($first)->toDateString() : null;
+
+        return view('admin.audit.index', compact('logs', 'loginCount', 'logoutCount', 'viewCount', 'filteredUser', 'firstLogDate'));
     }
 
     public function export(Request $request)
