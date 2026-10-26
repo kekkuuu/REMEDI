@@ -258,6 +258,10 @@ class ProductController extends Controller
             'filterType' => $request->get('type'),
             'startDate' => $startDate,
             'endDate' => $endDate,
+            // The pickers start at this product's first movement (2026-10-26):
+            // the ledger is forward-only, so earlier days can only be empty.
+            'firstMovementDate' => ($first = $product->stockMovements()->min('created_at'))
+                ? Carbon::parse($first)->toDateString() : null,
         ]);
     }
 

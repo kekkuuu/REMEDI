@@ -51,11 +51,11 @@
         </div>
         <div class="report-field">
             <label for="start_date">From</label>
-            <input type="date" name="start_date" id="start_date" class="report-select" value="{{ $startDate }}" max="{{ now()->toDateString() }}">
+            <input type="date" name="start_date" id="start_date" class="report-select" value="{{ $startDate }}" max="{{ now()->toDateString() }}"@if($firstMovementDate) min="{{ $firstMovementDate }}"@endif>
         </div>
         <div class="report-field">
             <label for="end_date">To</label>
-            <input type="date" name="end_date" id="end_date" class="report-select" value="{{ $endDate }}" max="{{ now()->toDateString() }}">
+            <input type="date" name="end_date" id="end_date" class="report-select" value="{{ $endDate }}" max="{{ now()->toDateString() }}"@if($firstMovementDate) min="{{ $firstMovementDate }}"@endif>
         </div>
         <div class="report-field" style="align-self:flex-end;">
             <button type="submit" class="btn btn-primary">Filter</button>
