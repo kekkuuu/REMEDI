@@ -19,7 +19,11 @@
     // only: the models still learn from the record alone while
     // config('forecast.include_pos') is off. A month the till did not run in
     // (July 2026) stays a gap.
-    $tillAfterRecord = config('forecast.include_pos') ? collect()
+    // Their VALUES stay (in the tooltip); the LINE and dots are not
+    // drawn (2026-10-26, at the user's request: "hide the line, not the value")
+    // -- see actualLineToRecordEnd() in the script below.
+    $showTillOnActual = true;
+    $tillAfterRecord = (! $showTillOnActual || config('forecast.include_pos')) ? collect()
         : \App\Models\SalesHistory::posMonthly()
             // Complete months only: the month in progress would read as a fall.
             ->filter(fn ($v, $ym) => $ym > $trend['lastActualMonth'] && $ym < now()->format('Y-m'));
@@ -501,6 +505,18 @@
    repeats the actual, so the tooltip shows the actual alone there -- and only
    there. Same rule as the product page (forecast/show). */
 const trendJoin = @json($months).indexOf(@json($trend['lastActualMonth']));
+
+/* The Actual LINE stops where the sales record ends (2026-10-26, at the user's
+   request: "hide the line, not the value", then "and also the dots"): the
+   till's months after it have no line and no dot, only their tooltip value. */
+const trendMonths = @json($months);
+const recordEnd = @json($trend['lastActualMonth']);
+const actualLineToRecordEnd = {
+    segment: { borderColor: (ctx) => (recordEnd && trendMonths[ctx.p1DataIndex] > recordEnd ? 'transparent' : undefined) },
+    // No dot either ("and also the dots"): the value is in the tooltip.
+    pointRadius: (ctx) => (recordEnd && trendMonths[ctx.dataIndex] > recordEnd ? 0 : 2),
+    pointHoverRadius: (ctx) => (recordEnd && trendMonths[ctx.dataIndex] > recordEnd ? 0 : 4),
+};
 function trendTooltip(fmt) {
     return {
         filter: (item) => item.dataset.label === 'Actual'
@@ -543,7 +559,7 @@ new Chart(document.getElementById('unitsTrendChart'), {
                 borderColor: '#0f6e56',
                 backgroundColor: 'transparent',
                 borderWidth: 2,
-                pointRadius: 2,
+                ...actualLineToRecordEnd,
                 tension: 0.25,
                 spanGaps: false,
             },
@@ -609,7 +625,7 @@ new Chart(document.getElementById('revenueTrendChart'), {
                 borderColor: '#534ab7',
                 backgroundColor: 'transparent',
                 borderWidth: 2,
-                pointRadius: 2,
+                ...actualLineToRecordEnd,
                 tension: 0.25,
                 spanGaps: false,
             },

@@ -2317,7 +2317,14 @@ join-month rule (the forecast hidden only where it repeats the actual), the till
 "month already passed" tag in the product table. **Logic pass, 2026-10-26:** the tooltip hid the forecast wherever it
 EQUALLED the actual (a forecast of 0 against a till month of 0 vanished) -- it now hides it at the join INDEX only; the
 till's months on the Actual line stop before the month in progress (complete months only, like the record); and the
-current month is tagged "this month", not "already passed".
+current month is tagged "this month", not "already passed". **Only the LINE through the till's months is hidden
+(2026-10-26, at the user's request: "hide the line of the actual... only the line, not the value")**: the Actual line
+ends with the record (June 2026) and the till's months after it show their value in the tooltip only -- no line,
+and no dots either ("and also the dots") (`actualLineToRecordEnd`: a transparent segment and point radius 0 past the
+record's last month). **And the product
+page's legend toggles each series whole (same day)**: "Forecast" hides / shows the forecast line together with its
+80% band ("Lower bound" + "Confidence band", kept out of the legend) and the shaded "ahead" region
+(`forecastLegendClick`); "Actual" the actual line. The default toggled the dashed line alone and left the band.
 
 **`App\Support\ForecastHorizon` is the one definition of when a forecast becomes actionable.** The
 boundary used to exist three times over: `scopeNextMonthOnly()` on both forecast models (dead code,

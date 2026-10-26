@@ -39,7 +39,11 @@
     // Display only -- the model still learns from the record alone while
     // config('forecast.include_pos') is off. Revenue at the current price,
     // like every other revenue figure here.
-    $tillMonths = config('forecast.include_pos') ? collect()
+    // Their VALUES stay (in the tooltip); the LINE and dots are not
+    // drawn (2026-10-26, at the user's request: "hide the line, not the value")
+    // -- see actualLineToRecordEnd() in the script below.
+    $showTillOnActual = true;
+    $tillMonths = (! $showTillOnActual || config('forecast.include_pos')) ? collect()
         : \App\Models\SalesHistory::posMonthly()->keys()
             // Complete months only, like the record: the month in progress
             // would read as a fall.
@@ -352,6 +356,9 @@ const forecastRegionPlugin = {
     beforeDatasetsDraw(chart, args, opts) {
         const firstIndex = opts && opts.firstForecastIndex;
         if (firstIndex === null || firstIndex === undefined || firstIndex < 0) return;
+        // Hidden with the forecast it marks (legend click, below).
+        const fi = chart.data.datasets.findIndex((d) => d.label === 'Forecast');
+        if (fi >= 0 && !chart.isDatasetVisible(fi)) return;
 
         const x = chart.scales.x;
         const area = chart.chartArea;
@@ -428,6 +435,38 @@ function dashFromNextMonth(labels) {
     return (ctx) => (first >= 0 && ctx.p1DataIndex >= first ? [5, 4] : []);
 }
 
+/* Clicking a legend item (2026-10-26, at the user's request: "fix it to its
+   designated function"). "Actual" hides / shows the actual line; "Forecast"
+   hides / shows the forecast line TOGETHER with its 80% band (the "Lower bound"
+   and "Confidence band" datasets, kept out of the legend) and the shaded
+   "ahead" region -- the default toggled the dashed line alone and left the band
+   floating with nothing to belong to. Hidden items show struck through. */
+const FORECAST_PARTS = ['Forecast', 'Lower bound', 'Confidence band'];
+
+/* The Actual LINE stops where the sales record ends (2026-10-26, at the user's
+   request: "hide the line, not the value", then "and also the dots"). Months
+   after it carry the till's own sales: no line and no dot, only their value in
+   the tooltip, so the far smaller till does not read as a collapse. */
+const recordEnd = @json($lastActualMonth);
+function actualLineToRecordEnd(labels) {
+    const after = (i) => recordEnd && labels[i] > recordEnd;
+    return {
+        segment: { borderColor: (ctx) => (after(ctx.p1DataIndex) ? 'transparent' : undefined) },
+        // No dot either ("and also the dots"): the value is in the tooltip.
+        pointRadius: (ctx) => (after(ctx.dataIndex) ? 0 : 2),
+        pointHoverRadius: (ctx) => (after(ctx.dataIndex) ? 0 : 4),
+    };
+}
+function forecastLegendClick(e, item, legend) {
+    const chart = legend.chart;
+    const parts = item.text === 'Forecast' ? FORECAST_PARTS : [item.text];
+    const show = !chart.isDatasetVisible(item.datasetIndex);
+    chart.data.datasets.forEach((d, i) => {
+        if (parts.includes(d.label)) chart.setDatasetVisibility(i, show);
+    });
+    chart.update();
+}
+
 /* Tooltips read plain "Actual" / "Forecast" (2026-10-25, at the user's
    request). At the JOIN month the forecast only repeats the actual, so the
    tooltip shows the actual alone there -- and only there: a forecast that
@@ -472,7 +511,7 @@ new Chart(document.getElementById('productForecastChart'), {
                 borderColor: '#4f46e5',
                 backgroundColor: 'transparent',
                 borderWidth: 2,
-                pointRadius: 2,
+                ...actualLineToRecordEnd(L),
                 tension: 0.25,
                 spanGaps: false,
             },
@@ -498,6 +537,7 @@ new Chart(document.getElementById('productForecastChart'), {
             forecastRegion: { firstForecastIndex },
             legend: {
                 display: true,
+                onClick: forecastLegendClick,
                 labels: {
                     filter: (item) => item.text === 'Actual' || item.text === 'Forecast',
                 },
@@ -554,7 +594,7 @@ new Chart(document.getElementById('productSalesForecastChart'), {
                 borderColor: '#0f6e56',
                 backgroundColor: 'transparent',
                 borderWidth: 2,
-                pointRadius: 2,
+                ...actualLineToRecordEnd(@json($sfMonths)),
                 tension: 0.25,
                 spanGaps: false,
             },
@@ -578,6 +618,7 @@ new Chart(document.getElementById('productSalesForecastChart'), {
         plugins: {
             legend: {
                 display: true,
+                onClick: forecastLegendClick,
                 labels: { filter: (item) => item.text === 'Actual' || item.text === 'Forecast' },
             },
             tooltip: {
