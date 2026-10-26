@@ -278,4 +278,22 @@ class StockMovementTest extends TestCase
         $response->assertOk();
         $response->assertDontSee('Count correction');
     }
+
+    /** Picking the later date first is a slip, not a request for nothing. */
+    public function test_a_reversed_stock_card_range_is_put_in_order(): void
+    {
+        $product = $this->product();
+        $batch = $this->batch($product, 30, now()->addYear()->toDateString());
+        StockMovement::record($batch, StockMovement::TYPE_ADJUSTMENT, -5, 'Count correction', null, $this->admin()->id);
+
+        $this->actingAs($this->admin())
+            ->get(route('products.stock-card', [
+                'product' => $product,
+                'start_date' => today()->addDay()->toDateString(),
+                'end_date' => today()->subDay()->toDateString(),
+            ]))
+            ->assertOk()
+            ->assertSee('Count correction')
+            ->assertSee('value="'.today()->subDay()->toDateString().'"', false);
+    }
 }

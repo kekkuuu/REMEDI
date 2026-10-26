@@ -222,12 +222,22 @@ class ProductController extends Controller
             ->orderByDesc('created_at')
             ->orderByDesc('id');
 
-        if ($request->filled('start_date')) {
-            $query->whereDate('created_at', '>=', $request->get('start_date'));
+        // Normalised and put the right way round (2026-10-26): a reversed pair
+        // -- the later date picked first -- listed nothing for a period that had
+        // movements, the fault the sales list was fixed for. The page echoes
+        // the range actually queried.
+        $startDate = $request->filled('start_date') ? Carbon::parse($request->get('start_date'))->toDateString() : null;
+        $endDate = $request->filled('end_date') ? Carbon::parse($request->get('end_date'))->toDateString() : null;
+        if ($startDate && $endDate && $startDate > $endDate) {
+            [$startDate, $endDate] = [$endDate, $startDate];
         }
 
-        if ($request->filled('end_date')) {
-            $query->whereDate('created_at', '<=', $request->get('end_date'));
+        if ($startDate) {
+            $query->whereDate('created_at', '>=', $startDate);
+        }
+
+        if ($endDate) {
+            $query->whereDate('created_at', '<=', $endDate);
         }
 
         if ($request->filled('type')) {
@@ -236,12 +246,8 @@ class ProductController extends Controller
 
         $movements = $query->paginate(50)->withQueryString();
 
-        // The beginning balance for whatever's currently displayed: the
-        // product's total on-hand stock RIGHT NOW, minus every movement newer
-        // than what's on screen (movements are newest-first, so that is
-        // everything before the current page). Simpler than deriving a
-        // per-batch opening balance, and correct because every stock change
-        // ever made to this product's batches goes through StockMovement::record.
+        // On hand right now, across the product's active batches (the KPI);
+        // each row carries its own batch's balance_after.
         $currentTotal = (int) $product->batches()->sum('quantity');
 
         return view('products.stock-card', [
@@ -250,8 +256,8 @@ class ProductController extends Controller
             'currentTotal' => $currentTotal,
             'types' => StockMovement::TYPES,
             'filterType' => $request->get('type'),
-            'startDate' => $request->get('start_date'),
-            'endDate' => $request->get('end_date'),
+            'startDate' => $startDate,
+            'endDate' => $endDate,
         ]);
     }
 

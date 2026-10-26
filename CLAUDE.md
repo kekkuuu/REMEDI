@@ -1415,7 +1415,7 @@ ledger cannot drift from what the batch itself reports. A manual quantity edit t
 now **requires a `reason`** — enforced only when quantity is actually changing, via
 `Rule::requiredIf()`, so a bare expiry correction or filling in cost/DR/supplier needs none. Per
 product at `/products/{id}/stock-card` (`ProductController::stockCard`), newest first, filterable by
-type and date range — this is what answers "500 units sold but never recorded in POS": read the
+type and date range (a reversed pair put in order since 2026-10-26; it listed nothing) — this is what answers "500 units sold but never recorded in POS": read the
 ledger for the period in question rather than piecing it together from batches, sale_items and the
 audit trail separately. **The ledger is forward-only** — it started recording 2026-09-22, so a product
 with stock and no rows on its card simply predates the feature; nothing was retrofitted.
