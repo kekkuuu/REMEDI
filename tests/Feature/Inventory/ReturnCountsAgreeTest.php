@@ -95,4 +95,34 @@ class ReturnCountsAgreeTest extends TestCase
         $this->assertCount(2, $this->listed($admin, 'filter=fail_to_return&medicine=banana'));
         $this->actingAs($admin)->getJson('/inventory?filter=fail_to_return&medicine[]=1')->assertOk();
     }
+
+    /**
+     * Two batches of one product in the same state count ONCE (2026-10-26): the
+     * bell's totals link to lists of products, and counted batches.
+     */
+    public function test_two_batches_of_one_product_count_once_and_match_their_lists(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $chips = $this->product('Potato Chips 60g', 'Snacks & Confectionery', -5);   // expired
+        ProductBatch::create([
+            'batch_number' => 'B'.uniqid(), 'product_id' => $chips->id, 'quantity' => 7, 'qty_received' => 7,
+            'unit_cost' => 1, 'expiry_date' => now()->subDays(2)->toDateString(),
+            'received_date' => now()->subDays(400)->toDateString(),
+        ]);                                                                             // a second expired batch
+        $tea = $this->product('Iced Tea 500ml', 'Water & Beverages', 10);               // expiring
+        ProductBatch::create([
+            'batch_number' => 'B'.uniqid(), 'product_id' => $tea->id, 'quantity' => 4, 'qty_received' => 4,
+            'unit_cost' => 1, 'expiry_date' => now()->addDays(20)->toDateString(),
+            'received_date' => now()->subDays(30)->toDateString(),
+        ]);                                                                             // a second expiring batch
+
+        \Illuminate\Support\Facades\Cache::flush();
+        $alerts = collect(app(AlertService::class)->payload()['alerts'])->pluck('count', 'kind');
+
+        $this->assertSame(1, $alerts['expired']);
+        $this->assertSame(count($this->listed($admin, 'filter=expired')), $alerts['expired']);
+        $this->assertSame(1, $alerts['expiring']);
+        $this->assertSame(count($this->listed($admin, 'filter=expiring&days=30')), $alerts['expiring']);
+        $this->assertSame(count($this->listed($admin, 'filter=fail_to_return')), $alerts['fail_to_return']);
+    }
 }

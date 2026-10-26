@@ -615,7 +615,9 @@
      The four stock tiles link straight to the Inventory filter that lists
      exactly what they're counting. --}}
 @php
-    $expiringCount = $expiringSoonBatches->count();
+    // PRODUCTS (2026-10-26): the tiles and the Alerts panel link to lists of
+    // products, so they count products; the panels below list batches.
+    $expiringCount = $expiringProducts ?? $expiringSoonBatches->count();
     $lowStockCount = $lowStockProducts->count();
     // No longer read by a KPI tile here (see the ATV/ATC tiles below), but
     // still needed: admin._dashboard-actions' Alerts panel reads both to
@@ -623,8 +625,9 @@
     //
     // Use PHP comment syntax here. This is inside an @php block, so the body is
     // raw PHP and a Blade comment would be a parse error, not a comment.
-    $expiredCount = $expiredBatches->count();
+    $expiredCount = $expiredProducts ?? $expiredBatches->count();
     $needReturnCount = $returnableCount;
+    $missedCount = $missedProducts ?? 0;
 @endphp
 {{-- Greeting bar. The date pill is rendered server-side and then kept live by
      a small clock script below, so it never sits at the page-load time. --}}
@@ -712,7 +715,7 @@
             <span class="kpi-label">Expiring Soon</span>
         </div>
         <span class="kpi-value">{{ number_format($expiringCount) }}</span>
-        <span class="kpi-sub">batches within 30 days</span>
+        <span class="kpi-sub">products within 30 days</span>
     </a>
 
     {{-- ATV — today's takings ÷ today's transactions. Same "today" scope and

@@ -196,6 +196,7 @@ class DashboardController extends Controller
         // although none of it moves until stock does. See stockSnapshot().
         $stock = self::stockSnapshot();
         ['returnableCount' => $returnableCount, 'returnStats' => $returnStats,
+            'expiringProducts' => $expiringProducts, 'expiredProducts' => $expiredProducts, 'missedProducts' => $missedProducts,
             'nonPharmaReturnStats' => $nonPharmaReturnStats, 'expiryOverview' => $expiryOverview,
             'totalProducts' => $totalProducts] = $stock['scalars'];
         $lowStockProducts = collect($stock['lowStockIds']);
@@ -287,7 +288,7 @@ class DashboardController extends Controller
 
         $data['expiryOverview'] = $expiryOverview;
 
-        $data += compact('returnableCount', 'todaySales', 'todayTransactions', 'myTodaySales', 'myTodayTransactions', 'lowStockProducts', 'lowestStockChart', 'expiringSoonBatches', 'expiredBatches', 'returnStats', 'needToReturnBatches', 'nonPharmaReturnStats', 'nonPharmaNeedToReturnBatches', 'categoryBreakdown');
+        $data += compact('returnableCount', 'expiringProducts', 'expiredProducts', 'missedProducts', 'todaySales', 'todayTransactions', 'myTodaySales', 'myTodayTransactions', 'lowStockProducts', 'lowestStockChart', 'expiringSoonBatches', 'expiredBatches', 'returnStats', 'needToReturnBatches', 'nonPharmaReturnStats', 'nonPharmaNeedToReturnBatches', 'categoryBreakdown');
 
         // The full sales/inventory dashboard (monthly sales chart, high/low
         // demand, lowest stock vs. reorder level, expiring soon) is shared
@@ -547,7 +548,12 @@ class DashboardController extends Controller
         // is_returned / needs_return / failed_return resolves the same
         // return_status underneath, so filtering three times did the work
         // three times over.
-        $statusTally = $medicineBatches->countBy(fn ($b) => $b->return_status ?? 'not_due');
+        //
+        // PRODUCTS per status, not batches (2026-10-26, at the user's request):
+        // each figure links to an Inventory list of products, so two batches of
+        // one product in the same state must count once.
+        $statusTally = $medicineBatches->groupBy(fn ($b) => $b->return_status ?? 'not_due')
+            ->map(fn ($group) => $group->unique('product_id')->count());
 
         $returnStats = [
             'returned' => $statusTally->get('Successfully Returned', 0),
@@ -568,7 +574,7 @@ class DashboardController extends Controller
         //
         // $returnStats stays as it is — the Medicine Returns card is a
         // deliberate per-category breakdown and wants the narrow figure.
-        $returnableCount = $onShelf->filter(fn ($b) => $b->is_returnable)->count();
+        $returnableCount = $onShelf->filter(fn ($b) => $b->is_returnable)->unique('product_id')->count();
 
         // Specific batches currently inside the return window, soonest-expiring
         // first, so admins know exactly which ones to pull — same idea as the
@@ -609,9 +615,9 @@ class DashboardController extends Controller
         // cards reported nothing. The same batch was also still being counted
         // as "Expired" by this card, so one ring double-counted it.
         $nonPharmaReturnStats = [
-            'returned' => $nonPharmaBatches->filter(fn ($b) => $b->returned_at)->count(),
-            'expired' => $nonPharmaBatches->filter(fn ($b) => ! $b->returned_at && $b->is_expired)->count(),
-            'need_to_return' => $nonPharmaBatches->filter($insideNonPharmaWindow)->count(),
+            'returned' => $nonPharmaBatches->filter(fn ($b) => $b->returned_at)->unique('product_id')->count(),
+            'expired' => $nonPharmaBatches->filter(fn ($b) => ! $b->returned_at && $b->is_expired)->unique('product_id')->count(),
+            'need_to_return' => $nonPharmaBatches->filter($insideNonPharmaWindow)->unique('product_id')->count(),
         ];
 
         // "N batches inside the return window" under the ring — so it must
@@ -687,6 +693,13 @@ class DashboardController extends Controller
         return [
             'scalars' => [
                 'returnableCount' => $returnableCount,
+                // PRODUCTS, like every list these totals link to (2026-10-26):
+                // the KPI tiles and the Alerts panel read these, not the batch
+                // lists' lengths. "Missed" is every category, the bell's and the
+                // Fail to Return tab's rule (ProductBatch::missed_return).
+                'expiringProducts' => $expiringSoonBatches->unique('product_id')->count(),
+                'expiredProducts' => $expiredBatches->unique('product_id')->count(),
+                'missedProducts' => $onShelf->filter(fn ($b) => $b->missed_return)->unique('product_id')->count(),
                 'returnStats' => $returnStats,
                 'nonPharmaReturnStats' => $nonPharmaReturnStats,
                 'expiryOverview' => $expiryOverview,

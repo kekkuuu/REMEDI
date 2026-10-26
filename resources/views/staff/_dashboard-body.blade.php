@@ -406,8 +406,9 @@
      tiles link to the matching Inventory filter. --}}
 @php
     $sLow = $lowStockProducts->count();
-    $sExpiring = $expiringSoonBatches->count();
-    $sExpired = $expiredBatches->count();
+    // PRODUCTS (2026-10-26), like the lists the tiles link to.
+    $sExpiring = $expiringProducts ?? $expiringSoonBatches->count();
+    $sExpired = $expiredProducts ?? $expiredBatches->count();
 @endphp
 {{-- Both tiles open the page behind their number, using only routes staff can
      reach: the Sales list (scoped by SaleController to this cashier's own
@@ -488,10 +489,10 @@
          'title' => 'Low stock alert', 'body' => $sLow.' products are at or below reorder level',
          'href' => route('inventory.index', ['filter' => 'low_stock'])],
         ['show' => $sExpiring > 0, 'cls' => 'is-expiring', 'icon' => 'ti-clock-exclamation', 'kind' => 'expiring',
-         'title' => 'Expiring soon', 'body' => $sExpiring.' batches will expire within 30 days',
+         'title' => 'Expiring soon', 'body' => $sExpiring.' '.Str::plural('product', $sExpiring).' with stock expiring within 30 days',
          'href' => \App\Models\ProductBatch::expiringSoonUrl()],
         ['show' => $sExpired > 0, 'cls' => 'is-expired', 'icon' => 'ti-alert-octagon', 'kind' => 'expired',
-         'title' => 'Expired stock', 'body' => $sExpired.' expired batches are still in stock',
+         'title' => 'Expired stock', 'body' => $sExpired.' '.Str::plural('product', $sExpired).' with expired stock on the shelf',
          'href' => route('inventory.index', ['filter' => 'expired'])],
     ])->where('show', true)->values();
 @endphp

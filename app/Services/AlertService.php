@@ -119,13 +119,17 @@ class AlertService
             $dueBatches = $batches->filter(fn ($b) => $b->is_returnable)
                 ->sortBy('return_days')->values();
 
-            $expiring = $expiringBatches->count();
-            $expired = $expiredBatches->count();
-            $due = $dueBatches->count();
+            // PRODUCTS, not batches (2026-10-26, at the user's request): each
+            // total links to an Inventory list of products, so two batches of
+            // one product in the same state must count once there too. The
+            // item rows below stay per batch.
+            $expiring = $expiringBatches->unique('product_id')->count();
+            $expired = $expiredBatches->unique('product_id')->count();
+            $due = $dueBatches->unique('product_id')->count();
             // The Inventory "Fail to Return" tab's rule, which this alert links
             // to (ProductBatch::missed_return): medicine past its window, and
             // any other stock expired on the shelf. It counted medicine only.
-            $missed = $batches->filter(fn ($b) => $b->missed_return)->count();
+            $missed = $batches->filter(fn ($b) => $b->missed_return)->unique('product_id')->count();
 
             $lowProducts = Product::with('batches')->get()
                 // Same rule the Inventory low-stock tab filters on. This
@@ -159,7 +163,7 @@ class AlertService
                     'icon' => 'ti-clock-exclamation',
                     'title' => 'Expiring soon',
                     'short' => 'expiring soon',
-                    'body' => $expiring.' '.str('batch')->plural($expiring).' expire within 30 days',
+                    'body' => $expiring.' '.str('product')->plural($expiring).' with stock expiring within 30 days',
                     'filter' => 'expiring',
                 ],
                 [
@@ -169,7 +173,7 @@ class AlertService
                     'icon' => 'ti-alert-octagon',
                     'title' => 'Expired stock',
                     'short' => 'expired',
-                    'body' => $expired.' expired '.str('batch')->plural($expired).' still in stock',
+                    'body' => $expired.' '.str('product')->plural($expired).' with expired stock on the shelf',
                     'filter' => 'expired',
                 ],
                 [
@@ -179,7 +183,7 @@ class AlertService
                     'icon' => 'ti-package-export',
                     'title' => 'Return window open',
                     'short' => 'returnable',
-                    'body' => $due.' '.str('batch')->plural($due).' can still go back to the supplier',
+                    'body' => $due.' '.str('product')->plural($due).' with stock that can still go back to the supplier',
                     'filter' => 'need_to_return',
                 ],
                 [
@@ -189,7 +193,7 @@ class AlertService
                     'icon' => 'ti-calendar-x',
                     'title' => 'Return window missed',
                     'short' => 'missed returns',
-                    'body' => $missed.' '.str('batch')->plural($missed).' missed the return window',
+                    'body' => $missed.' '.str('product')->plural($missed).' with stock past the return window',
                     'filter' => 'fail_to_return',
                 ],
             ])
@@ -797,6 +801,8 @@ class AlertService
         // the OLD shape -- by the pre-deploy code, or another deployment on the
         // same database -- answered the live dashboard with a 500 ("Undefined
         // array key none"). Bump this whenever the snapshot's shape changes.
-        return 'dashboard_stock_v2:'.today()->toDateString();
+        // v3 (2026-10-26): product counts (expiringProducts, expiredProducts,
+        // missedProducts) added; the return tallies count products.
+        return 'dashboard_stock_v3:'.today()->toDateString();
     }
 }
