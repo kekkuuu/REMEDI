@@ -455,7 +455,7 @@ a surface that needs the same answer, call it rather than re-deriving it.
   `?filter[]=x` on Inventory, `?category_id[]=x` on the Inventory report, and `email[]=x` on
   Forgot Password (guest-facing), Add User and Edit User. Read request input through
   `Controller::searchParam()` / `normalisedEmail()` rather than casting it, and **never `(string)` a
-  request value** — on an array that is "Array to string conversion". `Feature\SearchInputTest` sends
+  request value** — on an array that is "Array to string conversion". **Nor `(int)` one either** (2026-10-27): `(int)` of an array is 1, so `?category_id[]=x` on Inventory and `?category[]=x` on Forecasting silently showed category 1; both read `is_numeric()` first now (`InventoryMonitoringFilterTest`). `Feature\SearchInputTest` sends
   an array for every filter parameter on every list page; add a page to it when you add one.
 - **Second pass (a fuzz of every route × admin/staff/guest × arrays, garbage, huge, negative and
   impossible dates) found four more 500s, now fixed:** the profile email (`lowercase` runs even after

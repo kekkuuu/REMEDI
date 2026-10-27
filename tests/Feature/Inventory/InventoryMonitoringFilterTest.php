@@ -62,6 +62,20 @@ class InventoryMonitoringFilterTest extends TestCase
         return $this->actingAs(User::factory()->admin()->create())->get(route('inventory.index', $query));
     }
 
+    /** `?category_id[]=x` is junk, not "category 1": (int) of an array is 1. */
+    public function test_a_non_numeric_category_filters_nothing(): void
+    {
+        $first = $this->product('In The First Category');
+        $this->batch($first, 10, '2027-06-01');
+        $other = $this->product('In Another Category');
+        $other->update(['category_id' => Category::create(['name' => 'Snacks & Confectionery'])->id]);
+        $this->batch($other, 10, '2027-06-01');
+
+        $this->inventory(['category_id' => ['x']])->assertOk()
+            ->assertSee('id="product-row-'.$first->id.'"', false)
+            ->assertSee('id="product-row-'.$other->id.'"', false);
+    }
+
     public function test_out_of_stock_lists_only_empty_shelves(): void
     {
         $empty = $this->product('Empty Shelf');

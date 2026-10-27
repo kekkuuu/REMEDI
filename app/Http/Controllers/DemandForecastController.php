@@ -28,7 +28,8 @@ class DemandForecastController extends Controller
         // searchParam(): `?search[]=x` is an array, and allProductsSummary() is
         // typed ?string -- an uncaught TypeError, a 500.
         $search = $this->searchParam($request);
-        $categoryId = $request->query('category') ? (int) $request->query('category') : null;
+        // is_numeric: (int) of `?category[]=x` is 1, a silent filter on category 1.
+        $categoryId = is_numeric($request->query('category')) ? (int) $request->query('category') : null;
 
         $forecasts = $this->forecasts->allProductsSummary($search, $categoryId);
 

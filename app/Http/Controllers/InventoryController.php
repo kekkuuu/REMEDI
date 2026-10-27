@@ -42,7 +42,9 @@ class InventoryController extends Controller
         // PHP afterwards like the status filters below have to be, since
         // this one maps directly to a column). This is what powers the
         // category sub-buttons under "Inventory" in the sidebar.
-        $categoryId = $request->filled('category_id') ? (int) $request->get('category_id') : null;
+        // is_numeric, not filled(): (int) of `?category_id[]=x` is 1, which silently
+        // showed category 1 instead of ignoring the junk (logic pass, 2026-10-27).
+        $categoryId = is_numeric($request->get('category_id')) ? (int) $request->get('category_id') : null;
 
         if ($categoryId) {
             $query->where('category_id', $categoryId);
