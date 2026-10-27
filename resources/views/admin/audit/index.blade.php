@@ -82,8 +82,9 @@
 
        Live: every control refreshes the table over fetch — the search box on a
        debounced keystroke, the selects and dates on change. The <form> stays a
-       real GET form so the page still works without JS, and the Filter button
-       is that fallback's submit. --}}
+       real GET form so the page still works without JS; its Filter button shows
+       only then (<noscript>), since every control applies itself (2026-10-27, at
+       the user's request: "remove the filter button... since it is realtime"). --}}
   <form method="GET" action="{{ route('audit.index') }}" id="audit-filters" class="audit-filters">
     {{-- Round-trips the one-account scope through every live refresh below,
          the same way the "all" flag round-trips the Show All state — without
@@ -150,7 +151,7 @@
     </span>
     <input type="hidden" name="all" id="audit-all-flag" value="{{ request()->boolean('all') ? '1' : '' }}">
 
-    <button type="submit" class="btn btn-primary btn-sm"><i class="ti ti-filter" aria-hidden="true"></i> Filter</button>
+    <noscript><button type="submit" class="btn btn-primary btn-sm"><i class="ti ti-filter" aria-hidden="true"></i> Filter</button></noscript>
     <a href="{{ route('audit.index') }}" class="btn btn-secondary btn-sm"><i class="ti ti-rotate" aria-hidden="true"></i> Reset</a>
 
     <span class="audit-count" id="audit-count" aria-live="polite">{{ number_format($logs->total()) }} entries</span>
