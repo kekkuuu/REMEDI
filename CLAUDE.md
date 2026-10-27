@@ -2309,7 +2309,15 @@ dashed line with no band. This overrides the "band pinches at `$joinMonth`" rule
 only — the forecast LINE still joins the actual at `$joinMonth`. **And the forecast line is dashed only
 from the next month on** (`dashFromNextMonth()`, Chart.js `segment.borderDash`): forecast months already
 over or in progress draw solid like the actual line; the dataset keeps `borderDash` so the legend still
-shows the forecast as dashed.
+shows the forecast as dashed. **The Forecasting page's two store-wide trend charts follow the same rule
+(2026-10-27, at the user's request: "why does the past months had a dash line")** -- `trendDash`, keyed on
+`ForecastHorizon::firstActionableMonthKey()`; they had dashed every forecast month. Their 80% band too ("and the
+shade area", same day): `trendBand()` pinches it on the forecast one month before the next month, as
+`bandFromNextMonth()` does on the product page. **And an Actual with a forecast beside it is no longer shown at all
+(2026-10-27, at the user's request: "hide all the actual value if it has a pair of forecasted")**: in all four tooltips
+(both trend charts, both product charts) a month carrying a forecast shows the Forecast alone, so the till's Aug–Oct
+actuals are no longer displayed; the join month (June) keeps its Actual, since the forecast there only repeats it.
+The till values still ride in the Actual dataset, so dropping that one filter brings them back.
 
 **The detail page's "Recommended reorder qty" covers the rest of THIS month too (2026-10-25, at the user's request).**
 It was next month's forecast + reorder level − sellable stock, so on the 25th it read "covered" for stock that runs out

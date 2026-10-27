@@ -478,8 +478,17 @@ function forecastLegendClick(e, item, legend) {
 function forecastTooltip(labels, joinKey, fmt) {
     const join = labels.indexOf(joinKey);
     return {
-        filter: (item) => item.dataset.label === 'Actual'
-            || (item.dataset.label === 'Forecast' && item.dataIndex !== join),
+        // An Actual with a forecast beside it is hidden (2026-10-27, at the user's
+        // request: "hide all the actual value if it has a pair of forecasted"):
+        // the till's months after the record show the forecast alone. The join
+        // month keeps its Actual -- the forecast there only repeats it.
+        filter: (item, i, items, data) => {
+            if (item.dataset.label === 'Forecast') return item.dataIndex !== join;
+            if (item.dataset.label !== 'Actual') return false;
+            const f = data.datasets.find((d) => d.label === 'Forecast');
+            const paired = f && f.data[item.dataIndex] !== null && f.data[item.dataIndex] !== undefined;
+            return !paired || item.dataIndex === join;
+        },
         label: (item) => item.dataset.label + ': ' + fmt(item.parsed.y),
     };
 }

@@ -528,14 +528,43 @@ const actualLineToRecordEnd = {
 };
 function trendTooltip(fmt) {
     return {
-        filter: (item) => item.dataset.label === 'Actual'
-            || (item.dataset.label === 'Forecast' && item.dataIndex !== trendJoin),
+        // An Actual with a forecast beside it is hidden (2026-10-27, at the user's
+        // request: "hide all the actual value if it has a pair of forecasted"):
+        // the till's months after the record show the forecast alone. The join
+        // month keeps its Actual -- the forecast there only repeats it.
+        filter: (item, i, items, data) => {
+            if (item.dataset.label === 'Forecast') return item.dataIndex !== trendJoin;
+            if (item.dataset.label !== 'Actual') return false;
+            const f = data.datasets.find((d) => d.label === 'Forecast');
+            const paired = f && f.data[item.dataIndex] !== null && f.data[item.dataIndex] !== undefined;
+            return !paired || item.dataIndex === trendJoin;
+        },
         label: (c) => c.dataset.label + ': ' + fmt(c.parsed.y),
     };
+}
+/* Dashed only from the next month on (2026-10-27, at the user's request: "why
+   does the past months had a dash line"), as on the product page: forecast
+   months already over or in progress draw solid. */
+const trendNextIndex = trendMonths.indexOf(@json($actionableMonthKey));
+const trendDash = (ctx) => (trendNextIndex >= 0 && ctx.p1DataIndex >= trendNextIndex ? [5, 4] : []);
+/* The 80% band follows the same boundary (same day, at the user's request: "and
+   the shade area"), as on the product page: it pinches to a point on the
+   forecast one month before the next month and widens from there. */
+function trendBand(lower, upper, forecast) {
+    if (trendNextIndex === 0) return [lower, upper];
+    if (trendNextIndex < 0) return [lower.map(() => null), upper.map(() => null)];
+    const lo = lower.slice(), up = upper.slice();
+    for (let i = 0; i < trendNextIndex; i++) {
+        const pinch = i === trendNextIndex - 1 && forecast[i] !== null && forecast[i] !== undefined;
+        lo[i] = pinch ? forecast[i] : null;
+        up[i] = pinch ? forecast[i] : null;
+    }
+    return [lo, up];
 }
 const unitsTrendTip = trendTooltip((v) => Math.round(v).toLocaleString());
 const revenueTrendTip = trendTooltip((v) => '₱' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
+const unitsTrendBand = trendBand(@json($unitsLowerSeries), @json($unitsUpperSeries), @json($forecastUnitsSeries));
 new Chart(document.getElementById('unitsTrendChart'), {
     type: 'line',
     data: {
@@ -546,7 +575,7 @@ new Chart(document.getElementById('unitsTrendChart'), {
             @if ($hasUnitsBand)
             {
                 label: 'Lower bound',
-                data: @json($unitsLowerSeries),
+                data: unitsTrendBand[0],
                 borderWidth: 0,
                 pointRadius: 0,
                 fill: false,
@@ -554,7 +583,7 @@ new Chart(document.getElementById('unitsTrendChart'), {
             },
             {
                 label: '80% confidence band',
-                data: @json($unitsUpperSeries),
+                data: unitsTrendBand[1],
                 borderWidth: 0,
                 pointRadius: 0,
                 backgroundColor: 'rgba(15, 110, 86, 0.13)',
@@ -579,6 +608,7 @@ new Chart(document.getElementById('unitsTrendChart'), {
                 backgroundColor: 'transparent',
                 borderWidth: 2,
                 borderDash: [5, 4],
+                segment: { borderDash: trendDash },
                 pointRadius: 2,
                 tension: 0.25,
                 spanGaps: false,
@@ -604,6 +634,7 @@ new Chart(document.getElementById('unitsTrendChart'), {
     },
 });
 
+const revenueTrendBand = trendBand(@json($revenueLowerSeries), @json($revenueUpperSeries), @json($forecastRevenueSeries));
 new Chart(document.getElementById('revenueTrendChart'), {
     type: 'line',
     data: {
@@ -612,7 +643,7 @@ new Chart(document.getElementById('revenueTrendChart'), {
             @if ($hasRevenueBand)
             {
                 label: 'Lower bound',
-                data: @json($revenueLowerSeries),
+                data: revenueTrendBand[0],
                 borderWidth: 0,
                 pointRadius: 0,
                 fill: false,
@@ -620,7 +651,7 @@ new Chart(document.getElementById('revenueTrendChart'), {
             },
             {
                 label: '80% confidence band',
-                data: @json($revenueUpperSeries),
+                data: revenueTrendBand[1],
                 borderWidth: 0,
                 pointRadius: 0,
                 backgroundColor: 'rgba(83, 74, 183, 0.13)',
@@ -645,6 +676,7 @@ new Chart(document.getElementById('revenueTrendChart'), {
                 backgroundColor: 'transparent',
                 borderWidth: 2,
                 borderDash: [5, 4],
+                segment: { borderDash: trendDash },
                 pointRadius: 2,
                 tension: 0.25,
                 spanGaps: false,
