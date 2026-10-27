@@ -28,10 +28,9 @@
             <span class="kpi-sub">in the catalog</span>
         </div>
 
-        {{-- Low Stock and Expired Stock have their accents swapped relative to
-             where they started: low stock now carries the red, expired the
-             amber. --}}
-        <div class="kpi {{ $lowStockCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#ef4444;">
+        {{-- Low Stock amber, Expired Stock red (swapped back 2026-10-27, at the
+             user's request; the chart, badges, print copy and PDF follow). --}}
+        <div class="kpi {{ $lowStockCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#f59e0b;">
             <div class="kpi-head">
                 <i class="ti ti-alert-triangle" aria-hidden="true"></i>
                 <span class="kpi-label">Low Stock</span>
@@ -50,7 +49,7 @@
             <span class="kpi-sub">nothing on the shelf</span>
         </div>
 
-        <div class="kpi {{ $expiredCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#f59e0b;">
+        <div class="kpi {{ $expiredCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#ef4444;">
             <div class="kpi-head">
                 <i class="ti ti-alert-octagon" aria-hidden="true"></i>
                 <span class="kpi-label">Expired Stock</span>
@@ -199,7 +198,7 @@
         </div>
         <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #f59e0b;background:#fffbeb;border-radius:8px;padding:12px 14px;">
             <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Low Stock</div>
-            <div style="font-size:18px;font-weight:600;color:#dc2626;">{{ $lowStockCount }}</div>
+            <div style="font-size:18px;font-weight:600;color:#b45309;">{{ $lowStockCount }}</div>
         </div>
         <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #334155;background:#f1f5f9;border-radius:8px;padding:12px 14px;">
             <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Out of Stock</div>
@@ -207,7 +206,7 @@
         </div>
         <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #ef4444;background:#fef2f2;border-radius:8px;padding:12px 14px;">
             <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Expired Stock</div>
-            <div style="font-size:18px;font-weight:600;color:#854F0B;">{{ $expiredCount }}</div>
+            <div style="font-size:18px;font-weight:600;color:#dc2626;">{{ $expiredCount }}</div>
         </div>
         <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #22c55e;background:#f0fdf4;border-radius:8px;padding:12px 14px;">
             <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">OK</div>

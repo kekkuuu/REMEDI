@@ -86,7 +86,7 @@
    an absence, not a louder warning. */
 .inv-rep .stock { font-weight: 500; color: #111; }
 .inv-rep .stock.is-out { color: #334155; }
-.inv-rep .stock.is-low { color: #dc2626; }
+.inv-rep .stock.is-low { color: #b45309; }
 
 /* Status badge. The four states are the four the Low Stock filter decided
    between, in the same order -- see the row markup for why that order. */
@@ -96,8 +96,8 @@
 }
 .inv-badge i { font-size: 11px; }
 .inv-badge.is-out { background: #e2e8f0; color: #334155; }
-.inv-badge.is-expired { background: #FCEBEB; color: #791F1F; }
-.inv-badge.is-low { background: #fee2e2; color: #991b1b; }
+.inv-badge.is-expired { background: #fee2e2; color: #991b1b; }
+.inv-badge.is-low { background: #fef3c7; color: #92400e; }
 .inv-badge.is-ok { background: #EAF3DE; color: #27500A; }
 
 /* Print copy: bordered and zebra-striped, unlike the screen table. */
@@ -116,8 +116,8 @@
 .inv-print .muted { color: #6b7280; }
 .inv-print .strong { font-weight: 500; }
 .inv-print .expired-note { font-size: 10px; color: #dc2626; }
-.inv-print .stock.is-low { color: #dc2626; }
-.inv-print .st-low { font-size: 11px; font-weight: 600; color: #dc2626; }
+.inv-print .stock.is-low { color: #b45309; }
+.inv-print .st-low { font-size: 11px; font-weight: 600; color: #b45309; }
 .inv-print .st-ok { font-size: 11px; font-weight: 600; color: #16a34a; }
 .inv-print .empty { padding: 24px; text-align: center; color: #9ca3af; }
 .inv-print tfoot .label { padding: 9px 12px; font-weight: 600; font-size: 12px; text-align: right; }
@@ -258,7 +258,7 @@
                 type: 'doughnut',
                 data: {
                     labels: ['OK', 'Low Stock', 'Out of Stock', 'Expired'],
-                    datasets: [{ data: data.health, backgroundColor: ['#22c55e', '#ef4444', '#334155', '#f59e0b'], borderWidth: 0 }],
+                    datasets: [{ data: data.health, backgroundColor: ['#22c55e', '#f59e0b', '#334155', '#ef4444'], borderWidth: 0 }],
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false, cutout: '62%', layout: layout,

@@ -20,8 +20,8 @@
     table.rows th { background: #f8fafc; font-size: 9px; text-transform: uppercase; color: #475569; }
     table.rows td.num { text-align: right; }
     .st-out { color: #334155; font-weight: bold; }
-    .st-expired { color: #f59e0b; font-weight: bold; }
-    .st-low { color: #ef4444; font-weight: bold; }
+    .st-expired { color: #ef4444; font-weight: bold; }
+    .st-low { color: #f59e0b; font-weight: bold; }
     .st-ok { color: #16a34a; }
 </style>
 </head>

@@ -1959,9 +1959,9 @@ here class-based, and keep `data-search` on each screen row — the filter box w
 the SKU, which the table does not show. REMEDI.md "Reports: screen copy vs print copy" has the
 measurements.
 
-**Low Stock and Expired Stock have their accents swapped** from where they started: low stock carries
-the red (`#ef4444` KPI, `#fee2e2`/`#991b1b` badge), expired the amber (`#f59e0b` KPI,
-`#FCEBEB`/`#791F1F` badge). The report's search box no longer offers "status" either — it filters
+**Low Stock is AMBER and Expired Stock RED on the Inventory Report** (swapped back 2026-10-27, at the user's
+request): low `#f59e0b` KPI and chart slice, `#fef3c7`/`#92400e` badge, `#b45309` stock figure; expired `#ef4444` KPI
+and slice, `#fee2e2`/`#991b1b` badge. Print cards and the PDF follow. The report's search box no longer offers "status" either — it filters
 product and category text only, which is all it ever matched.
 
 **Zero gets its own badge on the report**, graphite `#334155`, checked BEFORE the low-stock branch —
