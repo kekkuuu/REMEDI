@@ -536,7 +536,7 @@
         // time anybody logs in would make the stack useless by lunchtime.
         // And a staff member's stock report (STOCK_REPORT_KIND, 2026-09-28):
         // a colleague waiting on a decision.
-        $toastKinds = ['low_stock', 'expiring', 'expired', 'need_to_return', \App\Services\AlertService::ACCOUNT_KIND, \App\Services\AlertService::STOCK_REPORT_KIND];
+        $toastKinds = ['low_stock', 'out_of_stock', 'expiring', 'expired', 'need_to_return', \App\Services\AlertService::ACCOUNT_KIND, \App\Services\AlertService::STOCK_REPORT_KIND];
 
         // $topbarActivity is ALREADY admin-only -- the view composer resolves it
         // to [] for staff, and AlertController does the same for the polled

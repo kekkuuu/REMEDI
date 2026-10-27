@@ -143,7 +143,13 @@ class AlertService
                 ->sortBy(fn ($p) => $p->total_stock - $p->reorder_level)
                 ->values();
 
-            $low = $lowProducts->count();
+            // Low stock and out of stock are DISJOINT (2026-10-27, at the user's
+            // request): each count equals the Inventory tab it links to. An
+            // empty shelf is its own kind below, so it keeps alerting.
+            $inStockLow = $lowProducts->filter(fn ($p) => $p->is_low_in_stock)->values();
+            $outProducts = $lowProducts->filter(fn ($p) => $p->total_stock <= 0)->values();
+            $low = $inStockLow->count();
+            $out = $outProducts->count();
 
             $alerts = collect([
                 [
@@ -155,6 +161,16 @@ class AlertService
                     'short' => 'low stock',
                     'body' => $low.' '.str('product')->plural($low).' at or below reorder level',
                     'filter' => 'low_stock',
+                ],
+                [
+                    'kind' => 'out_of_stock',
+                    'count' => $out,
+                    'cls' => 'is-out',
+                    'icon' => 'ti-package-off',
+                    'title' => 'Out of stock',
+                    'short' => 'out of stock',
+                    'body' => $out.' '.str('product')->plural($out).' with nothing on the shelf',
+                    'filter' => 'out_of_stock',
                 ],
                 [
                     'kind' => 'expiring',
@@ -240,9 +256,9 @@ class AlertService
             // Last time any of this product's batches moved -- a checkout that
             // pushes it under the line writes updated_at, so the sale just rung
             // up is the most recent thing that happened.
-            $recentLow = $lowProducts
-                ->sortByDesc(fn ($p) => optional($p->batches->max('updated_at'))->getTimestamp() ?? 0)
-                ->values();
+            $byLastMove = fn ($p) => optional($p->batches->max('updated_at'))->getTimestamp() ?? 0;
+            $recentLow = $inStockLow->sortByDesc($byLastMove)->values();
+            $recentOut = $outProducts->sortByDesc($byLastMove)->values();
 
             // ── Item-level notifications ──
             //
@@ -337,6 +353,7 @@ class AlertService
                     'sort_at' => self::returnWindowOpenedAt($b),
                 ]))
                 ->concat($recentLow->take($perKind)->map(fn ($p) => self::lowStockItem($p)))
+                ->concat($recentOut->take($perKind)->map(fn ($p) => self::lowStockItem($p)))
                 ->values()
                 // Newest first, across every kind — the list is a feed, not a
                 // set of per-kind buckets. The per-kind cap above still stands,
@@ -407,13 +424,12 @@ class AlertService
             // Low stock is keyed by product, and the id deliberately carries
             // the stock level: restocking then dropping below the line again is
             // a NEW notification, not one already read.
-            'id' => 'low_stock:'.$p->id.':'.$p->total_stock,
+            'id' => ($p->total_stock <= 0 ? 'out_of_stock:' : 'low_stock:').$p->id.':'.$p->total_stock,
             'group' => 'alerts',
-            'kind' => 'low_stock',
-            // Still the low_stock KIND -- the counts, the tabs and the Inventory
-            // filter all treat it as one. Only the colour splits: an empty shelf
-            // is not a warning that stock is getting low, it is the thing the
-            // warning was about.
+            // An empty shelf is its own KIND since 2026-10-27 (out_of_stock),
+            // matching the Inventory Out of Stock tab its count links to; it was
+            // the low_stock kind in graphite.
+            'kind' => $p->total_stock <= 0 ? 'out_of_stock' : 'low_stock',
             'cls' => $p->total_stock <= 0 ? 'is-out' : 'is-low',
             'icon' => 'ti-alert-triangle',
             'title' => $p->name,
@@ -423,7 +439,7 @@ class AlertService
                 ? 'Out of stock'
                 : $p->total_stock.' '.$p->unit.' left')
                 .' · reorder at '.$p->reorder_level,
-            'href' => self::itemHref($p, 'low_stock'),
+            'href' => self::itemHref($p, $p->total_stock <= 0 ? 'out_of_stock' : 'low_stock'),
             // Last time any of this product's batches moved. A checkout that
             // pushes a product under its reorder line writes updated_at, so the
             // sale you just rang up surfaces at the top of the bell rather than
@@ -803,6 +819,6 @@ class AlertService
         // array key none"). Bump this whenever the snapshot's shape changes.
         // v3 (2026-10-26): product counts (expiringProducts, expiredProducts,
         // missedProducts) added; the return tallies count products.
-        return 'dashboard_stock_v3:'.today()->toDateString();
+        return 'dashboard_stock_v4:'.today()->toDateString();
     }
 }

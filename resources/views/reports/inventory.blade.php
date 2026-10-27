@@ -173,6 +173,7 @@
                 <option value="">All stock</option>
                 <option value="ok" {{ $status === 'ok' ? 'selected' : '' }}>OK only</option>
                 <option value="low_stock" {{ $status === 'low_stock' ? 'selected' : '' }}>Low stock only</option>
+                <option value="out_of_stock" {{ $status === 'out_of_stock' ? 'selected' : '' }}>Out of stock only</option>
                 <option value="expired" {{ $status === 'expired' ? 'selected' : '' }}>Expired only</option>
             </select>
         </div>
@@ -256,8 +257,8 @@
             inventoryCharts.push(new Chart(health, {
                 type: 'doughnut',
                 data: {
-                    labels: ['OK', 'Low Stock', 'Expired'],
-                    datasets: [{ data: data.health, backgroundColor: ['#22c55e', '#ef4444', '#f59e0b'], borderWidth: 0 }],
+                    labels: ['OK', 'Low Stock', 'Out of Stock', 'Expired'],
+                    datasets: [{ data: data.health, backgroundColor: ['#22c55e', '#ef4444', '#334155', '#f59e0b'], borderWidth: 0 }],
                 },
                 options: {
                     responsive: true, maintainAspectRatio: false, cutout: '62%', layout: layout,

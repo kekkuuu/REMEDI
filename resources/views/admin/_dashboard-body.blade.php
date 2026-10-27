@@ -260,6 +260,8 @@
 
     .alert-row.is-low      { border-left-color: #eab308; }
     .alert-row.is-low i    { color: #ca8a04; }
+    .alert-row.is-out      { border-left-color: #334155; }
+    .alert-row.is-out i    { color: #334155; }
     .alert-row.is-expiring { border-left-color: #f97316; }
     .alert-row.is-expiring i { color: #ea580c; }
     .alert-row.is-expired  { border-left-color: #dc2626; }
@@ -619,6 +621,7 @@
     // products, so they count products; the panels below list batches.
     $expiringCount = $expiringProducts ?? $expiringSoonBatches->count();
     $lowStockCount = $lowStockProducts->count();
+    $outOfStockCount = ($outOfStockProducts ?? collect())->count();
     // No longer read by a KPI tile here (see the ATV/ATC tiles below), but
     // still needed: admin._dashboard-actions' Alerts panel reads both to
     // decide whether to show its Expired-stock and Return-window cards.

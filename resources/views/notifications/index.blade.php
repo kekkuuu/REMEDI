@@ -86,8 +86,8 @@
        and repeating them in the tabs made the strip noisy. */
     .ntab .dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
     .dot.is-low      { background: #eab308; }
-    /* Rows only -- the tab dot stays amber, because the TAB is the low_stock
-       kind as a whole and out-of-stock products are counted inside it. */
+    /* Out of stock is its own tab since 2026-10-27, in the graphite of an
+       empty shelf. */
     .dot.is-out      { background: #334155; }
     .dot.is-expiring { background: #f97316; }
     .dot.is-expired  { background: #dc2626; }
@@ -285,6 +285,7 @@
 
     $style = [
         'low_stock' => 'is-low',
+        'out_of_stock' => 'is-out',
         'expiring' => 'is-expiring',
         'expired' => 'is-expired',
         'need_to_return' => 'is-return',

@@ -110,7 +110,7 @@ class StockReport extends Model
     {
         return match ($type) {
             self::TYPE_OUT_OF_STOCK => $product->total_stock <= 0,
-            self::TYPE_LOW_STOCK => $product->total_stock > 0 && (bool) $product->is_running_out,
+            self::TYPE_LOW_STOCK => (bool) $product->is_low_in_stock,
             self::TYPE_EXPIRED => $product->batches->contains(fn ($b) => $b->quantity > 0 && ! $b->returned_at && $b->is_expired),
             default => false,
         };

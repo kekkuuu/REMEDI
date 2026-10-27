@@ -373,6 +373,8 @@
 
     .staff-alert.is-low { border-left-color: #eab308; }
     .staff-alert.is-low i { color: #ca8a04; }
+    .staff-alert.is-out { border-left-color: #334155; }
+    .staff-alert.is-out i { color: #334155; }
     .staff-alert.is-expiring { border-left-color: #f97316; }
     .staff-alert.is-expiring i { color: #ea580c; }
     .staff-alert.is-expired { border-left-color: #dc2626; }
@@ -406,6 +408,7 @@
      tiles link to the matching Inventory filter. --}}
 @php
     $sLow = $lowStockProducts->count();
+    $sOut = ($outOfStockProducts ?? collect())->count();
     // PRODUCTS (2026-10-26), like the lists the tiles link to.
     $sExpiring = $expiringProducts ?? $expiringSoonBatches->count();
     $sExpired = $expiredProducts ?? $expiredBatches->count();
@@ -488,6 +491,9 @@
         ['show' => $sLow > 0, 'cls' => 'is-low', 'icon' => 'ti-alert-triangle', 'kind' => 'low_stock',
          'title' => 'Low stock alert', 'body' => $sLow.' products are at or below reorder level',
          'href' => route('inventory.index', ['filter' => 'low_stock'])],
+        ['show' => $sOut > 0, 'cls' => 'is-out', 'icon' => 'ti-package-off', 'kind' => 'out_of_stock',
+         'title' => 'Out of stock', 'body' => $sOut.' '.Str::plural('product', $sOut).' with nothing on the shelf',
+         'href' => route('inventory.index', ['filter' => 'out_of_stock'])],
         ['show' => $sExpiring > 0, 'cls' => 'is-expiring', 'icon' => 'ti-clock-exclamation', 'kind' => 'expiring',
          'title' => 'Expiring soon', 'body' => $sExpiring.' '.Str::plural('product', $sExpiring).' with stock expiring within 30 days',
          'href' => \App\Models\ProductBatch::expiringSoonUrl()],

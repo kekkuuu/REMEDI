@@ -40,6 +40,16 @@
             <span class="kpi-sub">at or below reorder level</span>
         </div>
 
+        {{-- Out of Stock (2026-10-27): no longer counted inside Low Stock. --}}
+        <div class="kpi {{ $outOfStockCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#334155;">
+            <div class="kpi-head">
+                <i class="ti ti-package-off" aria-hidden="true"></i>
+                <span class="kpi-label">Out of Stock</span>
+            </div>
+            <span class="kpi-value">{{ number_format($outOfStockCount) }}</span>
+            <span class="kpi-sub">nothing on the shelf</span>
+        </div>
+
         <div class="kpi {{ $expiredCount === 0 ? 'is-clear' : '' }}" style="--kpi-accent:#f59e0b;">
             <div class="kpi-head">
                 <i class="ti ti-alert-octagon" aria-hidden="true"></i>
@@ -162,6 +172,7 @@
                 $activeFilters = array_values(array_filter([
                     $categoryId ? optional($categories->firstWhere('id', $categoryId))->name : null,
                     $lowStockOnly ? 'Low Stock Only' : null,
+                    $outOfStockOnly ? 'Out of Stock Only' : null,
                     $expiredOnly ? 'Expired Only' : null,
                     $okOnly ? 'OK Only' : null,
                 ]));
@@ -177,7 +188,7 @@
     </div>
 
     {{-- Print Summary --}}
-    <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:12px;margin-bottom:24px;">
+    <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:24px;">
         <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #6366f1;background:#eef2ff;border-radius:8px;padding:12px 14px;">
             <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Total Stock Value</div>
             <div style="font-size:18px;font-weight:600;color:#4f46e5;">₱{{ number_format($totalStockValue, 2) }}</div>
@@ -189,6 +200,10 @@
         <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #f59e0b;background:#fffbeb;border-radius:8px;padding:12px 14px;">
             <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Low Stock</div>
             <div style="font-size:18px;font-weight:600;color:#dc2626;">{{ $lowStockCount }}</div>
+        </div>
+        <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #334155;background:#f1f5f9;border-radius:8px;padding:12px 14px;">
+            <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Out of Stock</div>
+            <div style="font-size:18px;font-weight:600;color:#334155;">{{ $outOfStockCount }}</div>
         </div>
         <div class="report-summary-card" style="border:1px solid #e5e7eb;border-left:4px solid #ef4444;background:#fef2f2;border-radius:8px;padding:12px 14px;">
             <div style="font-size:11px;color:#6b7280;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.04em;">Expired Stock</div>
@@ -256,7 +271,7 @@
             'labels' => $stockValueByCategory->pluck('category'),
             'values' => $stockValueByCategory->pluck('value'),
         ] : null,
-        'health' => [$okCount, $lowStockCount, $expiredCount],
+        'health' => [$okCount, $lowStockCount, $outOfStockCount, $expiredCount],
     ];
 @endphp
 @php

@@ -139,12 +139,12 @@ class InventoryController extends Controller
         if ($filter === 'low_stock') {
             // is_running_out, not is_low_stock: a shelf holding nothing but
             // expired units is an Expired problem, and the tab beside this
-            // one already lists it. See Product::is_running_out.
-            $products = $products->filter(fn ($p) => $p->is_running_out);
+            // one already lists it. See Product::is_running_out. Units still on
+            // the shelf only (2026-10-27): an empty shelf is Out of Stock.
+            $products = $products->filter(fn ($p) => $p->is_low_in_stock);
         } elseif ($filter === 'out_of_stock') {
-            // Nothing on the shelf at all. A subset of Low Stock, which still
-            // counts zero as low everywhere (see Product::is_running_out);
-            // this tab is the "refill these first" cut of it.
+            // Nothing on the shelf at all. No longer also listed under Low
+            // Stock (2026-10-27): the two tabs are disjoint.
             $products = $products->filter(fn ($p) => $p->total_stock <= 0);
         } elseif ($filter === 'expiring' && $hasExpiryWindow) {
             // Chosen dates replace the default horizon: not yet expired, and

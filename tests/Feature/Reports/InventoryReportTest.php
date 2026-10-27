@@ -206,7 +206,7 @@ class InventoryReportTest extends TestCase
         $html = $this->report(['status' => 'expired'])->getContent();
         preg_match('/id="inventoryChartData">(.*?)<\/script>/s', $html, $m);
 
-        $this->assertSame([0, 0, 1], json_decode($m[1], true)['health']);
+        $this->assertSame([0, 0, 0, 1], json_decode($m[1], true)['health']);
     }
 
     public function test_the_ok_card_counts_products_with_nothing_to_act_on(): void
@@ -298,7 +298,8 @@ class InventoryReportTest extends TestCase
 
         $html = $this->report(['low_stock' => 1])->content();
 
-        $this->assertSame(['Zzz Empty', 'Mmm Middle', 'Aaa Plenty'], $this->rows($html));
+        // Zzz Empty has nothing on the shelf: Out of Stock, not Low Stock (2026-10-27).
+        $this->assertSame(['Mmm Middle', 'Aaa Plenty'], $this->rows($html));
     }
 
     /**
@@ -345,14 +346,20 @@ class InventoryReportTest extends TestCase
     }
 
     /**
-     * A product with NOTHING on the shelf is genuinely out and does need
-     * reordering, so the expired-stock exclusion must not swallow it.
+     * A product with NOTHING on the shelf is OUT OF STOCK -- its own status,
+     * filter and KPI since 2026-10-27, no longer counted inside Low Stock too.
      */
-    public function test_low_stock_still_includes_products_with_no_stock_at_all(): void
+    public function test_an_empty_shelf_is_out_of_stock_not_low_stock(): void
     {
         $this->product('Sold Out', 0, now()->addDays(300)->toDateString(), 5);
+        $this->product('Running Low', 2, now()->addDays(300)->toDateString(), 10);
 
-        $this->assertContains('Sold Out', $this->rows($this->report(['low_stock' => 1])->content()));
+        $this->assertSame(['Running Low'], $this->rows($this->report(['status' => 'low_stock'])->content()));
+        $this->assertSame(['Sold Out'], $this->rows($this->report(['status' => 'out_of_stock'])->content()));
+
+        $html = $this->report()->content();
+        $this->assertSame('1', $this->kpi($html, 'Low Stock'));
+        $this->assertSame('1', $this->kpi($html, 'Out of Stock'));
     }
 
     /**

@@ -9,6 +9,10 @@
         ['show' => $lowStockCount > 0, 'cls' => 'is-low', 'icon' => 'ti-alert-triangle', 'kind' => 'low_stock',
          'title' => 'Low stock alert', 'body' => $lowStockCount.' products are at or below reorder level',
          'href' => route('inventory.index', ['filter' => 'low_stock'])],
+        // Empty shelves, apart from Low stock since 2026-10-27 (the tabs are disjoint).
+        ['show' => ($outOfStockCount ?? 0) > 0, 'cls' => 'is-out', 'icon' => 'ti-package-off', 'kind' => 'out_of_stock',
+         'title' => 'Out of stock', 'body' => ($outOfStockCount ?? 0).' '.Str::plural('product', $outOfStockCount ?? 0).' with nothing on the shelf',
+         'href' => route('inventory.index', ['filter' => 'out_of_stock'])],
         ['show' => $expiringCount > 0, 'cls' => 'is-expiring', 'icon' => 'ti-clock-exclamation', 'kind' => 'expiring',
          'title' => 'Expiring soon', 'body' => $expiringCount.' '.Str::plural('product', $expiringCount).' with stock expiring within 30 days',
          'href' => \App\Models\ProductBatch::expiringSoonUrl()],

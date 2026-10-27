@@ -151,6 +151,18 @@ class Product extends Model
             && ! ($this->total_stock > 0 && $this->sellable_stock <= 0);
     }
 
+    /**
+     * LOW STOCK as every list and count shows it (2026-10-27, at the user's
+     * request: "if it is out of stock show out of stock items and if it is low
+     * stock show low stock items only"): running out with units still on the
+     * shelf. An empty shelf is OUT OF STOCK -- its own tab, count and alert --
+     * and no longer counted here as well.
+     */
+    public function getIsLowInStockAttribute(): bool
+    {
+        return $this->total_stock > 0 && $this->is_running_out;
+    }
+
     // The supplier-return window rule (90-120 days before expiry) only
     // applies to the Medicine / Pharmaceutical category.
     /**

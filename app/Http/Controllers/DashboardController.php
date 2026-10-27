@@ -200,6 +200,7 @@ class DashboardController extends Controller
             'nonPharmaReturnStats' => $nonPharmaReturnStats, 'expiryOverview' => $expiryOverview,
             'totalProducts' => $totalProducts] = $stock['scalars'];
         $lowStockProducts = collect($stock['lowStockIds']);
+        $outOfStockProducts = collect($stock['outOfStockIds'] ?? []);
         $expiredBatches = collect($stock['expiredIds']);
         $needToReturnBatches = collect($stock['needToReturnIds']);
         $nonPharmaNeedToReturnBatches = collect($stock['nonPharmaNeedToReturnIds']);
@@ -288,7 +289,7 @@ class DashboardController extends Controller
 
         $data['expiryOverview'] = $expiryOverview;
 
-        $data += compact('returnableCount', 'expiringProducts', 'expiredProducts', 'missedProducts', 'todaySales', 'todayTransactions', 'myTodaySales', 'myTodayTransactions', 'lowStockProducts', 'lowestStockChart', 'expiringSoonBatches', 'expiredBatches', 'returnStats', 'needToReturnBatches', 'nonPharmaReturnStats', 'nonPharmaNeedToReturnBatches', 'categoryBreakdown');
+        $data += compact('returnableCount', 'expiringProducts', 'expiredProducts', 'missedProducts', 'todaySales', 'todayTransactions', 'myTodaySales', 'myTodayTransactions', 'lowStockProducts', 'outOfStockProducts', 'lowestStockChart', 'expiringSoonBatches', 'expiredBatches', 'returnStats', 'needToReturnBatches', 'nonPharmaReturnStats', 'nonPharmaNeedToReturnBatches', 'categoryBreakdown');
 
         // The full sales/inventory dashboard (monthly sales chart, high/low
         // demand, lowest stock vs. reorder level, expiring soon) is shared
@@ -705,7 +706,11 @@ class DashboardController extends Controller
                 'expiryOverview' => $expiryOverview,
                 'totalProducts' => Product::count(),
             ],
-            'lowStockIds' => $lowStockProducts->pluck('id')->all(),
+            // Disjoint since 2026-10-27, like the Inventory tabs they link to:
+            // low = units still on the shelf, out = nothing on it. The chart
+            // above still plots every product running out, empty ones included.
+            'lowStockIds' => $lowStockProducts->filter(fn ($p) => $p->is_low_in_stock)->pluck('id')->values()->all(),
+            'outOfStockIds' => $lowStockProducts->filter(fn ($p) => $p->total_stock <= 0)->pluck('id')->values()->all(),
             'expiredIds' => $expiredBatches->pluck('id')->all(),
             'needToReturnIds' => $needToReturnBatches->pluck('id')->all(),
             'nonPharmaNeedToReturnIds' => $nonPharmaNeedToReturnBatches->pluck('id')->all(),

@@ -706,7 +706,7 @@ class ReportController extends Controller
     }
 
     /** The Inventory report's status filter values (one select, one choice). */
-    public const INVENTORY_STATUSES = ['low_stock', 'expired', 'ok'];
+    public const INVENTORY_STATUSES = ['low_stock', 'out_of_stock', 'expired', 'ok'];
 
     public function inventory(Request $request)
     {
@@ -796,6 +796,7 @@ class ReportController extends Controller
         }
 
         $lowStockOnly = $status === 'low_stock';
+        $outOfStockOnly = $status === 'out_of_stock';
         $expiredOnly = $status === 'expired';
         $okOnly = $status === 'ok';
 
@@ -844,7 +845,13 @@ class ReportController extends Controller
         // Product::is_running_out is the one definition -- the Inventory tab,
         // the bell, the dashboard panel and this report all read it, so the
         // four cannot drift into four different ideas of "low stock".
-        $isRunningOut = fn ($p) => $p->is_running_out;
+        //
+        // Low stock and out of stock are DISJOINT here too (2026-10-27, at the
+        // user's request), as on the Inventory page: low = running out with
+        // units still on the shelf (Product::is_low_in_stock), out = nothing on
+        // it. An empty shelf used to be counted inside Low Stock.
+        $isRunningOut = fn ($p) => $p->is_low_in_stock;
+        $isOutOfStock = fn ($p) => $p->total_stock <= 0;
 
         if ($lowStockOnly) {
             // Ordered by what the filter is about, the way the Inventory page
@@ -861,6 +868,10 @@ class ReportController extends Controller
                     fn ($a, $b) => $a->total_stock <=> $b->total_stock,
                 ])
                 ->values();
+        }
+
+        if ($outOfStockOnly) {
+            $products = $products->filter($isOutOfStock)->values();
         }
 
         // Filtered in PHP for the same reason low_stock is: expiry state is a
@@ -885,6 +896,7 @@ class ReportController extends Controller
         $totalStockValue = $products->sum(fn ($p) => $p->total_stock * $p->selling_price);
         // Same definition the filter uses, so the KPI and the rows agree.
         $lowStockCount = $products->filter($isRunningOut)->count();
+        $outOfStockCount = $products->filter($isOutOfStock)->count();
         $expiredCount = $products->filter(fn ($p) => $p->expired_batches->isNotEmpty())->count();
         $okCount = $products->filter($isOk)->count();
 
@@ -902,8 +914,8 @@ class ReportController extends Controller
         $categories = Category::orderBy('name')->get();
 
         return compact(
-            'products', 'totalStockValue', 'lowStockCount', 'expiredCount',
-            'stockValueByCategory', 'categories', 'categoryId', 'lowStockOnly', 'expiredOnly', 'okOnly', 'okCount', 'status'
+            'products', 'totalStockValue', 'lowStockCount', 'outOfStockCount', 'expiredCount',
+            'stockValueByCategory', 'categories', 'categoryId', 'lowStockOnly', 'outOfStockOnly', 'expiredOnly', 'okOnly', 'okCount', 'status'
         );
     }
 

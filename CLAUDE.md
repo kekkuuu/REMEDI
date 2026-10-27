@@ -2609,6 +2609,17 @@ in the dashboard snapshot (`expiringProducts` / `expiredProducts` / `missedProdu
 still count their own batch rows. The admin Alerts panel's "Return window missed" read the MEDICINE-only tally (120)
 beside the bell's 186; it reads `missedProducts` now. `ReturnCountsAgreeTest::test_two_batches_of_one_product_count_once_and_match_their_lists`.
 
+**Low Stock and Out of Stock are DISJOINT (2026-10-27, at the user's request: "if it is out of stock show out of stock
+items and if it is low stock show low stock items only").** `Product::is_low_in_stock` (`total_stock > 0 &&
+is_running_out`) is the Inventory Low Stock tab, the `low_stock` alert total, both dashboards' Low Stock tile and card,
+and `StockReport`'s low-stock type; an empty shelf is the Out of Stock tab and a new `out_of_stock` alert KIND (its own
+total, bell / toast items `out_of_stock:{id}:0` in graphite, a notifications tab, an Alerts-panel card on both dashboards,
+`outOfStockIds` in the snapshot, key `dashboard_stock_v4`). Locally 655 = 548 low + 107 out. `is_running_out` itself is
+unchanged and still feeds the Lowest Stock chart. The Inventory REPORT is split the same way (same day): Status gained
+"Out of stock only" (`INVENTORY_STATUSES`), Low Stock reads `is_low_in_stock`, an Out of Stock KPI / print card / PDF
+cell, and the Stock Health chart is OK / Low / Out / Expired (1,854 + 548 + 107 + 128 = 2,637 locally).
+`InventoryMonitoringFilterTest`, `AlertToastTest`, `InventoryReportTest`, `ReportExportTest` (low-stock file).
+
 **An alert's link must show the set the alert counted.** Two expiring horizons are deliberate —
 `EXPIRY_SOON_DAYS` (30) for the dashboards/bell, `is_expiring_soon` (90) for the Inventory tab — but
 the bell linked straight at the tab, so "28 batches expire within 30 days" opened 85 products across

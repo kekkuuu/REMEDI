@@ -194,7 +194,7 @@ class AlertToastTest extends TestCase
         $this->product('Healthy Item', 1, 500, now()->addDays(300)->toDateString());
 
         $this->assertSame(
-            ['low_stock', 'expiring', 'expired', 'need_to_return', AlertService::ACCOUNT_KIND, AlertService::STOCK_REPORT_KIND],
+            ['low_stock', 'out_of_stock', 'expiring', 'expired', 'need_to_return', AlertService::ACCOUNT_KIND, AlertService::STOCK_REPORT_KIND],
             $this->toastSeed($this->page())['kinds']
         );
     }
@@ -216,8 +216,8 @@ class AlertToastTest extends TestCase
 
     /**
      * An empty shelf is not the same message as one running low, so it gets its
-     * own colour -- while staying inside the low_stock KIND, which is what the
-     * counts, tabs and Inventory filter all key on.
+     * own colour -- and, since 2026-10-27, its own KIND (out_of_stock), matching
+     * the Inventory Out of Stock tab its count links to.
      */
     public function test_out_of_stock_is_coloured_apart_from_low_stock(): void
     {
@@ -229,8 +229,9 @@ class AlertToastTest extends TestCase
         $this->assertSame('is-low', $items['Running Low']['cls']);
         $this->assertSame('is-out', $items['Sold Out']['cls']);
 
-        // Same kind either way: splitting it would double-count the totals.
-        $this->assertSame('low_stock', $items['Sold Out']['kind']);
+        // Disjoint kinds, like the Inventory tabs: no product is counted twice.
+        $this->assertSame('low_stock', $items['Running Low']['kind']);
+        $this->assertSame('out_of_stock', $items['Sold Out']['kind']);
         $this->assertStringContainsString('Out of stock', $items['Sold Out']['body']);
     }
 

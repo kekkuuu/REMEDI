@@ -87,10 +87,26 @@ class InventoryMonitoringFilterTest extends TestCase
             ->assertSee('id="product-row-'.$empty->id.'"', false)
             ->assertDontSee('id="product-row-'.$low->id.'"', false);
 
-        // Both are still Low Stock, which counts zero as low.
+        // Low Stock lists only shelves with units left (2026-10-27): the tabs
+        // are disjoint.
         $this->inventory(['filter' => 'low_stock'])
-            ->assertSee('id="product-row-'.$empty->id.'"', false)
+            ->assertDontSee('id="product-row-'.$empty->id.'"', false)
             ->assertSee('id="product-row-'.$low->id.'"', false);
+    }
+
+    /** Each alert total equals the Inventory tab it links to. */
+    public function test_low_and_out_of_stock_alert_totals_match_their_tabs(): void
+    {
+        $this->batch($this->product('Empty One'), 0, '2027-06-01');
+        $this->batch($this->product('Empty Two'), 0, '2027-06-01');
+        $this->batch($this->product('Low Three', 50), 3, '2027-06-01');
+        $this->batch($this->product('Healthy', 5), 400, '2027-06-01');
+
+        $totals = collect(app(\App\Services\AlertService::class)->payload()['alerts'])->keyBy('kind');
+
+        $this->assertSame(1, $totals['low_stock']['count']);
+        $this->assertSame(2, $totals['out_of_stock']['count']);
+        $this->assertStringContainsString('filter=out_of_stock', $totals['out_of_stock']['href']);
     }
 
     public function test_expired_in_a_month(): void

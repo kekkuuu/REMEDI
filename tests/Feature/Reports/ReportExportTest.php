@@ -258,7 +258,7 @@ class ReportExportTest extends TestCase
         $sheet = $this->sheets($this->download('/reports/inventory/export?format=xlsx&status=low_stock'))['Inventory Report'];
         $skus = array_map(fn ($r) => (string) $r[1], array_slice($sheet, 1));
 
-        $expected = Product::with('batches')->get()->filter(fn ($p) => $p->is_running_out)->pluck('sku')->map(fn ($s) => (string) $s)->all();
+        $expected = Product::with('batches')->get()->filter(fn ($p) => $p->is_low_in_stock)->pluck('sku')->map(fn ($s) => (string) $s)->all();
 
         $this->assertEqualsCanonicalizing($expected, $skus);
     }
