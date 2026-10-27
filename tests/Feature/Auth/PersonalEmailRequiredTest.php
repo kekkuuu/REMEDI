@@ -93,13 +93,23 @@ class PersonalEmailRequiredTest extends TestCase
         $this->assertSame('owner@gmail.com', $admin->fresh()->personal_email);
     }
 
-    /** A temporary password is set first; the personal-email pop-up waits for it. */
+    /**
+     * A temporary password is set first; the personal-email pop-up waits for it,
+     * rendered CLOSED so the page can open it the moment the password change
+     * succeeds (2026-10-27: it used to be absent and needed a reload).
+     */
     public function test_a_temporary_password_comes_first(): void
     {
         $staff = User::factory()->create(['personal_email' => null, 'must_change_password' => true]);
 
         $html = $this->actingAs($staff)->get('/profile')->assertOk()->getContent();
-        $this->assertStringNotContainsString('id="personalEmailModal"', $html);
+        $this->assertStringContainsString('class="remedi-modal" id="personalEmailModal"', $html);
+        $this->assertStringContainsString('data-locked-by-password', $html);
+
+        // Once the password is changed, the same page renders it open.
+        $staff->forceFill(['must_change_password' => false])->save();
+        $this->assertStringContainsString('class="remedi-modal is-open" id="personalEmailModal"',
+            $this->actingAs($staff->fresh())->get('/profile')->getContent());
     }
 
     public function test_my_profile_refuses_a_save_without_one(): void

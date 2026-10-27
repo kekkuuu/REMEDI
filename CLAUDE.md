@@ -3170,7 +3170,7 @@ My Profile (`ProfileUpdateRequest`, `bail|required|string|email|max:255`). `Ensu
 `profile.edit` / `profile.update` stay open. There a pop-up (`#personalEmailModal`) is rendered OPEN with no close, Escape
 or backdrop (Save and continue, or Log out); it posts the name, and an admin's work email, because the profile request
 requires them. Saving the FIRST address redirects to the intended page ("Personal email saved. Thank you!"). It waits
-while a temporary password is in force. Its script moves it to `<body>`: inside the content area it stacked under the
+while a temporary password is in force -- rendered CLOSED then, and opened by the Change Password dialog's AJAX success (2026-10-27, at the user's request: a new account saw it only after a reload), which also re-enables the Personal Information form (`data-locked-by-password`). Its script moves it to `<body>`: inside the content area it stacked under the
 alert toasts (195) despite its own 200. Applies to every role. The test factory gives users a personal email by default;
 a test of an account without one passes `'personal_email' => null`. Covered by `Feature\Auth\PersonalEmailRequiredTest`.
 

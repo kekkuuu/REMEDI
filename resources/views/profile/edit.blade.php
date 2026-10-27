@@ -317,13 +317,16 @@
      create an account without one, and EnsureUserHasPersonalEmail sends the
      account here on every request until it is saved. Rendered OPEN, with no
      close button, Escape or backdrop click -- the only ways out are saving it
-     or logging out. Not shown while a temporary password is still in force:
-     that dialog comes first, and this form could not save until it is done.
+     or logging out. Not OPEN while a temporary password is still in force:
+     that dialog comes first, and this form could not save until it is done. It
+     is rendered closed then and opens the moment the password change succeeds
+     (2026-10-27, at the user's request: it only appeared after a reload, since
+     the change goes over AJAX and the page never re-renders).
      A plain POST, so it works without JavaScript; the name (and, for an admin,
      the work email) ride along because ProfileUpdateRequest requires them. --}}
-@if(! $user->must_change_password && trim((string) $user->personal_email) === '')
-    <style>body { overflow: hidden; }</style>
-    <div class="remedi-modal is-open" id="personalEmailModal" role="dialog" aria-modal="true"
+@if(trim((string) $user->personal_email) === '')
+    @unless($user->must_change_password)<style>body { overflow: hidden; }</style>@endunless
+    <div class="remedi-modal{{ $user->must_change_password ? '' : ' is-open' }}" id="personalEmailModal" role="dialog" aria-modal="true"
          aria-labelledby="personalEmailTitle" aria-describedby="personalEmailBody">
         <div class="remedi-modal__panel" style="max-width:440px;">
             <div class="remedi-modal__icon is-neutral"><i class="ti ti-mail" aria-hidden="true"></i></div>
@@ -727,6 +730,21 @@
                             // change nobody asked for. The message lands on the
                             // card behind it, which is still on screen.
                             if (modal) closeModal();
+
+                            // The flag is cleared, so the Personal Information
+                            // form may save again, and an account with no
+                            // personal email is asked for it now rather than on
+                            // the next page load.
+                            document.querySelectorAll('[data-locked-by-password]').forEach(function (el) {
+                                if (el.tagName === 'FIELDSET') { el.disabled = false; el.style.opacity = ''; } else { el.remove(); }
+                            });
+                            const emailModal = document.getElementById('personalEmailModal');
+                            if (emailModal && !emailModal.classList.contains('is-open')) {
+                                emailModal.classList.add('is-open');
+                                REMEDI.lockScroll();
+                                const field = emailModal.querySelector('#pe-personal-email');
+                                if (field) field.focus({ preventScroll: true });
+                            }
                             return;
                         }
 
@@ -764,13 +782,13 @@
              isn't offered. The endpoint is the real guard; this is only the
              UI agreeing with it (a gated button is not a gated endpoint). --}}
         @if($user->must_change_password)
-            <div class="alert alert-warning" style="margin-bottom:16px;">
+            <div class="alert alert-warning" style="margin-bottom:16px;" data-locked-by-password>
                 <i class="ti ti-lock" aria-hidden="true"></i>
                 <span>Set a new password below before editing your details.</span>
             </div>
         @endif
 
-        <fieldset @disabled($user->must_change_password) style="border:0; padding:0; margin:0; {{ $user->must_change_password ? 'opacity:.55;' : '' }}">
+        <fieldset @disabled($user->must_change_password) @if($user->must_change_password) data-locked-by-password @endif style="border:0; padding:0; margin:0; {{ $user->must_change_password ? 'opacity:.55;' : '' }}">
         <form method="POST" action="{{ route('profile.update') }}"
           class="js-confirm" data-confirm-tone="neutral" data-confirm-icon="ti-user-edit"
           data-confirm-title="Save profile changes?" data-confirm-body="Your personal information will be updated."
