@@ -62,19 +62,19 @@
   <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:10px; margin-bottom:1.5rem;">
     <div style="background:#f9fafb; border-radius:8px; padding:12px 14px;">
       <div style="font-size:12px; color:#6b7280; margin-bottom:4px;">Total logs</div>
-      <div style="font-size:22px; font-weight:500;">{{ $logs->total() }}</div>
+      <div style="font-size:22px; font-weight:500;" data-audit-card="total">{{ $logs->total() }}</div>
     </div>
     <div style="background:#f9fafb; border-radius:8px; padding:12px 14px;">
       <div style="font-size:12px; color:#6b7280; margin-bottom:4px;">Logins</div>
-      <div style="font-size:22px; font-weight:500; color:#185FA5;">{{ $loginCount }}</div>
+      <div style="font-size:22px; font-weight:500; color:#185FA5;" data-audit-card="logins">{{ $loginCount }}</div>
     </div>
     <div style="background:#f9fafb; border-radius:8px; padding:12px 14px;">
       <div style="font-size:12px; color:#6b7280; margin-bottom:4px;">Logouts</div>
-      <div style="font-size:22px; font-weight:500; color:#854F0B;">{{ $logoutCount }}</div>
+      <div style="font-size:22px; font-weight:500; color:#854F0B;" data-audit-card="logouts">{{ $logoutCount }}</div>
     </div>
     <div style="background:#f9fafb; border-radius:8px; padding:12px 14px;">
       <div style="font-size:12px; color:#6b7280; margin-bottom:4px;">Views / Reports</div>
-      <div style="font-size:22px; font-weight:500; color:#3B6D11;">{{ $viewCount }}</div>
+      <div style="font-size:22px; font-weight:500; color:#3B6D11;" data-audit-card="views">{{ $viewCount }}</div>
     </div>
   </div>
 
@@ -285,6 +285,15 @@
 
                 if (countEl) {
                     countEl.textContent = Number(data.total).toLocaleString() + ' entries';
+                }
+                // The four cards describe the same filtered period as the table
+                // (2026-10-27: they kept the first page load's numbers after
+                // Show All or any other live filter).
+                if (data.cards) {
+                    Object.entries(data.cards).forEach(([key, value]) => {
+                        const el = document.querySelector('[data-audit-card="' + key + '"]');
+                        if (el) el.textContent = Number(value).toLocaleString();
+                    });
                 }
                 if (pushState) window.history.pushState({}, '', url);
             })

@@ -233,6 +233,27 @@ class AuditTrailFilterTest extends TestCase
         $this->assertStringNotContainsString('Someone else did this', $rows);
     }
 
+    /** The stat cards ride with every live refresh, in the table's scope. */
+    public function test_a_live_refresh_carries_the_stat_cards_for_its_filter(): void
+    {
+        $admin = $this->admin();
+        $row = fn (string $action, string $when) => AuditTrail::create([
+            'user_id' => $admin->id, 'username' => $admin->name, 'role' => 'admin',
+            'action' => $action, 'details' => $action.' row',
+        ])->forceFill(['created_at' => $when])->save();
+
+        $row('Login', now()->toDateTimeString());
+        $row('Viewed', now()->toDateTimeString());
+        $row('Login', now()->subDays(3)->toDateTimeString());
+        $row('Logout', now()->subDays(3)->toDateTimeString());
+
+        $today = $this->actingAs($admin)->getJson('/audit')->assertOk()->json('cards');
+        $all = $this->actingAs($admin)->getJson('/audit?all=1')->assertOk()->json('cards');
+
+        $this->assertSame(['total' => 2, 'logins' => 1, 'logouts' => 0, 'views' => 1], $today);
+        $this->assertSame(['total' => 4, 'logins' => 2, 'logouts' => 1, 'views' => 1], $all);
+    }
+
     public function test_profiles_activity_link_is_scoped_to_the_viewers_own_account(): void
     {
         $admin = $this->admin();

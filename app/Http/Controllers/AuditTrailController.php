@@ -149,6 +149,14 @@ class AuditTrailController extends Controller
             return response()->json([
                 'html' => view('admin.audit._rows', compact('logs'))->render(),
                 'total' => $logs->total(),
+                // The stat cards, same scope as the table: the live refresh
+                // used to leave them on the first load's figures.
+                'cards' => [
+                    'total' => $logs->total(),
+                    'logins' => $loginCount,
+                    'logouts' => $logoutCount,
+                    'views' => $viewCount,
+                ],
                 // The range queried, so the date boxes can show a swapped pair.
                 'range' => [$request->input('date_from'), $request->input('date_to')],
             ]);
