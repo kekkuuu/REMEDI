@@ -2317,7 +2317,9 @@ shade area", same day): `trendBand()` pinches it on the forecast one month befor
 (2026-10-27, at the user's request: "hide all the actual value if it has a pair of forecasted")**: in all four tooltips
 (both trend charts, both product charts) a month carrying a forecast shows the Forecast alone, so the till's Aug–Oct
 actuals are no longer displayed; the join month (June) keeps its Actual, since the forecast there only repeats it.
-The till values still ride in the Actual dataset, so dropping that one filter brings them back.
+The till values still ride in the Actual dataset, so dropping that one filter brings them back. A Forecast hidden
+from the product page's legend pairs with nothing (logic pass, same day): the tooltip then shows the Actual rather
+than going blank for Aug–Oct.
 
 **The detail page's "Recommended reorder qty" covers the rest of THIS month too (2026-10-25, at the user's request).**
 It was next month's forecast + reorder level − sellable stock, so on the 25th it read "covered" for stock that runs out

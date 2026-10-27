@@ -485,7 +485,9 @@ function forecastTooltip(labels, joinKey, fmt) {
         filter: (item, i, items, data) => {
             if (item.dataset.label === 'Forecast') return item.dataIndex !== join;
             if (item.dataset.label !== 'Actual') return false;
-            const f = data.datasets.find((d) => d.label === 'Forecast');
+            // A forecast hidden from the legend pairs with nothing.
+            const fi = data.datasets.findIndex((d) => d.label === 'Forecast');
+            const f = fi >= 0 && item.chart.isDatasetVisible(fi) ? data.datasets[fi] : null;
             const paired = f && f.data[item.dataIndex] !== null && f.data[item.dataIndex] !== undefined;
             return !paired || item.dataIndex === join;
         },
