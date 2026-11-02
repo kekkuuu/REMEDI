@@ -44,7 +44,7 @@ class QrPaymentController extends Controller
 
         $validated = $request->validate([
             'items' => 'required|array|min:1',
-            'items.*.product_id' => ['required', Rule::exists('products', 'id')->whereNull('archived_at')],
+            'items.*.product_id' => ['bail', 'required', 'integer', Rule::exists('products', 'id')->whereNull('archived_at')],
             'items.*.quantity' => 'required|integer|min:1|max:'.self::MAX_COUNT,
             'payment_method' => ['required', Rule::in(Sale::EXACT_PAYMENT_METHODS)],
         ]);

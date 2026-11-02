@@ -86,17 +86,17 @@ class ProductController extends Controller
             // likeTerm() escapes the user's own % and _ — see Controller.
             $like = $this->likeTerm($search);
             $query->where(function ($q) use ($like) {
-                $q->where('name', 'like', $like)
-                    ->orWhere('sku', 'like', $like)
-                    ->orWhere('barcode', 'like', $like);
+                $q->whereLike('name', $like)
+                    ->orWhereLike('sku', $like)
+                    ->orWhereLike('barcode', $like);
             });
         }
 
-        if ($request->filled('category_id')) {
-            $query->where('category_id', $request->category_id);
+        if (is_numeric($request->get('category_id'))) {
+            $query->where('category_id', (int) $request->get('category_id'));
         }
 
-        $products = $query->orderBy('name')->paginate(10)->withQueryString();
+        $products = $query->orderBy('name')->orderBy('id')->paginate(10)->withQueryString();
         $categories = Category::orderBy('name')->get();
 
         if ($request->wantsJson() || $request->ajax()) {
@@ -130,7 +130,7 @@ class ProductController extends Controller
             'sku' => ['required', 'string', 'max:50', 'unique:products,sku', Rule::unique('products', 'barcode')],
             // An archived category is not offered by the pickers; refuse a
             // hand-posted id for one just the same.
-            'category_id' => ['required', Rule::exists('categories', 'id')->whereNull('archived_at')],
+            'category_id' => ['bail', 'required', 'integer', Rule::exists('categories', 'id')->whereNull('archived_at')],
             // Rule::in over the canonical list, not free text -- see
             // Product::UNITS for why the catalogue had a unit called "20".
             'unit' => ['required', Rule::in(Product::unitOptions())],
@@ -180,6 +180,7 @@ class ProductController extends Controller
             ->whereNotNull('received_date')
             ->whereNotNull('expiry_date')
             ->orderByDesc('received_date')
+            ->orderByDesc('id')
             ->first();
 
         if ($latestBatch) {
@@ -270,7 +271,7 @@ class ProductController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'sku' => ['required', 'string', 'max:50', 'unique:products,sku,'.$product->id, Rule::unique('products', 'barcode')->ignore($product->id)],
-            'category_id' => ['required', Rule::exists('categories', 'id')->whereNull('archived_at')],
+            'category_id' => ['bail', 'required', 'integer', Rule::exists('categories', 'id')->whereNull('archived_at')],
             // unitOptions($product->unit) rather than the bare list: one legacy
             // row has a unit of "20", and rejecting it here would make that
             // product uneditable until someone noticed why.

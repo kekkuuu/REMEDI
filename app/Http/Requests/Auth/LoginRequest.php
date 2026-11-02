@@ -41,7 +41,12 @@ class LoginRequest extends FormRequest
     {
         $this->ensureIsNotRateLimited();
 
-        if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
+        if (! Auth::attempt([
+            // Addresses are stored lower-case, and PostgreSQL compares them
+            // exactly where MySQL ignored case: "Admin@remedi.com" must still sign in.
+            'email' => Str::lower(trim((string) $this->input('email'))),
+            'password' => $this->input('password'),
+        ], $this->boolean('remember'))) {
             RateLimiter::hit($this->throttleKey());
 
             throw ValidationException::withMessages([

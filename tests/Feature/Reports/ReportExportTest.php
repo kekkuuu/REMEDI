@@ -39,8 +39,8 @@ class ReportExportTest extends TestCase
     {
         parent::setUp();
 
-        if (DB::connection()->getDriverName() !== 'mysql') {
-            $this->markTestSkipped('Report exports run MySQL-only aggregates; run this class against the MySQL database.');
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            $this->markTestSkipped('Report exports read the real catalogue; run this class against the MySQL or PostgreSQL database.');
         }
         if (! Product::query()->exists()) {
             $this->markTestSkipped('No catalogue in this database to export.');

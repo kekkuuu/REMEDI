@@ -128,12 +128,7 @@ def summarise(results, key):
 
 
 def product_names(env_path):
-    import pymysql
-
-    env = gf.db_credentials(env_path)
-    conn = pymysql.connect(host=env.get("DB_HOST", "127.0.0.1"), port=int(env.get("DB_PORT", 3306)),
-                           user=env.get("DB_USERNAME"), password=env.get("DB_PASSWORD"),
-                           database=env.get("DB_DATABASE"))
+    conn = gf.connect_db(gf.db_credentials(env_path))
     with conn.cursor() as cur:
         cur.execute("SELECT sku, name FROM products")
         names = dict(cur.fetchall())

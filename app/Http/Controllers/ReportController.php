@@ -363,7 +363,7 @@ class ReportController extends Controller
             'month' => 'nullable|date_format:Y-m',
             'period' => 'nullable|in:'.implode(',', self::PERIODS),
             'group' => 'nullable|in:'.implode(',', SalesHistory::GROUPS),
-            'category_id' => 'nullable|integer|exists:categories,id',
+            'category_id' => 'bail|nullable|integer|exists:categories,id',
             // A SKU, not an id: the filter field is a text input with a
             // <datalist> of every product (see reports/sales.blade.php),
             // since a <select> with 2,600+ options is unusable and this app
@@ -375,7 +375,7 @@ class ReportController extends Controller
             // A user id, not a name: rendered as a plain <select> (the staff
             // list is small, unlike the 2,600-product typeahead above) so the
             // value posted back is always one this exists() check can trust.
-            'cashier_id' => 'nullable|integer|exists:users,id',
+            'cashier_id' => 'bail|nullable|integer|exists:users,id',
         ]);
 
         // Reports run off `sales_history` -- the imported sales record, which
@@ -607,6 +607,7 @@ class ReportController extends Controller
                 ->whereDate('created_at', '<=', $end)
                 ->where('payment_voided', false)
                 ->orderBy('created_at')
+                ->orderBy('id')
                 ->get();
 
             // With a cashier picked, the whole report is theirs -- the trend
@@ -800,7 +801,7 @@ class ReportController extends Controller
         $expiredOnly = $status === 'expired';
         $okOnly = $status === 'ok';
 
-        $query = Product::with('category', 'batches')->orderBy('name');
+        $query = Product::with('category', 'batches')->orderBy('name')->orderBy('id');
 
         if ($categoryId) {
             $query->where('category_id', $categoryId);

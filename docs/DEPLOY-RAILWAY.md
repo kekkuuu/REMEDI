@@ -26,10 +26,16 @@ reuse those layers unless `composer.lock` or `requirements.txt` changes.
 **New** → **Database** → **Add MySQL**. In the same project, so the two share a
 private network and the app can reach it without egress charges.
 
-Take MySQL, not PostgreSQL. `App\Models\SalesHistory` uses `STRAIGHT_JOIN` in
-ten places — MySQL-only syntax, and load-bearing: it is what took the aggregate
-from 53.6s to 3.9s. Six other files use `DATE_FORMAT`, which Postgres does not
-have. Postgres would fail at runtime on the reports, not at deploy time.
+**Or PostgreSQL** (the app runs on either since 2026-11-02; `App\Support\Sql` holds
+what differs): **Add PostgreSQL** instead and set `DB_CONNECTION=pgsql`. See "Moving
+to PostgreSQL" at the end for an existing install.
+
+Create the database with ICU sorting, or mixed-case names sort differently from MySQL:
+
+```sql
+CREATE DATABASE remedi TEMPLATE template0 ENCODING 'UTF8'
+    LOCALE_PROVIDER icu ICU_LOCALE 'und' LOCALE 'C.UTF-8';
+```
 
 ## 3. Variables
 
@@ -175,3 +181,53 @@ Worth writing down, since it was tried first:
   references `@vite` — the Tailwind/PostCSS toolchain is inherited Breeze
   scaffolding and is inert. The build produced an asset nothing loads.
 - **Supabase is PostgreSQL**, and the two reasons under §2 apply.
+
+## Moving to Supabase (PostgreSQL)
+
+Chosen 2026-11-02, for cost: Vercel + a Singapore Supabase project, Railway dropped once
+that is proven. The steps under "Moving to PostgreSQL" below apply, with these changes:
+
+- **Connect through the session pooler**: port 5432 on the `pooler.supabase.com` host, user
+  `postgres.<project ref>`, database `postgres`, `DB_SSLMODE=require`. It takes IPv4 and
+  supports prepared statements. Port 6543 (transaction mode) does not support them, and the
+  app has prepared statements on, so do not use it without changing that.
+- **Use the `postgres` database Supabase provides**; skip the `CREATE DATABASE` above.
+- **Copy with `--without-archives`**: the free plan's quota is 500 MB and the archives stay in
+  the MySQL backup.
+- **Run `php artisan db:lock-public-tables` straight after the copy, and after any migration
+  that adds a table.** Tables in `public` can be reachable through Supabase's Data API, and
+  `users` holds password hashes.
+- **`vercel.json` is pinned to `sin1`** on this branch, beside the database. It must merge
+  together with the switch of Production's `DB_*`: Singapore against the European MySQL
+  would be far slower than today.
+- **Nothing runs the monthly forecast without Railway.** Vercel has no Python. Run both
+  commands by hand on the 1st, from a machine with the Python packages, against Supabase.
+- **A free project pauses after a week of low activity.** Open the site in the days before
+  anything that depends on it.
+
+## Moving to PostgreSQL
+
+Rehearsed locally on 2026-11-02, not yet run against the live hosts. Both drivers are in
+the image, so deploying this code changes nothing until `DB_CONNECTION` changes.
+
+1. Take a verified backup of MySQL (see "Gotchas": check the dump's terminator).
+2. Create the PostgreSQL database (the `CREATE DATABASE` above) and run
+   `php artisan migrate --force` with `DB_CONNECTION=pgsql` and `DB_*` pointing at it.
+3. Stop the till, so no sale lands in MySQL after the copy.
+4. With `SOURCE_DB_HOST` / `PORT` / `DATABASE` / `USERNAME` / `PASSWORD` pointing at MySQL:
+
+   ```bash
+   php artisan db:copy-mysql-to-postgres
+   ```
+
+   ```bash
+   php artisan db:copy-mysql-to-postgres --write
+   ```
+
+   The first is a dry run. MySQL is only read; the copy refuses a target already holding
+   rows. `sessions` and the cache are not copied, so everyone signs in again.
+5. Switch `DB_*` on **both** hosts. Vercel: confirm the PHP runtime has `pdo_pgsql` first.
+   Keep Vercel's function region next to the new database.
+6. Check the dashboard, a report, `/forecast`, a sale and a void. Leave MySQL untouched
+   until that has run for a while: switching `DB_*` back is the way back, but any sale
+   rung up on PostgreSQL in the meantime would not be in MySQL.

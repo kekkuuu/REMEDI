@@ -9,6 +9,7 @@ use App\Models\SalesHistory;
 use App\Models\Setting;
 use App\Support\ForecastGrade;
 use App\Support\ForecastHorizon;
+use App\Support\Sql;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -69,8 +70,8 @@ class DemandForecastService
             })
             ->when($search, fn ($q) => $q->where(function ($q) use ($search) {
                 $like = $this->likeTerm($search);
-                $q->where('products.name', 'like', $like)
-                    ->orWhere('products.sku', 'like', $like);
+                $q->whereLike('products.name', $like)
+                    ->orWhereLike('products.sku', $like);
             }))
             ->when($categoryId, fn ($q) => $q->where('products.category_id', $categoryId))
             ->select(
@@ -79,7 +80,7 @@ class DemandForecastService
                 'categories.name as category_name',
                 'products.archived_at as archived_at'
             )
-            ->orderBy('products.name')
+            ->orderBy('products.name')->orderBy('products.sku')
             ->paginate(50)
             // Page links keep ?search= / ?category=: without this, page 2 of a
             // filtered list was page 2 of the WHOLE catalogue (2026-09-30).
@@ -262,7 +263,7 @@ class DemandForecastService
             .' AVG(rmse) as rmse,'
             .' AVG(mape) as mape,'
             .' AVG(smape) as smape,'
-            .' SUM(mape IS NULL) as mape_undefined,'
+            .' COUNT(*) - COUNT(mape) as mape_undefined,'
             .' MAX(holdout_months) as holdout_months,'
             .' MAX(generated_at) as generated_at'
         )->first();
@@ -429,7 +430,7 @@ class DemandForecastService
         $actual = DB::table('sales_history')
             ->where('product_sku', $productSku)
             ->where('sale_date', '<=', $through)
-            ->selectRaw("DATE_FORMAT(sale_date, '%Y-%m') as month, SUM(quantity_sold) as total_qty")
+            ->selectRaw(Sql::yearMonth('sale_date').' as month, SUM(quantity_sold) as total_qty')
             ->groupBy('month')
             ->orderBy('month')
             ->pluck('total_qty', 'month');
@@ -483,7 +484,7 @@ class DemandForecastService
         $seasonal = DB::table('sales_history')
             ->where('product_sku', $productSku)
             ->where('sale_date', '<=', $through)
-            ->selectRaw('MONTH(sale_date) as month_num, YEAR(sale_date) as year_num, SUM(quantity_sold) as qty')
+            ->selectRaw(Sql::month('sale_date').' as month_num, '.Sql::year('sale_date').' as year_num, SUM(quantity_sold) as qty')
             ->groupBy('month_num', 'year_num')
             ->get()
             ->groupBy('month_num')

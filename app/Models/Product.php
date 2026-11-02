@@ -552,6 +552,7 @@ class Product extends Model
             ->whereNotNull('expiry_date')
             ->whereDate('expiry_date', '<=', today())
             ->orderBy('expiry_date')
+            ->orderBy('id')
             ->get();
     }
 

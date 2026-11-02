@@ -52,6 +52,7 @@ class BarcodeController extends Controller
 
         $products = Product::where('category_id', $data['category_id'])
             ->orderBy('name')
+            ->orderBy('id')
             ->limit(self::MAX_PRODUCTS)
             ->get(['id', 'name', 'sku', 'selling_price']);
 

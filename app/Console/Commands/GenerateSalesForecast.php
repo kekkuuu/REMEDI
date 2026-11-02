@@ -12,14 +12,14 @@ use Symfony\Component\Process\Process;
 class GenerateSalesForecast extends Command
 {
     /**
-     * php artisan sales-forecast:generate --source=mysql
+     * php artisan sales-forecast:generate --source=database
      * php artisan sales-forecast:generate --source=csv --sales-csv=database/data/all_transac_record.csv --price-csv=database/data/inventory_seeder.csv
      *
      * The --source=csv example used to point at database/seed/, a directory of
      * scratch copies that has been removed; the file it named never existed.
      */
     protected $signature = 'sales-forecast:generate
-        {--source=mysql : "mysql" to read live data, "csv" to bootstrap from a sales_history-shaped CSV}
+        {--source=database : "database" (or its old name "mysql") to read live data, "csv" to bootstrap from a sales_history-shaped CSV}
         {--sales-csv= : Path to a sales_history CSV (only used with --source=csv)}
         {--price-csv= : Path to the product master CSV, for unit-price -> revenue conversion (only used with --source=csv)}
         {--horizon=6 : Months ahead to forecast}

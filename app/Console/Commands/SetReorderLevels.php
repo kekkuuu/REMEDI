@@ -6,6 +6,7 @@ use App\Models\AuditTrail;
 use App\Models\Product;
 use App\Models\SalesHistory;
 use App\Services\AlertService;
+use App\Support\Sql;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -62,7 +63,7 @@ class SetReorderLevels extends Command
             ->where('sale_date', '<=', SalesHistory::reportableThrough())
             ->groupBy('product_sku')
             ->pluck(
-                DB::raw('SUM(quantity_sold) / COUNT(DISTINCT DATE_FORMAT(sale_date, "%Y-%m"))'),
+                DB::raw('SUM(quantity_sold) * 1.0 / COUNT(DISTINCT '.Sql::yearMonth('sale_date').')'),
                 'product_sku'
             );
 

@@ -5,7 +5,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## What this is
 
 REMEDI — a pharmacy point-of-sale + inventory system with SARIMA-based demand and sales
-forecasting. Laravel 12 backend, Blade + Alpine frontend, MySQL, plus a Python forecasting layer
+forecasting. Laravel 12 backend, Blade + Alpine frontend, MySQL or PostgreSQL, plus a Python forecasting layer
 invoked as a subprocess from Artisan commands. Runs under XAMPP on Windows (docroot `public/`).
 
 **`REMEDI.md` in the repo root is the deep reference** — ~2,570 lines of measured performance
@@ -519,6 +519,20 @@ said **"Last month with sales: 2026-06"** (and the detail page "Last complete mo
 Aug–Oct 2026 that the dashboard shows. It is where the record the forecast learns from ends -- the imported record
 alone while `forecast.include_pos` is off -- so both now read **"Forecast learned from sales through"**, and the list
 page adds "the imported sales record; the till's own sales are not used" while that setting is off.
+
+### MySQL and PostgreSQL (2026-11-02, at the user's request)
+**The same code runs on both; `DB_CONNECTION` chooses.** Local and live are still MySQL. `App\Support\Sql` is the one definition of the SQL that differs (`yearMonth()`, `firstOfMonth()`, `month()`, `year()`, `straightJoin()`, `like()`); any raw date or join-hint fragment goes through it. Python: `generate_forecasts.connect_db()` reads `DB_CONNECTION` (psycopg or pymysql; `load_from_mysql()` keeps its old name and reads either). `--source=database` is the name now, `--source=mysql` still works. **Moving an install: `php artisan db:copy-mysql-to-postgres` and the steps in `docs/DEPLOY-RAILWAY.md`.**
+
+What PostgreSQL does differently, each of which has already bitten once, so keep them in mind for new code:
+- **`like` is case-sensitive.** A search box uses `whereLike()` / `orWhereLike()`, never `where('x', 'like', ...)`; a raw fragment uses `Sql::like()`.
+- **A non-number compared to an id raises an error** (MySQL finds nothing), so it answers 500. Route ids are constrained by `Route::patterns()` at the top of `routes/web.php` (add a new model parameter there); `{product}` on `/forecast/{product}` is a SKU and exempt. An `exists:` rule on an id needs `bail` + `integer` first; a query parameter read as an id needs `is_numeric()`.
+- **Foreign keys get no index automatically.** Add one by hand on PostgreSQL (`2026_11_02_000001`): without them the till's scan index took 648 ms against MySQL's 74.
+- **No ORDER BY means no order, and a tied sort can come back either way.** Give any sort that can tie, and any list a slice is taken from, an `id` or SKU tie-break, or pages shuffle between requests.
+- **Integers divide to integers** (`SUM(x) / COUNT(y)` truncates; `* 1.0` first), **`SUM(a IS NULL)` does not exist**, **`HAVING alias` does not exist**, **`orderBy` on an aggregate query errors** (so no `orderBy` on a relation that gets `->sum()`), and **`SUM()` of integers comes back as an int, not a string**.
+- **Sorting depends on the database's collation.** Create it with ICU `und` (DEPLOY-RAILWAY.md); `C.UTF-8` puts every capital before every lower-case letter.
+- Known small difference left as is: a SKU differing only by case counts as a different code to the `unique` rule (the catalogue has no lower-case SKUs).
+
+**Testing on PostgreSQL: use a separate test database**, never the data copy, because `RefreshDatabase` wipes it. `Feature\DatabaseDialectTest` pins the list above. Verified 2026-11-02 against a local copy of 19 tables / 353,120 history rows: every row identical; the suite 493 passed / 11 skipped on both sqlite and PostgreSQL; `ReportExportTest` passed on PostgreSQL and MySQL; 135 page requests answered the same status on both, with the bodies identical apart from clocks, CSRF tokens and integers printed without quotes; all 31,656 forecast rows and 2,634 accuracy scores identical; the 80/20 evaluation identical to four decimals (MAE 0.7675 / RMSE 0.9939 / MAPE 8.423%). A backup restored into an empty database with matching row counts. Not exercised: the Docker image, Railway or Vercel on PostgreSQL.
 
 ### Laravel 10-style skeleton on Laravel 12
 `bootstrap/app.php` binds `App\Http\Kernel` / `App\Console\Kernel`; middleware aliases live in

@@ -6,6 +6,7 @@ use App\Models\DemandForecast;
 use App\Models\SalesForecast;
 use App\Models\SalesHistory;
 use App\Support\ForecastHorizon;
+use App\Support\Sql;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -79,7 +80,7 @@ class SalesForecastService
 
         $actualUnits = DB::table('sales_history')
             ->where('sale_date', '<=', $through)
-            ->selectRaw("DATE_FORMAT(sale_date, '%Y-%m') as month, SUM(quantity_sold) as total_qty")
+            ->selectRaw(Sql::yearMonth('sale_date').' as month, SUM(quantity_sold) as total_qty')
             ->groupBy('month')
             ->orderBy('month')
             ->pluck('total_qty', 'month');
@@ -89,7 +90,7 @@ class SalesForecastService
             ->where('sale_date', '<=', $through)
             // STRAIGHT_JOIN: see SalesHistory::monthlyRevenue -- the optimiser's
             // own plan for this join measures 53.6s against 3.9s forced.
-            ->selectRaw("STRAIGHT_JOIN DATE_FORMAT(sale_date, '%Y-%m') as month, SUM(sales_history.quantity_sold * products.selling_price) as total_revenue")
+            ->selectRaw(Sql::straightJoin().Sql::yearMonth('sale_date').' as month, SUM(sales_history.quantity_sold * products.selling_price) as total_revenue')
             ->groupBy('month')
             ->orderBy('month')
             ->pluck('total_revenue', 'month');
@@ -110,7 +111,7 @@ class SalesForecastService
         // product's current selling price (pricedForecast(), 2026-10-05).
         $forecastAgg = $this->pricedForecast()
             ->when($forecastCutoff, fn ($q) => $q->where('df.forecast_date', '>', $forecastCutoff))
-            ->selectRaw("DATE_FORMAT(df.forecast_date, '%Y-%m') as month,"
+            ->selectRaw(Sql::yearMonth('df.forecast_date').' as month,'
                 .' SUM(df.forecast_value) as units,'
                 .' SUM(df.lower_ci) as units_lo,'
                 .' SUM(df.upper_ci) as units_hi,'
@@ -148,6 +149,7 @@ class SalesForecastService
             ->selectRaw('product_sku, SUM(quantity_sold) as total_units')
             ->groupBy('product_sku')
             ->orderByDesc('total_units')
+            ->orderBy('product_sku')
             ->take(5)
             ->pluck('total_units', 'product_sku');
 
@@ -253,7 +255,7 @@ class SalesForecastService
         $actualUnits = DB::table('sales_history')
             ->where('product_sku', $productSku)
             ->where('sale_date', '<=', $through)
-            ->selectRaw("DATE_FORMAT(sale_date, '%Y-%m') as month, SUM(quantity_sold) as total_qty")
+            ->selectRaw(Sql::yearMonth('sale_date').' as month, SUM(quantity_sold) as total_qty')
             ->groupBy('month')
             ->orderBy('month')
             ->pluck('total_qty', 'month');

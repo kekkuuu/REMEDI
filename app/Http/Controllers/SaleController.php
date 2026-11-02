@@ -56,7 +56,7 @@ class SaleController extends Controller
             $request->validate(['search' => 'string|max:255']);
 
             // likeTerm() escapes the user's own % and _ — see Controller.
-            $query->where('transaction_no', 'like', $this->likeTerm($request->search));
+            $query->whereLike('transaction_no', $this->likeTerm($request->search));
         }
 
         // Validate the range, then order it. Neither was happening here, and

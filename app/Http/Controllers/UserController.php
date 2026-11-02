@@ -76,8 +76,8 @@ class UserController extends Controller
             // this way.
             $like = $this->likeTerm($request->search);
             $query->where(function ($q) use ($like) {
-                $q->where('name', 'like', $like)
-                    ->orWhere('email', 'like', $like);
+                $q->whereLike('name', $like)
+                    ->orWhereLike('email', $like);
             });
         }
 

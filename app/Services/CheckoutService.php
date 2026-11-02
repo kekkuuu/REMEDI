@@ -254,6 +254,7 @@ class CheckoutService
                     $batches = $line['product']->batches()
                         ->sellable()
                         ->orderBy('expiry_date', 'asc')
+                        ->orderBy('id')
                         ->lockForUpdate()
                         ->get();
 

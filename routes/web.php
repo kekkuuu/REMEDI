@@ -22,6 +22,11 @@ use App\Http\Controllers\SuggestController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
 
+// A route's id must look like one. PostgreSQL raises on /sales/abc or a 20-digit
+// id where MySQL simply finds nothing, and that error would answer 500 rather
+// than 404. 18 digits always fits a bigint.
+Route::patterns(array_fill_keys(['sale', 'user', 'product', 'batch', 'category', 'stockReport', 'qrPayment'], '[0-9]{1,18}'));
+
 // NOTE: do not run `php artisan route:cache` on this app. Caching the route
 // collection drops GET from this route's method list -- `/` then answers 405
 // with `allow: HEAD, POST, PUT, PATCH, DELETE, OPTIONS` -- which locks every
@@ -204,7 +209,8 @@ Route::middleware(['auth', 'active', 'must_change_password', 'personal_email'])-
 
         // Forecasting
         Route::get('/forecast', [DemandForecastController::class, 'index'])->name('forecast.index');
-        Route::get('/forecast/{product}', [DemandForecastController::class, 'show'])->name('forecast.show');
+        // {product} here is a SKU, not an id: the only route exempt from the id pattern below.
+        Route::get('/forecast/{product}', [DemandForecastController::class, 'show'])->where('product', '[^/]+')->name('forecast.show');
         Route::get('/sales-forecast', [SalesForecastController::class, 'index'])->name('sales-forecast.index');
 
         // Audit Trail

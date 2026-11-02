@@ -26,6 +26,12 @@ class BackupTest extends TestCase
 {
     use RefreshDatabase;
 
+    /** A table name as this connection's dump writes it. */
+    private function quoted(string $table): string
+    {
+        return DB::connection()->getDriverName() === 'pgsql' ? '"'.$table.'"' : '`'.$table.'`';
+    }
+
     private const PASSWORD = 'correct-horse-battery';
 
     private function confirmed(): array
@@ -131,9 +137,9 @@ class BackupTest extends TestCase
         }
 
         // Structure kept, rows dropped, for the tables that are about people.
-        $this->assertStringContainsString('DROP TABLE IF EXISTS `audit_trails`', $sql);
-        $this->assertStringNotContainsString('INSERT INTO `audit_trails`', $sql);
-        $this->assertStringNotContainsString('INSERT INTO `settings`', $sql);
+        $this->assertStringContainsString('DROP TABLE IF EXISTS '.$this->quoted('audit_trails'), $sql);
+        $this->assertStringNotContainsString('INSERT INTO '.$this->quoted('audit_trails'), $sql);
+        $this->assertStringNotContainsString('INSERT INTO '.$this->quoted('settings'), $sql);
     }
 
     public function test_no_sanitized_account_can_be_signed_into(): void
@@ -231,8 +237,8 @@ class BackupTest extends TestCase
         $zip->close();
 
         $this->assertStringContainsString('maria@remedi.com', $sql);
-        $this->assertStringContainsString('INSERT INTO `audit_trails`', $sql);
-        $this->assertStringContainsString('INSERT INTO `settings`', $sql);
+        $this->assertStringContainsString('INSERT INTO '.$this->quoted('audit_trails'), $sql);
+        $this->assertStringContainsString('INSERT INTO '.$this->quoted('settings'), $sql);
     }
 
     public function test_the_password_never_reaches_the_audit_trail(): void

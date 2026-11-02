@@ -19,10 +19,10 @@ WORKDIR /app
 # python3 for the forecasting layer; libpng/libjpeg/libwebp for GD, which
 # `php artisan logo:mark` needs to regenerate the inlined logo derivatives.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        libpng-dev libjpeg-dev libwebp-dev libfreetype6-dev libzip-dev \
+        libpng-dev libjpeg-dev libwebp-dev libfreetype6-dev libzip-dev libpq-dev \
         unzip git \
     && docker-php-ext-configure gd --with-jpeg --with-webp --with-freetype \
-    && docker-php-ext-install -j"$(nproc)" pdo_mysql gd zip bcmath \
+    && docker-php-ext-install -j"$(nproc)" pdo_mysql pdo_pgsql gd zip bcmath \
     && rm -rf /var/lib/apt/lists/*
 
 # ── Python dependencies ────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 COPY resources/python/requirements.txt /tmp/requirements.txt
 RUN uv venv --python 3.14.4 "$VIRTUAL_ENV" \
     && uv pip install --python "$VIRTUAL_ENV/bin/python" --no-cache -r /tmp/requirements.txt \
-    && "$VIRTUAL_ENV/bin/python3" -c "import numpy, scipy, pandas, statsmodels, pymysql"
+    && "$VIRTUAL_ENV/bin/python3" -c "import numpy, scipy, pandas, statsmodels, pymysql, psycopg"
 
 # ── PHP dependencies ───────────────────────────────────────────────────────
 COPY --from=composer:2 /usr/bin/composer /usr/bin/composer

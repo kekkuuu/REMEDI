@@ -13,7 +13,7 @@ use Symfony\Component\Process\Process;
 class GenerateDemandForecast extends Command
 {
     /**
-     * php artisan forecast:generate --source=mysql
+     * php artisan forecast:generate --source=database
      * php artisan forecast:generate --source=csv --csv-path=/path/to.csv --xls-path=/path/to.xls
      *
      * Forecasts are per-SKU demand (units customers are expected to buy),
@@ -22,7 +22,7 @@ class GenerateDemandForecast extends Command
      * customer demand.
      */
     protected $signature = 'forecast:generate
-        {--source=mysql : "mysql" to read live sales_history data, "csv" to bootstrap from receiving-report exports}
+        {--source=database : "database" (or its old name "mysql") to read live sales_history data, "csv" to bootstrap from receiving-report exports}
         {--csv-path= : Path to a receiving-report CSV (only used with --source=csv)}
         {--xls-path= : Path to a receiving-report XLS (only used with --source=csv)}
         {--horizon=6 : Months ahead to forecast}

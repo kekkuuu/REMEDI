@@ -431,7 +431,7 @@ def db_credentials(env_path: str | None) -> dict:
                 key, value = line.split("=", 1)
                 env[key.strip()] = value.strip().strip('"').strip("'")
 
-    for key in ("DB_HOST", "DB_PORT", "DB_USERNAME", "DB_PASSWORD", "DB_DATABASE"):
+    for key in ("DB_CONNECTION", "DB_HOST", "DB_PORT", "DB_USERNAME", "DB_PASSWORD", "DB_DATABASE"):
         if not env.get(key) and os.environ.get(key):
             env[key] = os.environ[key]
 
@@ -446,19 +446,38 @@ def db_credentials(env_path: str | None) -> dict:
     return env
 
 
-def load_from_mysql(env_path: str | None, include_pos: bool = False) -> pd.DataFrame:
-    """Read historical monthly units sold straight from the app's own database."""
+def connect_db(env: dict):
+    """A DB-API connection to whichever server DB_CONNECTION names (the app's own setting)."""
+    if env.get("DB_CONNECTION") == "pgsql":
+        import psycopg
+
+        return psycopg.connect(
+            host=env.get("DB_HOST", "127.0.0.1"),
+            port=int(env.get("DB_PORT", 5432)),
+            user=env.get("DB_USERNAME"),
+            password=env.get("DB_PASSWORD"),
+            dbname=env.get("DB_DATABASE"),
+        )
+
     import pymysql
 
-    env = db_credentials(env_path)
-
-    conn = pymysql.connect(
+    return pymysql.connect(
         host=env.get("DB_HOST", "127.0.0.1"),
         port=int(env.get("DB_PORT", 3306)),
         user=env.get("DB_USERNAME"),
         password=env.get("DB_PASSWORD"),
         database=env.get("DB_DATABASE"),
     )
+
+
+def load_from_mysql(env_path: str | None, include_pos: bool = False) -> pd.DataFrame:
+    """Read historical monthly units sold straight from the app's own database.
+
+    The name is historical: it reads from MySQL or PostgreSQL (see connect_db).
+    """
+    env = db_credentials(env_path)
+
+    conn = connect_db(env)
     # BOTH RECORDS, not just the imported one.
     #
     # `sales_history` stops the day before this terminal went live, so reading
@@ -502,7 +521,7 @@ def load_from_mysql(env_path: str | None, include_pos: bool = False) -> pd.DataF
         JOIN products ON products.id = sale_items.product_id
         WHERE products.archived_at IS NULL
           -- A voided sale was reversed and restocked: it is not demand.
-          AND sales.payment_voided = 0
+          AND sales.payment_voided = FALSE
         """
     df = pd.read_sql(query, conn)
     conn.close()
@@ -512,16 +531,7 @@ def load_from_mysql(env_path: str | None, include_pos: bool = False) -> pd.DataF
 
 def catalogue_skus(env_path: str | None) -> list:
     """Every product's SKU, archived ones included -- the whole catalogue."""
-    import pymysql
-
-    env = db_credentials(env_path)
-    conn = pymysql.connect(
-        host=env.get("DB_HOST", "127.0.0.1"),
-        port=int(env.get("DB_PORT", 3306)),
-        user=env.get("DB_USERNAME"),
-        password=env.get("DB_PASSWORD"),
-        database=env.get("DB_DATABASE"),
-    )
+    conn = connect_db(db_credentials(env_path))
     with conn.cursor() as cur:
         cur.execute("SELECT sku FROM products WHERE sku IS NOT NULL AND sku <> ''")
         skus = [str(r[0]) for r in cur.fetchall()]
@@ -1226,7 +1236,7 @@ def iter_forecasts(tasks, workers):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", choices=["csv", "mysql"], required=True)
+    parser.add_argument("--source", choices=["csv", "database", "mysql"], required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--horizon", type=int, default=6)
     parser.add_argument(
@@ -1369,7 +1379,7 @@ def main():
     # so each gets the zero forecast over the SAME window as everything else.
     # Not scored -- there is nothing to test it against -- so it never enters
     # the accuracy figures.
-    if args.source == "mysql":
+    if args.source != "csv":
         forecast_skus = {sku for sku, _ in products}
         never_sold = [sku for sku in catalogue_skus(args.env_path) if sku not in forecast_skus]
         for sku in never_sold:

@@ -25,7 +25,7 @@ return new class extends Migration
             ->leftJoin('product_batches', 'product_batches.product_id', '=', 'products.id')
             ->selectRaw('products.id, products.reorder_level, COALESCE(SUM(product_batches.quantity), 0) AS stock')
             ->groupBy('products.id', 'products.reorder_level')
-            ->havingRaw('stock <= 0')
+            ->havingRaw('COALESCE(SUM(product_batches.quantity), 0) <= 0')
             ->get();
 
         foreach ($empty as $row) {

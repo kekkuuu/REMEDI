@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AuditTrail;
 use App\Models\Setting;
+use App\Support\Sql;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -199,7 +200,10 @@ class BackupController extends Controller
         }
         fwrite($out, "-- sales_history and inventory_receipts are intentionally excluded (imported data\n");
         fwrite($out, "-- with their own source CSV). See BackupController::BACKUP_TABLES.\n\n");
-        fwrite($out, "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\n\n");
+        $postgres = Sql::isPostgres();
+        $quoted = fn (string $name) => $postgres ? '"'.$name.'"' : '`'.$name.'`';
+
+        fwrite($out, $postgres ? "BEGIN;\n\n" : "SET NAMES utf8mb4;\nSET FOREIGN_KEY_CHECKS=0;\n\n");
 
         // One unusable hash for every sanitized account: a bcrypt of random
         // bytes nobody kept, so no account in a test copy can be signed into
@@ -210,7 +214,7 @@ class BackupController extends Controller
             fwrite($out, "-- --------------------------------------------------\n");
             fwrite($out, "-- Table: {$table}\n");
             fwrite($out, "-- --------------------------------------------------\n");
-            fwrite($out, "DROP TABLE IF EXISTS `{$table}`;\n");
+            fwrite($out, 'DROP TABLE IF EXISTS '.$quoted($table).($postgres ? ' CASCADE' : '').";\n");
             fwrite($out, $this->createStatement($table).";\n\n");
 
             if ($sanitized && in_array($table, self::SANITIZED_EMPTY_TABLES, true)) {
@@ -219,7 +223,7 @@ class BackupController extends Controller
                 continue;
             }
 
-            DB::table($table)->orderBy('id')->chunkById(2000, function ($rows) use ($table, $pdo, $out, $sanitized, $deadHash) {
+            DB::table($table)->orderBy('id')->chunkById(2000, function ($rows) use ($table, $pdo, $out, $sanitized, $deadHash, $quoted) {
                 if ($rows->isEmpty()) {
                     return;
                 }
@@ -229,16 +233,35 @@ class BackupController extends Controller
                     $rows = $rows->map(fn ($row) => self::sanitizeRow($table, $row, $deadHash));
                 }
 
-                $columnList = '`'.implode('`, `', array_keys($rows->first())).'`';
+                $columnList = implode(', ', array_map($quoted, array_keys($rows->first())));
                 $valueGroups = $rows->map(fn ($row) => '('.implode(', ', array_map(
-                    fn ($v) => $v === null ? 'NULL' : $pdo->quote((string) $v),
+                    fn ($v) => match (true) {
+                        $v === null => 'NULL',
+                        is_bool($v) => $v ? 'TRUE' : 'FALSE',
+                        default => $pdo->quote((string) $v),
+                    },
                     $row
                 )).')')->implode(",\n");
 
-                fwrite($out, "INSERT INTO `{$table}` ({$columnList}) VALUES\n{$valueGroups};\n");
+                fwrite($out, 'INSERT INTO '.$quoted($table)." ({$columnList}) VALUES\n{$valueGroups};\n");
             });
 
             fwrite($out, "\n");
+        }
+
+        if ($postgres) {
+            // After the rows: foreign keys only once every table they point at
+            // is full, and each id counter past the highest id it now holds, or
+            // the first new sale after a restore collides with an old one.
+            foreach ($tables as $table) {
+                foreach ($this->postgresForeignKeys($table) as $statement) {
+                    fwrite($out, $statement.";\n");
+                }
+                fwrite($out, "SELECT setval('\"{$table}_id_seq\"', GREATEST((SELECT COALESCE(MAX(id), 0) FROM \"{$table}\"), 1));\n");
+            }
+            fwrite($out, "\nCOMMIT;\n");
+
+            return;
         }
 
         fwrite($out, "SET FOREIGN_KEY_CHECKS=1;\n");
@@ -289,7 +312,8 @@ class BackupController extends Controller
     /**
      * The table's own CREATE statement. MySQL answers SHOW CREATE TABLE;
      * the sqlite test database keeps the statement in sqlite_master, which is
-     * what lets the test suite check a real dump.
+     * what lets the test suite check a real dump; PostgreSQL has neither, so
+     * postgresCreateStatement() rebuilds it from the catalogue.
      */
     private function createStatement(string $table): string
     {
@@ -297,8 +321,81 @@ class BackupController extends Controller
             return (string) DB::table('sqlite_master')->where('type', 'table')->where('name', $table)->value('sql');
         }
 
+        if (Sql::isPostgres()) {
+            return $this->postgresCreateStatement($table);
+        }
+
         $row = (array) DB::selectOne("SHOW CREATE TABLE `{$table}`");
 
         return $row['Create Table'] ?? (string) reset($row);
+    }
+
+    /**
+     * CREATE SEQUENCE + CREATE TABLE + CREATE INDEX for one table: columns with
+     * their types and defaults, primary key, unique and check constraints, and
+     * every other index. Foreign keys come at the end of the dump instead.
+     */
+    private function postgresCreateStatement(string $table): string
+    {
+        $columns = DB::select(
+            "SELECT a.attname AS name, format_type(a.atttypid, a.atttypmod) AS type, a.attnotnull AS not_null,
+                    pg_get_expr(d.adbin, d.adrelid) AS default_value
+             FROM pg_attribute a
+             LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+             WHERE a.attrelid = ?::regclass AND a.attnum > 0 AND NOT a.attisdropped
+             ORDER BY a.attnum",
+            [$table]
+        );
+
+        $lines = array_map(
+            fn ($c) => '    "'.$c->name.'" '.$c->type
+                .($c->default_value !== null ? ' DEFAULT '.$c->default_value : '')
+                .($c->not_null ? ' NOT NULL' : ''),
+            $columns
+        );
+
+        $constraints = DB::select(
+            "SELECT conname, pg_get_constraintdef(oid) AS definition
+             FROM pg_constraint
+             WHERE conrelid = ?::regclass AND contype IN ('p', 'u', 'c')
+             ORDER BY contype, conname",
+            [$table]
+        );
+
+        foreach ($constraints as $constraint) {
+            $lines[] = '    CONSTRAINT "'.$constraint->conname.'" '.$constraint->definition;
+        }
+
+        $sql = "CREATE SEQUENCE IF NOT EXISTS \"{$table}_id_seq\";\n"
+            ."CREATE TABLE \"{$table}\" (\n".implode(",\n", $lines)."\n)";
+
+        // Constraint-backed indexes came with the constraints above.
+        $indexes = DB::select(
+            "SELECT indexdef FROM pg_indexes
+             WHERE schemaname = current_schema() AND tablename = ?
+               AND indexname NOT IN (SELECT conname FROM pg_constraint WHERE conrelid = ?::regclass)",
+            [$table, $table]
+        );
+
+        foreach ($indexes as $index) {
+            $sql .= ";\n".$index->indexdef;
+        }
+
+        return $sql;
+    }
+
+    /** @return list<string> ALTER TABLE statements for one table's foreign keys. */
+    private function postgresForeignKeys(string $table): array
+    {
+        $keys = DB::select(
+            "SELECT conname, pg_get_constraintdef(oid) AS definition
+             FROM pg_constraint WHERE conrelid = ?::regclass AND contype = 'f' ORDER BY conname",
+            [$table]
+        );
+
+        return array_map(
+            fn ($k) => "ALTER TABLE \"{$table}\" ADD CONSTRAINT \"{$k->conname}\" {$k->definition}",
+            $keys
+        );
     }
 }

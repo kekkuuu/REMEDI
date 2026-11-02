@@ -7,6 +7,7 @@ use App\Models\SalesHistory;
 use App\Services\AlertService;
 use App\Services\SalesForecastService;
 use App\Support\ForecastCache;
+use App\Support\Sql;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -198,8 +199,12 @@ class ImportSalesHistoryCsv extends Command
         //    Restore any of them with
         //    INSERT INTO sales_history SELECT * FROM <archive table>.
         $archive = 'sales_history_archive_'.now()->format('Ymd_His');
-        DB::statement("CREATE TABLE `{$archive}` LIKE sales_history");
-        DB::statement("INSERT INTO `{$archive}` SELECT * FROM sales_history");
+        DB::statement(Sql::isPostgres()
+            ? "CREATE TABLE \"{$archive}\" (LIKE sales_history INCLUDING ALL)"
+            : "CREATE TABLE `{$archive}` LIKE sales_history");
+        DB::statement(Sql::isPostgres()
+            ? "INSERT INTO \"{$archive}\" SELECT * FROM sales_history"
+            : "INSERT INTO `{$archive}` SELECT * FROM sales_history");
         $archived = DB::table($archive)->count();
 
         if ($archived !== $existing) {

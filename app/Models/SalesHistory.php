@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Sql;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
@@ -185,7 +186,7 @@ class SalesHistory extends Model
                 // aggregate below joins the same two tables and needs the same
                 // treatment.
                 ->selectRaw(
-                    "STRAIGHT_JOIN DATE_FORMAT(sale_date, '%Y-%m') as ym,"
+                    Sql::straightJoin().Sql::yearMonth('sale_date').' as ym,'
                     .' SUM(sales_history.quantity_sold * products.selling_price) as total'
                 )
                 ->groupBy('ym')
@@ -228,7 +229,7 @@ class SalesHistory extends Model
         return DB::table('sales')
             ->where('payment_voided', false)
             ->whereDate('created_at', '<=', static::reportableThrough())
-            ->selectRaw("DATE_FORMAT(created_at, '%Y-%m') AS ym, SUM(total_amount) AS total")
+            ->selectRaw(Sql::yearMonth('created_at').' AS ym, SUM(total_amount) AS total')
             ->groupBy('ym')
             ->pluck('total', 'ym')
             ->map(fn ($t) => (float) $t);
@@ -414,7 +415,9 @@ class SalesHistory extends Model
                 // Sorted once, then read from both ends: ranking "slowest" by a
                 // separate ORDER BY ASC over the same rows is the same list
                 // upside down, and doing it twice invited the two to disagree.
-                $sorted = $history->sortDesc();
+                // By SKU first, so products selling the same number keep one order: a
+                // tie is otherwise whatever order the database happened to return.
+                $sorted = $history->sortKeys()->sortDesc();
 
                 $names = DB::table('products')
                     ->whereIn('sku', $sorted->keys())
@@ -498,7 +501,7 @@ class SalesHistory extends Model
             ->where('sales.payment_voided', false)
             ->whereDate('sales.created_at', '<=', static::reportableThrough())
             ->when($sku !== null, fn ($q) => $q->where('products.sku', $sku))
-            ->selectRaw("DATE_FORMAT(sales.created_at, '%Y-%m') AS ym,"
+            ->selectRaw(Sql::yearMonth('sales.created_at').' AS ym,'
                 .' SUM(sale_items.quantity) AS units,'
                 .' SUM(sale_items.quantity * products.selling_price) AS revenue')
             ->groupBy('ym')
@@ -650,7 +653,7 @@ class SalesHistory extends Model
             ->whereBetween('sale_date', [$start, $end])
             ->selectRaw(
                 // STRAIGHT_JOIN: see monthlyRevenue.
-                'STRAIGHT_JOIN sale_date,'
+                Sql::straightJoin().'sale_date,'
                 .' SUM(sales_history.quantity_sold) AS units,'
                 .' COUNT(DISTINCT sales_history.product_sku) AS products,'
                 .' SUM(sales_history.quantity_sold * products.selling_price) AS revenue'
@@ -721,14 +724,14 @@ class SalesHistory extends Model
                 ->get();
         } else {
             $history = $historyQuery
-                ->selectRaw("DATE_FORMAT(sale_date, '%Y-%m-01') AS d, SUM(sales_history.quantity_sold * products.selling_price) AS revenue, SUM(sales_history.quantity_sold) AS units")
+                ->selectRaw(Sql::firstOfMonth('sale_date').' AS d, SUM(sales_history.quantity_sold * products.selling_price) AS revenue, SUM(sales_history.quantity_sold) AS units')
                 ->groupBy('d')
                 ->get();
         }
 
         $pos = ($granularity === 'day'
             ? $posQuery->selectRaw('DATE(sales.created_at) AS d, SUM(sale_items.subtotal) AS revenue, SUM(sale_items.quantity) AS units')->groupBy('d')
-            : $posQuery->selectRaw("DATE_FORMAT(sales.created_at, '%Y-%m-01') AS d, SUM(sale_items.subtotal) AS revenue, SUM(sale_items.quantity) AS units")->groupBy('d')
+            : $posQuery->selectRaw(Sql::firstOfMonth('sales.created_at').' AS d, SUM(sale_items.subtotal) AS revenue, SUM(sale_items.quantity) AS units')->groupBy('d')
         )->get();
 
         $byKey = collect();
@@ -826,7 +829,7 @@ class SalesHistory extends Model
             ->whereBetween('sale_date', [$start, $end])
             ->selectRaw(
                 // STRAIGHT_JOIN: see monthlyRevenue.
-                'STRAIGHT_JOIN sales_history.product_sku,'
+                Sql::straightJoin().'sales_history.product_sku,'
                 .' MAX(products.name) AS name,'
                 .' SUM(sales_history.quantity_sold) AS total_qty,'
                 .' SUM(sales_history.quantity_sold * products.selling_price) AS total_revenue'
@@ -914,7 +917,7 @@ class SalesHistory extends Model
             ->join('categories', 'categories.id', '=', 'products.category_id')
             ->whereBetween('sale_date', [$start, $end])
             ->selectRaw(
-                'STRAIGHT_JOIN categories.id AS category_id,'
+                Sql::straightJoin().'categories.id AS category_id,'
                 .' MAX(categories.name) AS name,'
                 .' SUM(sales_history.quantity_sold) AS total_qty,'
                 .' SUM(sales_history.quantity_sold * products.selling_price) AS total_revenue'
@@ -1050,7 +1053,7 @@ class SalesHistory extends Model
             ->whereBetween('sale_date', [$start, $end])
             ->selectRaw(
                 // STRAIGHT_JOIN: see monthlyRevenue.
-                "STRAIGHT_JOIN DATE_FORMAT(sale_date, '%Y-%m') AS ym,"
+                Sql::straightJoin().Sql::yearMonth('sale_date').' AS ym,'
                 .' SUM(sales_history.quantity_sold) AS units,'
                 .' COUNT(DISTINCT sales_history.product_sku) AS products,'
                 .' SUM(sales_history.quantity_sold * products.selling_price) AS revenue'

@@ -319,6 +319,7 @@ class DashboardController extends Controller
 
             $receiptTotals = InventoryReceipt::selectRaw('product_sku, SUM(qty) as total_qty')
                 ->groupBy('product_sku')
+                ->orderBy('product_sku')
                 ->pluck('total_qty', 'product_sku');
 
             $productsBySku = Product::whereIn('sku', $receiptTotals->keys())->get()->keyBy('sku');
@@ -473,10 +474,11 @@ class DashboardController extends Controller
         // per-product memo (is_medicine, the return window) was recomputed
         // per batch instead of per product. A batch whose product is archived
         // gets null, exactly as the eager load's soft-delete scope gave it.
-        $productsById = Product::with('category')->get()->keyBy('id');
+        $productsById = Product::with('category')->orderBy('id')->get()->keyBy('id');
 
         $activeBatches = ProductBatch::query()
             ->where(fn ($w) => $w->where('quantity', '>', 0)->orWhereNotNull('returned_at'))
+            ->orderBy('id')
             ->get()
             ->each(fn ($b) => $b->setRelation('product', $productsById->get($b->product_id)));
 

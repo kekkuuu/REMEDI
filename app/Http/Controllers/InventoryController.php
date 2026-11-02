@@ -32,9 +32,9 @@ class InventoryController extends Controller
             // likeTerm() escapes the user's own % and _ — see Controller.
             $like = $this->likeTerm($search);
             $query->where(function ($q) use ($like) {
-                $q->where('name', 'like', $like)
-                    ->orWhere('sku', 'like', $like)
-                    ->orWhere('barcode', 'like', $like);
+                $q->whereLike('name', $like)
+                    ->orWhereLike('sku', $like)
+                    ->orWhereLike('barcode', $like);
             });
         }
 
@@ -116,7 +116,7 @@ class InventoryController extends Controller
                 ->where('expiry_date', '<=', today()->addDays(120)));
         }
 
-        $products = $query->orderBy('name')->get();
+        $products = $query->orderBy('name')->orderBy('id')->get();
 
         // Point each batch back at the product it was loaded under. Without
         // this, ProductBatch::$return_days and $is_returnable both reach for

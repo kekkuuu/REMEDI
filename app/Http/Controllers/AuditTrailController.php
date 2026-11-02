@@ -70,10 +70,10 @@ class AuditTrailController extends Controller
             // likeTerm() escapes the user's own % and _ — see Controller.
             $like = $this->likeTerm($request->search);
             $query->where(function ($q) use ($like) {
-                $q->where('username', 'like', $like)
-                    ->orWhere('details', 'like', $like)
-                    ->orWhere('action', 'like', $like)
-                    ->orWhere('ip_address', 'like', $like);
+                $q->whereLike('username', $like)
+                    ->orWhereLike('details', $like)
+                    ->orWhereLike('action', $like)
+                    ->orWhereLike('ip_address', $like);
             });
         }
 
@@ -139,7 +139,7 @@ class AuditTrailController extends Controller
         $logoutCount = (clone $query)->where('action', 'Logout')->count();
         $viewCount = (clone $query)->where('action', 'Viewed')->count();
 
-        $logs = $query->orderByDesc('created_at')->paginate(20)->withQueryString();
+        $logs = $query->orderByDesc('created_at')->orderByDesc('id')->paginate(20)->withQueryString();
 
         // Live filtering swaps the table only; same shape the other list pages
         // return (see the AJAX partial pattern in REMEDI.md). Pagination is
@@ -187,7 +187,8 @@ class AuditTrailController extends Controller
         // Same filters the table is showing. The button sits beside them, so
         // "Export CSV" has to mean "export this", not "export everything".
         $query = $this->applyFilters($request, AuditTrail::query())
-            ->orderByDesc('created_at');
+            ->orderByDesc('created_at')
+            ->orderByDesc('id');
 
         $filename = 'audit-trail-'.now()->format('Y-m-d_His').'.csv';
 

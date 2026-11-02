@@ -6,6 +6,7 @@ use App\Models\AuditTrail;
 use App\Models\Product;
 use App\Models\Sale;
 use App\Models\User;
+use App\Support\Sql;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
@@ -53,12 +54,12 @@ class SuggestController extends Controller
 
         $rows = Product::query()
             ->with('category')
-            ->where(fn ($w) => $w->where('name', 'like', $like)
-                ->orWhere('sku', 'like', $like)
-                ->orWhere('barcode', 'like', $like))
+            ->where(fn ($w) => $w->whereLike('name', $like)
+                ->orWhereLike('sku', $like)
+                ->orWhereLike('barcode', $like))
             // Prefix matches first: typing "bio" should surface BIOGESIC
             // before something that merely contains "bio" mid-string.
-            ->orderByRaw('CASE WHEN name LIKE ? THEN 0 ELSE 1 END', [$q.'%'])
+            ->orderByRaw('CASE WHEN name '.Sql::like().' ? THEN 0 ELSE 1 END', [$q.'%'])
             ->orderBy('name')
             ->limit(self::LIMIT)
             ->get();
@@ -110,9 +111,10 @@ class SuggestController extends Controller
         }
 
         $rows = $query
-            ->where(fn ($w) => $w->where('transaction_no', 'like', $like)
-                ->orWhereHas('user', fn ($u) => $u->where('name', 'like', $like)))
+            ->where(fn ($w) => $w->whereLike('transaction_no', $like)
+                ->orWhereHas('user', fn ($u) => $u->whereLike('name', $like)))
             ->latest('created_at')
+            ->latest('id')
             ->limit(self::LIMIT)
             ->get();
 
@@ -137,7 +139,7 @@ class SuggestController extends Controller
         $like = $this->likeTerm($q);
 
         $rows = User::query()
-            ->where(fn ($w) => $w->where('name', 'like', $like)->orWhere('email', 'like', $like))
+            ->where(fn ($w) => $w->whereLike('name', $like)->orWhereLike('email', $like))
             ->orderBy('name')
             ->limit(self::LIMIT)
             ->get();
@@ -163,9 +165,10 @@ class SuggestController extends Controller
         $like = $this->likeTerm($q);
 
         $rows = AuditTrail::query()
-            ->where(fn ($w) => $w->where('username', 'like', $like)
-                ->orWhere('details', 'like', $like))
+            ->where(fn ($w) => $w->whereLike('username', $like)
+                ->orWhereLike('details', $like))
             ->latest()
+            ->latest('id')
             ->limit(self::LIMIT)
             ->get();
 

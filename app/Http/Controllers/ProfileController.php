@@ -30,6 +30,7 @@ class ProfileController extends Controller
             // entries, which the app does not record.
             'recentActivity' => AuditTrail::where('user_id', $user->id)
                 ->latest()
+                ->latest('id')
                 ->take(6)
                 ->get(),
         ]);

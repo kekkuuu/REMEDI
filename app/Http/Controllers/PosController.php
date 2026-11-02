@@ -8,6 +8,7 @@ use App\Services\AlertService;
 use App\Services\CheckoutService;
 use App\Services\PayMongo;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
 class PosController extends Controller
@@ -20,13 +21,13 @@ class PosController extends Controller
             // likeTerm() escapes the user's own % and _ — see Controller.
             $like = $this->likeTerm($search);
             $query->where(function ($q) use ($like) {
-                $q->where('name', 'like', $like)
-                    ->orWhere('sku', 'like', $like)
-                    ->orWhere('barcode', 'like', $like);
+                $q->whereLike('name', $like)
+                    ->orWhereLike('sku', $like)
+                    ->orWhereLike('barcode', $like);
             });
         }
 
-        $products = $query->orderBy('name')->paginate(12)->withQueryString();
+        $products = $query->orderBy('name')->orderBy('id')->paginate(12)->withQueryString();
 
         if ($request->wantsJson() || $request->ajax()) {
             return response()->json([
@@ -59,8 +60,9 @@ class PosController extends Controller
         // then fall back to SKU (in case a product has no barcode set
         // but its SKU happens to match what was scanned).
         $product = Product::with('batches')
-            ->where('barcode', $code)
-            ->orWhere('sku', $code)
+            // LOWER(): a typed "abc123" finds ABC123 on PostgreSQL too, as it always did on MySQL.
+            ->whereRaw('LOWER(barcode) = ?', [Str::lower($code)])
+            ->orWhereRaw('LOWER(sku) = ?', [Str::lower($code)])
             ->first();
 
         if (! $product) {
@@ -148,7 +150,7 @@ class PosController extends Controller
             'items' => 'required|array|min:1',
             // Not just any product row: an archived one is not sellable, and the
             // soft-delete scope would otherwise turn it into a 404 mid-checkout.
-            'items.*.product_id' => ['required', Rule::exists('products', 'id')->whereNull('archived_at')],
+            'items.*.product_id' => ['bail', 'required', 'integer', Rule::exists('products', 'id')->whereNull('archived_at')],
             'items.*.quantity' => 'required|integer|min:1|max:'.self::MAX_COUNT,
             // max: the column is decimal(10,2) and MySQL is strict, so an
             // unbounded amount was a 500 at the register. See MAX_MONEY.

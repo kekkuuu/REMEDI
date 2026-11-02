@@ -102,7 +102,7 @@ def db_credentials(env_path: str | None) -> dict:
                 key, value = line.split("=", 1)
                 env[key.strip()] = value.strip().strip('"').strip("'")
 
-    for key in ("DB_HOST", "DB_PORT", "DB_USERNAME", "DB_PASSWORD", "DB_DATABASE"):
+    for key in ("DB_CONNECTION", "DB_HOST", "DB_PORT", "DB_USERNAME", "DB_PASSWORD", "DB_DATABASE"):
         if not env.get(key) and os.environ.get(key):
             env[key] = os.environ[key]
 
@@ -118,17 +118,9 @@ def db_credentials(env_path: str | None) -> dict:
 
 
 def load_from_mysql(env_path: str | None, include_pos: bool = False) -> tuple[pd.DataFrame, dict]:
-    import pymysql
-
     env = db_credentials(env_path)
 
-    conn = pymysql.connect(
-        host=env.get("DB_HOST", "127.0.0.1"),
-        port=int(env.get("DB_PORT", 3306)),
-        user=env.get("DB_USERNAME"),
-        password=env.get("DB_PASSWORD"),
-        database=env.get("DB_DATABASE"),
-    )
+    conn = gf.connect_db(env)
     # BOTH RECORDS, not just the imported one.
     #
     # `sales_history` stops the day before this terminal went live, so reading
@@ -163,7 +155,7 @@ def load_from_mysql(env_path: str | None, include_pos: bool = False) -> tuple[pd
         JOIN products ON products.id = sale_items.product_id
         WHERE products.archived_at IS NULL
           -- A voided sale was reversed and restocked: it is not demand.
-          AND sales.payment_voided = 0
+          AND sales.payment_voided = FALSE
         """
     sales_df = pd.read_sql(query, conn)
     price_df = pd.read_sql("SELECT sku, selling_price FROM products", conn)
@@ -246,7 +238,7 @@ def iter_forecasts(tasks, workers):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--source", choices=["csv", "mysql"], required=True)
+    parser.add_argument("--source", choices=["csv", "database", "mysql"], required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--horizon", type=int, default=6)
     parser.add_argument("--env-path", default=None)
@@ -373,7 +365,7 @@ def main():
     # generate_forecasts.py: nothing for SARIMA to fit, so 0 units and PHP 0
     # over the same window, carried as method "no_history". `prices` holds
     # every product in the catalogue, archived ones included.
-    if args.source == "mysql":
+    if args.source != "csv":
         forecast_skus = {sku for sku, _ in products}
         never_sold = [sku for sku in prices if sku and sku not in forecast_skus]
         for sku in never_sold:

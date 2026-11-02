@@ -99,6 +99,7 @@ class AlertService
                 ->where('quantity', '>', 0)
                 ->whereNotNull('expiry_date')
                 ->where('expiry_date', '<=', $today->copy()->addDays(120))
+                ->orderBy('id')
                 ->get();
 
             // Keep the collections, not just their counts: the bell lists the
@@ -131,7 +132,7 @@ class AlertService
             // any other stock expired on the shelf. It counted medicine only.
             $missed = $batches->filter(fn ($b) => $b->missed_return)->unique('product_id')->count();
 
-            $lowProducts = Product::with('batches')->get()
+            $lowProducts = Product::with('batches')->orderBy('id')->get()
                 // Same rule the Inventory low-stock tab filters on. This
                 // alert LINKS there, so a different definition would make
                 // the badge promise a number the list does not show.

@@ -38,11 +38,11 @@ case "${APP_DEBUG}" in
 esac
 
 # ── Wait for the database ──────────────────────────────────────────────────
-# Railway starts the app and MySQL together, so the first migrate can land
-# before the database accepts connections. Twelve tries at five seconds is a
-# minute, longer than a cold MySQL takes to come up.
+# Railway starts the app and its database together, so the first migrate can
+# land before the database accepts connections. Twelve tries at five seconds is
+# a minute, longer than a cold database takes to come up.
 tries=0
-until php -r 'new PDO("mysql:host=".getenv("DB_HOST").";port=".(getenv("DB_PORT") ?: 3306), getenv("DB_USERNAME"), getenv("DB_PASSWORD"));' 2>/dev/null; do
+until php -r '$pg = getenv("DB_CONNECTION") === "pgsql"; new PDO(($pg ? "pgsql:dbname=".getenv("DB_DATABASE").";" : "mysql:")."host=".getenv("DB_HOST").";port=".(getenv("DB_PORT") ?: ($pg ? 5432 : 3306)), getenv("DB_USERNAME"), getenv("DB_PASSWORD"));' 2>/dev/null; do
     tries=$((tries + 1))
     if [ "$tries" -ge 12 ]; then
         echo "!! database unreachable at ${DB_HOST}:${DB_PORT:-3306} after 60s"
