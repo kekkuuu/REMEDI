@@ -764,7 +764,7 @@
         }
 
         .sidebar-footer {
-            padding: 14px 20px;
+            padding: 14px 12px;
             border-top: 0.5px solid var(--nav-line);
         }
 
@@ -772,7 +772,7 @@
             display: flex;
             align-items: center;
             gap: 11px;
-            padding: 9px 0;
+            padding: 9px 15px;
             color: var(--nav-fg);
             text-decoration: none;
             font-size: 15px;
@@ -790,7 +790,7 @@
             display: flex;
             align-items: center;
             gap: 11px;
-            padding: 9px 0;
+            padding: 9px 15px;
             width: 100%;
             font-family: inherit;
         }
@@ -3212,7 +3212,7 @@
             /* Reclaim horizontal room: the sidebar narrows and drops its
                labels to icons only. */
             .sidebar { --sb-w: 216px; }
-            .sidebar a, .nav-link-btn { font-size: 14px; padding: 10px 12px; }
+            .sidebar a, .nav-link-btn, .logout-btn { font-size: 14px; padding: 10px 12px; }
             /* The rule above also caught the category links (`.sidebar a`
                outranks `.nav-sublink`) and made them LARGER than on a wide
                screen in a narrower sidebar, so names broke mid-word. */
