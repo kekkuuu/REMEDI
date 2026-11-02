@@ -184,7 +184,7 @@ Worth writing down, since it was tried first:
 
 ## Moving to Supabase (PostgreSQL)
 
-Chosen 2026-11-02, for cost: Vercel + a Singapore Supabase project, Railway dropped once
+Chosen 2026-11-02, for cost: Vercel + a Supabase project in Paris (`eu-west-3`), Railway dropped once
 that is proven. The steps under "Moving to PostgreSQL" below apply, with these changes:
 
 - **Connect through the session pooler**: port 5432 on the `pooler.supabase.com` host, user
@@ -197,9 +197,9 @@ that is proven. The steps under "Moving to PostgreSQL" below apply, with these c
 - **Run `php artisan db:lock-public-tables` straight after the copy, and after any migration
   that adds a table.** Tables in `public` can be reachable through Supabase's Data API, and
   `users` holds password hashes.
-- **`vercel.json` is pinned to `sin1`** on this branch, beside the database. It must merge
-  together with the switch of Production's `DB_*`: Singapore against the European MySQL
-  would be far slower than today.
+- **`vercel.json` is pinned to `fra1`**, the nearest region to the Paris database. Each page
+  makes many database trips, so the function must sit beside the database. A project in
+  Singapore with `sin1` would be much closer to the Philippines, if it is ever moved.
 - **Nothing runs the monthly forecast without Railway.** Vercel has no Python. Run both
   commands by hand on the 1st, from a machine with the Python packages, against Supabase.
 - **A free project pauses after a week of low activity.** Open the site in the days before
