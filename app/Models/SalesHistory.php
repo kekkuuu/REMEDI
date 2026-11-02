@@ -570,16 +570,28 @@ class SalesHistory extends Model
     }
 
     /**
-     * Every month that has data, newest first:
+     * Every month from the first sale through this one, newest first:
      * [ ['ym' => '2026-08', 'label' => 'Aug 2026'], ... ]
-     * Drives the month pickers on the report pages.
+     * Drives the month pickers on the report pages. A month with no sales is
+     * still offered: "nothing sold in July" is an answer, and leaving it out
+     * made this month impossible to pick until its first sale.
      */
     public static function availableMonths(): Collection
     {
-        return static::monthlyRevenue()
-            ->map(fn ($row) => ['ym' => $row['ym'], 'label' => $row['label']])
-            ->reverse()
-            ->values();
+        $first = static::monthlyRevenue()->first();
+
+        if (! $first) {
+            return collect();
+        }
+
+        $months = collect();
+        $thisMonth = Carbon::parse(static::reportableThrough())->startOfMonth();
+
+        for ($m = Carbon::createFromFormat('Y-m-d', $first['ym'].'-01')->startOfDay(); $m->lte($thisMonth); $m->addMonthNoOverflow()) {
+            $months->prepend(['ym' => $m->format('Y-m'), 'label' => $m->format('M Y')]);
+        }
+
+        return $months;
     }
 
     /**

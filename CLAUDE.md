@@ -1915,7 +1915,7 @@ are present (which also covers a hand-edited URL carrying both).
 
 **Date pickers must not offer days that have not happened.** The seeded history runs to the end of
 the current month, so `max="{{ $dataEnd }}"` on the report inputs offered future days; they now cap
-at `min($dataEnd, today)`. The sales list's two inputs cap at today for the same reason — a sale
+at today (2026-11-02, at the user's request: `min($dataEnd, today)` greyed out every day after the last sale, so a quiet month could not be picked at all; Analytics' month list runs through this month for the same reason). The sales list's two inputs cap at today for the same reason — a sale
 cannot have been rung up tomorrow.
 
 **The audit trail's date presets must build dates from LOCAL parts, never `toISOString()`.** That

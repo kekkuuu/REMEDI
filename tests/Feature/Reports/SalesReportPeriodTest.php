@@ -3,9 +3,13 @@
 namespace Tests\Feature\Reports;
 
 use App\Http\Controllers\ReportController;
+use App\Models\Category;
+use App\Models\Product;
+use App\Models\SalesHistory;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 /**
@@ -103,5 +107,44 @@ class SalesReportPeriodTest extends TestCase
         [, $atc] = ReportController::atvAtc(1000.0, 5, '2026-09-01', '2026-09-01');
 
         $this->assertSame(5.0, $atc);
+    }
+
+    private function productSoldOn(string ...$days): Product
+    {
+        $product = Product::create([
+            'category_id' => Category::create(['name' => 'Picker test'])->id,
+            'name' => 'PICKER PRODUCT', 'sku' => 'PICK1', 'barcode' => 'PICK1', 'unit' => 'PCS',
+            'selling_price' => 10, 'reorder_level' => 5,
+        ]);
+
+        foreach ($days as $day) {
+            DB::table('sales_history')->insert(['product_sku' => $product->sku, 'sale_date' => $day, 'quantity_sold' => 1]);
+        }
+
+        return $product;
+    }
+
+    /** However old the last sale is, today can still be picked. */
+    public function test_the_date_pickers_reach_today_however_old_the_last_sale_is(): void
+    {
+        Carbon::setTestNow('2026-11-02 12:00:00');
+        $this->productSoldOn('2026-06-30');
+
+        $this->actingAs(User::factory()->admin()->create())->get('/reports/sales')
+            ->assertOk()
+            ->assertSee('max="2026-11-02"', false)
+            ->assertDontSee('max="2026-06-30"', false);
+    }
+
+    /** A month with no sales, and this month before its first sale, can both be picked. */
+    public function test_the_month_list_runs_unbroken_from_the_first_sale_through_this_month(): void
+    {
+        Carbon::setTestNow('2026-11-02 12:00:00');
+        $this->productSoldOn('2026-06-30', '2026-08-15');
+
+        $months = SalesHistory::availableMonths();
+
+        $this->assertSame(['2026-11', '2026-10', '2026-09', '2026-08', '2026-07', '2026-06'], $months->pluck('ym')->all());
+        $this->assertSame('Nov 2026', $months->first()['label']);
     }
 }
