@@ -835,8 +835,8 @@
 
                 <div class="field">
                     <label for="phone">Phone Number</label>
-                    <input id="phone" type="text" name="phone" value="{{ old('phone', $user->phone) }}"
-                           placeholder="+63 912 345 6789">
+                    <input id="phone" type="tel" name="phone" value="{{ old('phone', $user->phone) }}"
+                           placeholder="0917 123 4567">
                     @error('phone')<p class="err">{{ $message }}</p>@enderror
                 </div>
 

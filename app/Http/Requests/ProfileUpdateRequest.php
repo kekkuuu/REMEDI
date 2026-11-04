@@ -3,6 +3,7 @@
 namespace App\Http\Requests;
 
 use App\Models\User;
+use App\Rules\PhilippineMobile;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -41,7 +42,7 @@ class ProfileUpdateRequest extends FormRequest
     {
         $rules = [
             'name' => ['required', 'string', 'max:255'],
-            'phone' => ['nullable', 'string', 'max:40'],
+            'phone' => ['bail', 'nullable', 'string', 'max:40', new PhilippineMobile],
             // Editable by EVERY role, unlike `email` below which only an admin
             // may change. It is a personal inbox, not an identity: it is where
             // a password reset code is sent, so an account that cannot change

@@ -18,6 +18,7 @@
     .form-card.is-compact .form-field-head label { font-size: 13.5px; }
     .form-card.is-compact .form-field input[type="text"],
     .form-card.is-compact .form-field input[type="email"],
+    .form-card.is-compact .form-field input[type="tel"],
     .form-card.is-compact .form-field input[type="password"],
     .form-card.is-compact .form-field select { padding: 8px 11px; font-size: 13.5px; border-radius: 9px; }
     .form-card.is-compact .form-actions { margin-top: 16px; padding-top: 14px; }
@@ -113,8 +114,8 @@
                     <span class="form-chip"><i class="ti ti-phone" aria-hidden="true"></i></span>
                     <label for="phone">Phone Number</label>
                 </div>
-                <input type="text" id="phone" name="phone" value="{{ old('phone', $user->phone) }}"
-                       placeholder="Enter phone number">
+                <input type="tel" id="phone" name="phone" value="{{ old('phone', $user->phone) }}"
+                       placeholder="0917 123 4567">
                 @error('phone')<p class="err">{{ $message }}</p>@enderror
             </div>
 

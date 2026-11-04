@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\AuditTrail;
 use App\Models\User;
+use App\Rules\PhilippineMobile;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
@@ -144,7 +145,7 @@ class UserController extends Controller
             // account should be bound by the same rule the account holder
             // is, not a looser one just because this form has no other use
             // for FormRequest.
-            'phone' => 'nullable|string|max:40',
+            'phone' => ['bail', 'nullable', 'string', 'max:40', new PhilippineMobile],
             // Where a password reset code is emailed -- a personal inbox the
             // account holder can reach while locked OUT, unlike the
             // @remedi.com address above. Not unique: two people may share a

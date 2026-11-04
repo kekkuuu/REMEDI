@@ -158,8 +158,8 @@
                  change until it supplied one. --}}
             <div class="field">
                 <label for="phone">Phone Number</label>
-                <input type="text" id="phone" name="phone" value="{{ old('phone') }}"
-                       placeholder="+63 912 345 6789" required>
+                <input type="tel" id="phone" name="phone" value="{{ old('phone') }}"
+                       placeholder="0917 123 4567" required>
                 @error('phone')<p class="err">{{ $message }}</p>@enderror
             </div>
         </div>

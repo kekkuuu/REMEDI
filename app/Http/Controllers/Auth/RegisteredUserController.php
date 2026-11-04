@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Mail\NewAccountCredentialsMail;
 use App\Models\AuditTrail;
 use App\Models\User;
+use App\Rules\PhilippineMobile;
 use Illuminate\Auth\Events\Registered;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -61,7 +62,7 @@ class RegisteredUserController extends Controller
             // on the phone) and can ask, whereas making it required on the
             // profile form would lock an existing account out of saving any
             // change until it supplied one. Same max as the column (40).
-            'phone' => ['required', 'string', 'max:40'],
+            'phone' => ['bail', 'required', 'string', 'max:40', new PhilippineMobile],
             // A PERSONAL inbox: where the sign-in details are sent, since the
             // @remedi.com address is only a login name with no mailbox behind it.
             // REQUIRED here since 2026-11-04, at the user's request, because the

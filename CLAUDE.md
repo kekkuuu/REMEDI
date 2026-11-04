@@ -415,6 +415,7 @@ a surface that needs the same answer, call it rather than re-deriving it.
 | Tables keyed on `products.sku` with no foreign key | `ProductController::SKU_KEYED_TABLES` |
 | What counts as medicine; which categories cannot be renamed | `Category::MEDICINE`, `Category::RULE_DRIVING_NAMES` |
 | The unit list both product forms render | `Product::UNITS` / `Product::unitOptions()` |
+| A Philippine mobile number, however it is typed | `App\Rules\PhilippineMobile` |
 | Every state-changing write's record | `AuditTrail::log()` |
 | The actions the audit filter may offer | `AuditTrail::ACTIONS` / `canonicalAction()` |
 | A new batch number: product letters + received date | `ProductBatch::nextBatchNumber()` |
@@ -3201,6 +3202,8 @@ name with no mailbox -- so Personal Email is REQUIRED on Add User. The mail is s
 is no account (422 through `actionFailed()`), rather than a login nobody was told about. The password never reaches the audit
 trail. With `MAIL_MAILER=log` (local) the mail, password included, lands in `storage/logs/laravel.log`. Railway blocks SMTP, so
 Add User only works where mail can leave (Vercel). `Feature\Auth\AddUserCredentialsMailTest`.
+
+**The phone field takes Philippine mobile numbers only (2026-11-04, at the user's request; it took any text up to 40 characters).** `App\Rules\PhilippineMobile` on Add User, Edit User and My Profile: 09171234567, 0917-123-4567, +63 917 123 4567, 639171234567 or 9171234567. Stored as typed, blank still allowed where it was. An existing bad number is refused the next time that form saves it. `Feature\Auth\PhilippinePhoneTest`.
 
 **Personal Email is asked of the ACCOUNT HOLDER on sign-in (2026-10-23, at the user's request).** Optional when an admin
 edits an account (Edit User stays `nullable`; Add User has required it since 2026-11-04), so this catches accounts created
