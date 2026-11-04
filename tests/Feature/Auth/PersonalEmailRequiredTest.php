@@ -8,31 +8,15 @@ use Tests\TestCase;
 
 /**
  * Personal Email (2026-10-23, at the user's request): OPTIONAL when an admin
- * creates or edits an account, and asked of the account holder on sign-in --
+ * edits an account, and asked of the account holder on sign-in --
  * EnsureUserHasPersonalEmail sends an account without one to My Profile, where
  * a pop-up that cannot be dismissed asks for it, until it is saved. My Profile
  * itself requires it. It is where the account's own reset code is emailed.
+ * Add User has required it since 2026-11-04: see AddUserCredentialsMailTest.
  */
 class PersonalEmailRequiredTest extends TestCase
 {
     use RefreshDatabase;
-
-    public function test_add_user_creates_an_account_without_one(): void
-    {
-        $admin = User::factory()->admin()->create();
-
-        $this->actingAs($admin)->post('/register', [
-            'name' => 'Jane Cruz',
-            'email' => 'jane@remedi.com',
-            'role' => 'staff',
-            'phone' => '09171234567',
-            'personal_email' => '',
-            'password' => 'password123',
-            'password_confirmation' => 'password123',
-        ])->assertSessionHasNoErrors();
-
-        $this->assertNull(User::where('email', 'jane@remedi.com')->value('personal_email'));
-    }
 
     public function test_edit_user_may_leave_it_blank(): void
     {
@@ -135,14 +119,14 @@ class PersonalEmailRequiredTest extends TestCase
         $this->assertNull($user->fresh()->personal_email);
     }
 
-    public function test_only_my_profile_marks_it_required(): void
+    public function test_my_profile_and_add_user_mark_it_required_and_edit_user_does_not(): void
     {
         $admin = User::factory()->admin()->create();
         $staff = User::factory()->create();
         $required = '/<input[^>]*name="personal_email"[^>]*\srequired/s';
 
         $this->assertMatchesRegularExpression($required, $this->actingAs($admin)->get('/profile')->getContent());
-        $this->assertDoesNotMatchRegularExpression($required, $this->actingAs($admin)->get('/register')->getContent());
+        $this->assertMatchesRegularExpression($required, $this->actingAs($admin)->get('/register')->getContent());
         $this->assertDoesNotMatchRegularExpression($required, $this->actingAs($admin)->get('/users/'.$staff->id.'/edit')->getContent());
     }
 }

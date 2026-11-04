@@ -95,12 +95,12 @@
     <p class="section-title">Account Details</p>
 
     {{-- data-confirm-strict: a stray click on the backdrop must not
-         silently discard the account (and the password just typed into
-         it) -- see the comment on the confirmModal mousedown handler in
-         layouts/app.blade.php. Cancel and Escape both still work. --}}
+         silently discard the account just typed in -- see the comment on
+         the confirmModal mousedown handler in layouts/app.blade.php. Cancel
+         and Escape both still work. --}}
     <form method="POST" action="{{ route('register') }}"
           class="js-confirm" data-confirm-tone="neutral" data-confirm-icon="ti-user-plus"
-          data-confirm-title="Create this account?" data-confirm-body="A new account will be created with the role selected above."
+          data-confirm-title="Create this account?" data-confirm-body="A new account will be created, and its sign-in details with a generated password will be emailed to the personal email you entered."
           data-confirm-label="Create account" data-confirm-strict="true">
         @csrf
 
@@ -141,15 +141,13 @@
 
             {{-- The address above is the @remedi.com one this account signs in
                  with, and it only exists inside the system. This is a personal
-                 one the person can actually read when they are locked OUT --
-                 it is where an admin's password-reset code is emailed (see
-                 PasswordResetRequestController). Optional, because an account
-                 can be created before you have it; an admin with none saved
-                 just falls back to asking another admin. --}}
+                 one the person can actually read: their sign-in details are
+                 sent here, so it is required. --}}
             <div class="field">
                 <label for="personal_email">Personal Email</label>
                 <input type="email" id="personal_email" name="personal_email" value="{{ old('personal_email') }}"
-                       placeholder="name@gmail.com" autocomplete="off">
+                       placeholder="name@gmail.com" autocomplete="off" required>
+                <p style="margin:4px 0 0; font-size:12px; color:#64748b;">The sign-in email and a generated password are emailed here.</p>
                 @error('personal_email')<p class="err">{{ $message }}</p>@enderror
             </div>
 
@@ -163,34 +161,6 @@
                 <input type="text" id="phone" name="phone" value="{{ old('phone') }}"
                        placeholder="+63 912 345 6789" required>
                 @error('phone')<p class="err">{{ $message }}</p>@enderror
-            </div>
-
-            <div class="field">
-                <label for="password">Password</label>
-                <div class="pw-wrap">
-                    <input type="password" id="password" name="password"
-                           placeholder="Enter password" required>
-                    <button type="button" class="pw-toggle" data-pw-toggle="password"
-                            aria-label="Show password"><i class="ti ti-eye" aria-hidden="true"></i></button>
-                </div>
-                {{-- Delegated in layouts/app.blade.php's document 'input'
-                     listener, same pattern as .pw-toggle -- see the
-                     comment there. --}}
-                <div class="pw-strength" data-pw-strength-for="password" hidden>
-                    <div class="pw-strength-bar"><span></span></div>
-                    <span class="pw-strength-label"></span>
-                </div>
-                @error('password')<p class="err">{{ $message }}</p>@enderror
-            </div>
-
-            <div class="field">
-                <label for="password_confirmation">Confirm Password</label>
-                <div class="pw-wrap">
-                    <input type="password" id="password_confirmation" name="password_confirmation"
-                           placeholder="Confirm password" required>
-                    <button type="button" class="pw-toggle" data-pw-toggle="password_confirmation"
-                            aria-label="Show password"><i class="ti ti-eye" aria-hidden="true"></i></button>
-                </div>
             </div>
         </div>
 

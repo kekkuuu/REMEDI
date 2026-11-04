@@ -60,7 +60,7 @@ class UserPhoneTest extends TestCase
         $this->assertNull(User::where('email', 'nophone@remedi.com')->first());
     }
 
-    public function test_add_user_saves_an_optional_personal_email(): void
+    public function test_add_user_saves_the_personal_email(): void
     {
         $this->actingAs($this->admin())->post('/register', [
             'personal_email' => 'someone@gmail.com',
