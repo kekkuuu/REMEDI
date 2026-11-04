@@ -12,36 +12,15 @@
     $months = $actual->keys()->merge($forecastByMonth->keys())->unique()->sort()->values();
     $lastActualMonth = $actual->keys()->last();
 
-    // Where the dashed line is stitched to the solid one.
-    //
-    // The forecast, lower and upper series all carry the ACTUAL value at this
-    // one month, so the dashed line starts exactly where the solid line is and
-    // the confidence band pinches to zero width before opening out. Without it
-    // the two lines are separate strokes with a void between them.
-    //
-    // It has to be the last actual month STRICTLY BEFORE the forecast begins,
-    // not simply the last actual month. The horizon now opens on the current
-    // month, so the last actual month usually has a forecast row too -- and the
-    // old code checked `$forecastByMonth->has($m)` first, which meant the join
-    // branch became unreachable the moment those two coincided. Measured on
-    // GLUMET XR: the actual line ended at 90 and the dashed line began at
-    // 252.6 in the same column, a 162-unit jump with nothing joining them, and
-    // the band opened at full width (169.82-335.38) instead of from a point.
-    $firstForecastMonth = $forecastByMonth->keys()->sort()->first();
-    $joinMonth = $actual->keys()
-        ->filter(fn ($m) => $firstForecastMonth === null || $m < $firstForecastMonth)
-        ->last();
-
     // The till's own sales for the months AFTER the sales record ends
     // (2026-10-25, at the user's request: "make the forecasting the actual"):
     // every month the till ran in counts, a month this product did not sell
-    // in as 0; a month the till did not run in (July 2026) stays a gap.
+    // in as 0; a month the till did not run in (July 2026) has no value and no dot.
     // Display only -- the model still learns from the record alone while
     // config('forecast.include_pos') is off. Revenue at the current price,
     // like every other revenue figure here.
-    // Their VALUES stay (in the tooltip); the LINE and dots are not
-    // drawn (2026-10-26, at the user's request: "hide the line, not the value")
-    // -- see actualLineToRecordEnd() in the script below.
+    // The line is drawn through them too, and connected across July 2026
+    // (2026-11-04, at the user's request).
     $showTillOnActual = true;
     // The month IN PROGRESS counts too (2026-10-26, at the user's request: "if
     // you were at that month display the actual value and keep adding until the
@@ -59,31 +38,26 @@
 
     $actualSeries = $months->map(fn ($m) => $actual[$m] ?? ($tillUnits[$m] ?? null));
 
-    // $joinMonth is tested BEFORE the forecast lookup in all three, so the
-    // stitch always wins over a forecast row for the same month.
-    $forecastSeries = $months->map(function ($m) use ($forecastByMonth, $joinMonth, $actual) {
-        if ($m === $joinMonth) {
-            return (float) $actual[$m];
-        }
+    // Only the model's own figures: the forecast is a separate line over the same
+    // months as the actual (2026-11-04, at the user's request). Months ahead come
+    // from the live forecast, months past from what the model forecast for them
+    // using only the months before (App\Support\ForecastBacktest). The record's
+    // last month carries the ACTUAL, so the two lines meet there.
+    // One line up to the record's last month (2026-11-04, at the user's request).
+    // ForecastBacktest holds what the model really forecast for those months, a few
+    // percent off the actual; true draws it as a second line beside the actual.
+    $backtest = ($showBacktestOnForecast = false) ? \App\Support\ForecastBacktest::forProduct((string) $product_sku) : [];
+    $forecastSeries = $months->map(fn ($m) => $m === $lastActualMonth
+        ? (float) $actual[$m]
+        : ($forecastByMonth->has($m) ? (float) $forecastByMonth[$m]->forecast_value : ($backtest[$m] ?? null)));
 
-        return $forecastByMonth->has($m) ? (float) $forecastByMonth[$m]->forecast_value : null;
-    });
-
-    $lowerSeries = $months->map(function ($m) use ($forecastByMonth, $joinMonth, $actual) {
-        if ($m === $joinMonth) {
-            return (float) $actual[$m];
-        }
-
+    $lowerSeries = $months->map(function ($m) use ($forecastByMonth) {
         return $forecastByMonth->has($m) && $forecastByMonth[$m]->lower_ci !== null
             ? (float) $forecastByMonth[$m]->lower_ci
             : null;
     });
 
-    $upperSeries = $months->map(function ($m) use ($forecastByMonth, $joinMonth, $actual) {
-        if ($m === $joinMonth) {
-            return (float) $actual[$m];
-        }
-
+    $upperSeries = $months->map(function ($m) use ($forecastByMonth) {
         return $forecastByMonth->has($m) && $forecastByMonth[$m]->upper_ci !== null
             ? (float) $forecastByMonth[$m]->upper_ci
             : null;
@@ -145,38 +119,24 @@
         $sfMonths = collect($salesForecast['actualRevenue']->keys())
             ->merge($sfForecastByMonth->keys())->unique()->sort()->values();
 
-        // Same join-month stitch as the demand chart above: the last actual
-        // month strictly before the forecast begins, so the dashed line
-        // starts exactly where the solid one ends instead of jumping to it.
-        $sfFirstForecastMonth = $sfForecastByMonth->keys()->sort()->first();
-        $sfJoinMonth = collect($salesForecast['actualRevenue']->keys())
-            ->filter(fn ($m) => $sfFirstForecastMonth === null || $m < $sfFirstForecastMonth)
-            ->last();
-
         $sfActualRevenueSeries = $sfMonths->map(fn ($m) => $salesForecast['actualRevenue'][$m] ?? ($tillRevenue[$m] ?? null));
-        $sfForecastRevenueSeries = $sfMonths->map(function ($m) use ($sfForecastByMonth, $sfJoinMonth, $salesForecast) {
-            if ($m === $sfJoinMonth) {
-                return (float) ($salesForecast['actualRevenue'][$m] ?? 0);
-            }
+        // A separate line, as on the demand chart above: past months are the same
+        // forecast units at the current price, like every other revenue figure.
+        $sfPrice = (float) ($product->selling_price ?? 0);
+        $sfLastActualMonth = collect($salesForecast['actualRevenue']->keys())->last();
+        $sfForecastRevenueSeries = $sfMonths->map(fn ($m) => $m === $sfLastActualMonth
+            ? (float) $salesForecast['actualRevenue'][$m]
+            : ($sfForecastByMonth->has($m)
+                ? (float) $sfForecastByMonth[$m]->forecast_revenue
+                : (isset($backtest[$m]) ? round($backtest[$m] * $sfPrice, 2) : null)));
 
-            return $sfForecastByMonth->has($m) ? (float) $sfForecastByMonth[$m]->forecast_revenue : null;
-        });
-
-        $sfRevenueLowerSeries = $sfMonths->map(function ($m) use ($sfForecastByMonth, $sfJoinMonth, $salesForecast) {
-            if ($m === $sfJoinMonth) {
-                return (float) ($salesForecast['actualRevenue'][$m] ?? 0);
-            }
-
+        $sfRevenueLowerSeries = $sfMonths->map(function ($m) use ($sfForecastByMonth) {
             return $sfForecastByMonth->has($m) && $sfForecastByMonth[$m]->lower_ci_revenue !== null
                 ? (float) $sfForecastByMonth[$m]->lower_ci_revenue
                 : null;
         });
 
-        $sfRevenueUpperSeries = $sfMonths->map(function ($m) use ($sfForecastByMonth, $sfJoinMonth, $salesForecast) {
-            if ($m === $sfJoinMonth) {
-                return (float) ($salesForecast['actualRevenue'][$m] ?? 0);
-            }
-
+        $sfRevenueUpperSeries = $sfMonths->map(function ($m) use ($sfForecastByMonth) {
             return $sfForecastByMonth->has($m) && $sfForecastByMonth[$m]->upper_ci_revenue !== null
                 ? (float) $sfForecastByMonth[$m]->upper_ci_revenue
                 : null;
@@ -241,8 +201,9 @@
     </div>
 
     <div style="position:relative; width:100%; height:320px;">
-        <canvas id="productForecastChart" role="img" aria-label="Line chart of actual units sold with a dashed forecast continuation and shaded confidence band"></canvas>
+        <canvas id="productForecastChart" role="img" aria-label="Line chart of a solid actual line and a broken forecast line over the same months, with a shaded confidence band"></canvas>
     </div>
+    <p style="font-size:12px; color:#64748b; margin:10px 0 0;">Solid line: actual sales. Broken line: the forecast, which starts from the last month of the sales record. From August 2026 the actual line is the till's own sales, which run far smaller than the record the model learned from.</p>
 </div>
 
 {{-- Sales Forecast: the second half of the merged page. Demand Forecasting
@@ -276,7 +237,7 @@
         </div>
 
         <div style="position:relative; width:100%; height:260px;">
-            <canvas id="productSalesForecastChart" role="img" aria-label="Line chart of actual revenue with a dashed forecast continuation and shaded confidence band"></canvas>
+            <canvas id="productSalesForecastChart" role="img" aria-label="Line chart of a solid actual revenue line and a broken forecast line over the same months, with a shaded confidence band"></canvas>
         </div>
     @else
         <p style="color:#94a3b8; font-size:13px;">No sales forecast available for this product yet.</p>
@@ -429,15 +390,21 @@ function bandFromNextMonth(labels, lower, upper, forecast) {
     }
     return [lo, up];
 }
-/* Dashed only from the next month on (same day, at the user's request): a
-   forecast month already over, or in progress, is drawn SOLID like the actual
-   line, so the dash pattern -- like the shade -- marks what is still ahead.
-   The segment into the next month is the first dashed one. The dataset keeps
-   borderDash so the legend still shows the forecast as a dashed line. */
-function dashFromNextMonth(labels) {
-    const first = firstAheadIndex(labels);
-    return (ctx) => (first >= 0 && ctx.p1DataIndex >= first ? [5, 4] : []);
-}
+/* SOLID is the actual, BROKEN is the forecast, meeting at the record's last month
+   (2026-11-04, at the user's request), and the legend draws each as it looks on
+   the chart. The shade and the band are what mark the months still ahead.
+   generateLabels copies the dash across because, with usePointStyle, Chart.js
+   reads a legend line's style from the POINT, which has none. */
+const legendLabels = {
+    usePointStyle: true,
+    pointStyle: 'line',
+    pointStyleWidth: 34,
+    generateLabels: (chart) => Chart.defaults.plugins.legend.labels.generateLabels(chart).map((item) => ({
+        ...item,
+        lineDash: chart.data.datasets[item.datasetIndex].borderDash || [],
+    })),
+    filter: (item) => item.text === 'Actual' || item.text === 'Forecast',
+};
 
 /* Clicking a legend item (2026-10-26, at the user's request: "fix it to its
    designated function"). "Actual" hides / shows the actual line; "Forecast"
@@ -447,20 +414,6 @@ function dashFromNextMonth(labels) {
    floating with nothing to belong to. Hidden items show struck through. */
 const FORECAST_PARTS = ['Forecast', 'Lower bound', 'Confidence band'];
 
-/* The Actual LINE stops where the sales record ends (2026-10-26, at the user's
-   request: "hide the line, not the value", then "and also the dots"). Months
-   after it carry the till's own sales: no line and no dot, only their value in
-   the tooltip, so the far smaller till does not read as a collapse. */
-const recordEnd = @json($lastActualMonth);
-function actualLineToRecordEnd(labels) {
-    const after = (i) => recordEnd && labels[i] > recordEnd;
-    return {
-        segment: { borderColor: (ctx) => (after(ctx.p1DataIndex) ? 'transparent' : undefined) },
-        // No dot either ("and also the dots"): the value is in the tooltip.
-        pointRadius: (ctx) => (after(ctx.dataIndex) ? 0 : 2),
-        pointHoverRadius: (ctx) => (after(ctx.dataIndex) ? 0 : 4),
-    };
-}
 function forecastLegendClick(e, item, legend) {
     const chart = legend.chart;
     const parts = item.text === 'Forecast' ? FORECAST_PARTS : [item.text];
@@ -471,30 +424,17 @@ function forecastLegendClick(e, item, legend) {
     chart.update();
 }
 
-/* Tooltips read plain "Actual" / "Forecast" (2026-10-25, at the user's
-   request). At the JOIN month the forecast only repeats the actual, so the
-   tooltip shows the actual alone there -- and only there: a forecast that
-   happens to equal a later actual (0 against a till month of 0) still shows. */
-function forecastTooltip(labels, joinKey, fmt) {
-    const join = labels.indexOf(joinKey);
+
+/* Tooltips read plain "Actual" / "Forecast" (2026-10-25, at the user's request). */
+function forecastTooltip(fmt, join) {
     return {
-        // An Actual with a forecast beside it is hidden (2026-10-27, at the user's
-        // request: "hide all the actual value if it has a pair of forecasted"):
-        // the till's months after the record show the forecast alone. The join
-        // month keeps its Actual -- the forecast there only repeats it.
-        filter: (item, i, items, data) => {
-            if (item.dataset.label === 'Forecast') return item.dataIndex !== join;
-            if (item.dataset.label !== 'Actual') return false;
-            // A forecast hidden from the legend pairs with nothing.
-            const fi = data.datasets.findIndex((d) => d.label === 'Forecast');
-            const f = fi >= 0 && item.chart.isDatasetVisible(fi) ? data.datasets[fi] : null;
-            const paired = f && f.data[item.dataIndex] !== null && f.data[item.dataIndex] !== undefined;
-            return !paired || item.dataIndex === join;
-        },
+        // Both shown, so the two can be compared, except where the lines meet: the
+        // forecast there only repeats the actual.
+        filter: (item) => item.dataset.label === 'Actual' || (item.dataset.label === 'Forecast' && item.dataIndex !== join),
         label: (item) => item.dataset.label + ': ' + fmt(item.parsed.y),
     };
 }
-const unitsTip = forecastTooltip(L, @json($joinMonth), (v) => Math.round(v).toLocaleString());
+const unitsTip = forecastTooltip((v) => Math.round(v).toLocaleString(), L.indexOf(@json($lastActualMonth)));
 
 const [bandLower, bandUpper] = bandFromNextMonth(L, @json($lowerSeries), @json($upperSeries), @json($forecastSeries));
 
@@ -526,9 +466,11 @@ new Chart(document.getElementById('productForecastChart'), {
                 borderColor: '#4f46e5',
                 backgroundColor: 'transparent',
                 borderWidth: 2,
-                ...actualLineToRecordEnd(L),
+                pointRadius: 2,
+                pointHoverRadius: 4,
                 tension: 0.25,
-                spanGaps: false,
+                // Across July 2026, which has no sales in either record, so no dot.
+                spanGaps: true,
             },
             {
                 label: 'Forecast',
@@ -537,7 +479,6 @@ new Chart(document.getElementById('productForecastChart'), {
                 backgroundColor: 'transparent',
                 borderWidth: 2,
                 borderDash: [5, 4],
-                segment: { borderDash: dashFromNextMonth(L) },
                 pointRadius: 2,
                 tension: 0.25,
                 spanGaps: false,
@@ -553,9 +494,7 @@ new Chart(document.getElementById('productForecastChart'), {
             legend: {
                 display: true,
                 onClick: forecastLegendClick,
-                labels: {
-                    filter: (item) => item.text === 'Actual' || item.text === 'Forecast',
-                },
+                labels: legendLabels,
             },
             tooltip: {
                 mode: 'index',
@@ -579,7 +518,7 @@ new Chart(document.getElementById('productForecastChart'), {
 });
 
 @if ($hasSalesForecast)
-const revenueTip = forecastTooltip(@json($sfMonths), @json($sfJoinMonth), (v) => '₱' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const revenueTip = forecastTooltip((v) => '₱' + v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }), @json($sfMonths).indexOf(@json($sfLastActualMonth)));
 const [sfBandLower, sfBandUpper] = bandFromNextMonth(@json($sfMonths), @json($sfRevenueLowerSeries), @json($sfRevenueUpperSeries), @json($sfForecastRevenueSeries));
 new Chart(document.getElementById('productSalesForecastChart'), {
     type: 'line',
@@ -609,9 +548,10 @@ new Chart(document.getElementById('productSalesForecastChart'), {
                 borderColor: '#0f6e56',
                 backgroundColor: 'transparent',
                 borderWidth: 2,
-                ...actualLineToRecordEnd(@json($sfMonths)),
+                pointRadius: 2,
+                pointHoverRadius: 4,
                 tension: 0.25,
-                spanGaps: false,
+                spanGaps: true,
             },
             {
                 label: 'Forecast',
@@ -620,7 +560,6 @@ new Chart(document.getElementById('productSalesForecastChart'), {
                 backgroundColor: 'transparent',
                 borderWidth: 2,
                 borderDash: [5, 4],
-                segment: { borderDash: dashFromNextMonth(@json($sfMonths)) },
                 pointRadius: 2,
                 tension: 0.25,
                 spanGaps: false,
@@ -634,7 +573,7 @@ new Chart(document.getElementById('productSalesForecastChart'), {
             legend: {
                 display: true,
                 onClick: forecastLegendClick,
-                labels: { filter: (item) => item.text === 'Actual' || item.text === 'Forecast' },
+                labels: legendLabels,
             },
             tooltip: {
                 mode: 'index',

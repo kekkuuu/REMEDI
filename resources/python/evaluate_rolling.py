@@ -86,10 +86,60 @@ def r2(v):
     return None if v is None else round(v, 2)
 
 
+def store_revenue_walk(env_path, monthly, index):
+    """The whole store's revenue walked forward: units at each product's current price, as everywhere."""
+    conn = gf.connect_db(gf.db_credentials(env_path))
+    prices = pd.read_sql("SELECT sku, selling_price FROM products", conn)
+    conn.close()
+    price = dict(zip(prices["sku"].astype(str), prices["selling_price"].astype(float)))
+    revenue = monthly["qty"] * monthly["product_sku"].astype(str).map(price).fillna(0)
+    return walk_forward(revenue.groupby(monthly["month"]).sum().sort_index().reindex(index, fill_value=0))
+
+
+def write_chart_file(path, results, series_end, store_units, store_revenue):
+    """The broken line's past months, 2026-11-04 (at the user's request: both lines over the same months).
+
+    {"months": [...], "products": {sku: [index of its first month, [units, ...]]}, "store": {...}}:
+    one shared month list and an offset per product, because repeating "2024-01" on every row made
+    the file four times the size. A month whose fit failed is null, so the positions still line up.
+
+    "store" is the WHOLE STORE walked forward as one series, not the products added up: a product
+    needs 13 months of sales first, so that sum leaves products out until April 2025 while the
+    actual total counts them (August 2023 read 52% low, against 7.8% on the products it covered).
+    """
+    months = sorted({p[0] for _, pts in results for p in pts})
+    position = {m: i for i, m in enumerate(months)}
+    products = {}
+    for sku, pts in results:
+        by_month = {p[0]: int(round(p[2])) for p in pts}
+        first, last = position[pts[0][0]], position[pts[-1][0]]
+        products[str(sku)] = [first, [by_month.get(months[i]) for i in range(first, last + 1)]]
+
+    payload = {
+        "generated_at": pd.Timestamp.now().strftime("%Y-%m-%d %H:%M"),
+        "horizon": "1 month ahead",
+        "record_end": series_end.strftime("%Y-%m"),
+        "months": months,
+        "products": products,
+        "store": {
+            "units": {p[0]: int(round(p[2])) for p in store_units},
+            "revenue": {p[0]: round(p[2], 2) for p in store_revenue},
+        },
+    }
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, separators=(",", ":"))
+        f.write("\n")
+    print(f"Chart file: {len(products)} products, {months[0]} to {months[-1]}, {os.path.getsize(path) / 1024:.0f} KB", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--env-path", default=None)
     parser.add_argument("--output", required=True, help="Summary JSON")
+    parser.add_argument("--chart", default=None,
+                        help="Also write each product's monthly forecasts here, for the forecast charts' "
+                             "past months (App\\Support\\ForecastBacktest)")
     parser.add_argument("--include-pos", action="store_true")
     parser.add_argument("--workers", type=int, default=1, help="0 = all cores but one, 1 = sequential")
     args = parser.parse_args()
@@ -172,6 +222,9 @@ def main():
     with open(args.output, "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
         f.write("\n")
+
+    if args.chart:
+        write_chart_file(args.chart, results, series_end, store, store_revenue_walk(args.env_path, monthly, total.index))
 
     s, p = summary["storewide"], summary["per_product"]
     print(f"\nWalk-forward, one month ahead, {summary['first_month']} to {summary['last_month']}:")

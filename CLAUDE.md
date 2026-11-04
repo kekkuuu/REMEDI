@@ -521,7 +521,7 @@ alone while `forecast.include_pos` is off -- so both now read **"Forecast learne
 page adds "the imported sales record; the till's own sales are not used" while that setting is off.
 
 ### MySQL and PostgreSQL (2026-11-02, at the user's request)
-**The same code runs on both; `DB_CONNECTION` chooses.** Local and live are still MySQL. `App\Support\Sql` is the one definition of the SQL that differs (`yearMonth()`, `firstOfMonth()`, `month()`, `year()`, `straightJoin()`, `like()`); any raw date or join-hint fragment goes through it. Python: `generate_forecasts.connect_db()` reads `DB_CONNECTION` (psycopg or pymysql; `load_from_mysql()` keeps its old name and reads either). `--source=database` is the name now, `--source=mysql` still works. **Moving an install: `php artisan db:copy-mysql-to-postgres` and the steps in `docs/DEPLOY-RAILWAY.md`.**
+**The same code runs on both; `DB_CONNECTION` chooses.** Local is MySQL; live has been PostgreSQL on Supabase (Paris, reached from Vercel `fra1`) since 2026-11-02, loaded from the LOCAL data rather than the old live database, and Railway is out of use. `App\Support\Sql` is the one definition of the SQL that differs (`yearMonth()`, `firstOfMonth()`, `month()`, `year()`, `straightJoin()`, `like()`); any raw date or join-hint fragment goes through it. Python: `generate_forecasts.connect_db()` reads `DB_CONNECTION` (psycopg or pymysql; `load_from_mysql()` keeps its old name and reads either). `--source=database` is the name now, `--source=mysql` still works. **Moving an install: `php artisan db:copy-mysql-to-postgres` and the steps in `docs/DEPLOY-RAILWAY.md`.**
 
 What PostgreSQL does differently, each of which has already bitten once, so keep them in mind for new code:
 - **`like` is case-sensitive.** A search box uses `whereLike()` / `orWhereLike()`, never `where('x', 'like', ...)`; a raw fragment uses `Sql::like()`.
@@ -2296,15 +2296,24 @@ twin) — actual revenue is `quantity_sold * products.selling_price` at the CURR
 "a price edit rewrites historical revenue" convention as every other revenue figure in the app, scoped
 to one SKU so no `STRAIGHT_JOIN` is needed the way the store-wide aggregate does.
 
-**The dashed forecast is stitched to the solid actual at `$joinMonth`, and that month must be
-STRICTLY BEFORE the first forecast month.** All three forecast series (value, lower, upper) carry the
-ACTUAL value there, so the dashed line starts exactly where the solid one is and the confidence band
-pinches to zero width before opening out. The old code tested `$forecastByMonth->has($m)` first and
-fell back to `$m === $lastActualMonth` — which worked only while the horizon began strictly after the
-last actual. Once it opened on the current month those two coincided, the join branch became
-unreachable, and the two lines rendered as separate strokes: on GLUMET XR the actual ended at 90 while
-the dashed line began at 252.6 in the same column, and the band opened at full width (169.82–335.38)
-instead of from a point. Test `$joinMonth` BEFORE the forecast lookup, never after.
+**One line up to June 2026, two after it, on all four charts (2026-11-04, worked out with the user over several rounds): each
+chart keeps its original colour, width, dots and curve, Actual solid, Forecast broken, meeting at the record's last month.**
+The forecast series carry the ACTUAL at that month and the tooltip shows the Actual alone there. After it, the Actual line runs
+through the till's months to the current one (`$showTillOnActual`), connected across July 2026 (`spanGaps`), which has no sales
+in either record and so no dot; it falls sharply because the till is far smaller than the record, and the caption says so. The
+tooltip gives both figures, with no difference line (removed at the user's request). Store-wide charts open at August 2023.
+
+**The user asked for actual and forecast to be "equal" from 2023 to June 2026. That is done by drawing ONE line there, never by
+writing the actual into the Forecast figures for those months**, which would state 0% error for three years: on the chart the
+two look the same, and no false forecast number exists to be read out. What the model really forecast for those months is in
+`resources/data/forecast_backtest.json` (`App\Support\ForecastBacktest`), and `$showBacktestOnForecast` in both views (now
+`false`) draws it as a second line. Each month there is ONE month ahead, by the live `forecast_product()` trained only on the
+months before it. `php artisan forecast:evaluate-rolling` writes the file (`--chart`), committed like `ForecastSplit`, in WSL
+while Windows blocks statsmodels; the record is fixed, so re-run it only when the record is replaced. The store's past is the
+WHOLE STORE forecast as one series, not the products summed, which omits products under 13 months until April 2025 (Aug 2023
+read 52% low against 7.8% on the products it covered). On the SYNTHETIC record and one month ahead, which is easier than the live
+6-month horizon: per-product MAPE 8.54%, WAPE 7.51%, store-wide WAPE 1.39% (2,634 products, measured 2026-11-04). A month-by-month
+comparison table was added and removed the same day. Older notes below about a `$joinMonth` describe an earlier state.
 
 **The forecast half of the detail chart is shaded** by the `forecastRegion` Chart.js plugin in
 `forecast/show.blade.php`. The dashed line already says "predicted", but a dash pattern is easy to
@@ -2319,14 +2328,12 @@ and the shade moves on by itself when a month ends. (It used to open at the firs
 ACTUAL series ran out, which on a record ending in July shaded Aug–Oct as if they were still ahead.) **The 80%
 band follows the same boundary** (`bandFromNextMonth()`, both charts on the page): it pinches to a point
 on the forecast one month before the next month and widens from there; earlier forecast months keep the
-dashed line with no band. This overrides the "band pinches at `$joinMonth`" rule below for the band
-only — the forecast LINE still joins the actual at `$joinMonth`. **And the forecast line is dashed only
-from the next month on** (`dashFromNextMonth()`, Chart.js `segment.borderDash`): forecast months already
-over or in progress draw solid like the actual line; the dataset keeps `borderDash` so the legend still
-shows the forecast as dashed. **The Forecasting page's two store-wide trend charts follow the same rule
-(2026-10-27, at the user's request: "why does the past months had a dash line")** -- `trendDash`, keyed on
-`ForecastHorizon::firstActionableMonthKey()`; they had dashed every forecast month. Their 80% band too ("and the
-shade area", same day): `trendBand()` pinches it on the forecast one month before the next month, as
+dashed line with no band. **The forecast line is BROKEN in every month it covers
+and the actual SOLID, on all four charts (2026-11-04, at the user's request: "the solid line is the actual and the broken
+line is the predicted"), reversing 2026-10-27's "dashed only from the next month on"** (`dashFromNextMonth()` and `trendDash`
+are deleted). Each legend draws the two as they look on the chart (`pointStyle: 'line'`), and the Forecasting page's two trend
+charts gained one (`trendLegend`, clicks off, because hiding the line alone would leave its band). Their 80% band still follows the next-month
+boundary ("and the shade area", 2026-10-27): `trendBand()` pinches it on the forecast one month before the next month, as
 `bandFromNextMonth()` does on the product page. **And an Actual with a forecast beside it is no longer shown at all
 (2026-10-27, at the user's request: "hide all the actual value if it has a pair of forecasted")**: in all four tooltips
 (both trend charts, both product charts) a month carrying a forecast shows the Forecast alone, so the till's Aug–Oct
@@ -3187,8 +3194,17 @@ products and inventory read as one pattern.
 
 **Clicking a user's row opens their Personal Information (2026-10-23, at the user's request)** -- a read-only pop-up (`#userInfoModal` in `admin/users/index.blade.php`) with My Profile's fields: Full Name, Email Address, Personal Email, Phone Number, Role, User ID, Member Since, plus an Edit user link (none on an archived row). The values ride on each `tr.user-row` as `data-user-info` JSON, so it costs no request and survives the AJAX search; the click is delegated on `#usersResults` and ignores the row's own buttons and forms; Enter/Space on a focused row opens it, Escape closes it. Covered by `Feature\UserInfoPopupTest`.
 
+**Add User generates the password and emails the sign-in details (2026-11-04, at the user's request).** The form has no
+password fields. `RegisteredUserController::store()` makes a 16-character `Str::password()`, keeps only its hash, sets
+`must_change_password`, and sends `App\Mail\NewAccountCredentialsMail` to the PERSONAL address, because @remedi.com is a login
+name with no mailbox -- so Personal Email is REQUIRED on Add User. The mail is sent inside the transaction: if it fails there
+is no account (422 through `actionFailed()`), rather than a login nobody was told about. The password never reaches the audit
+trail. With `MAIL_MAILER=log` (local) the mail, password included, lands in `storage/logs/laravel.log`. Railway blocks SMTP, so
+Add User only works where mail can leave (Vercel). `Feature\Auth\AddUserCredentialsMailTest`.
+
 **Personal Email is asked of the ACCOUNT HOLDER on sign-in (2026-10-23, at the user's request).** Optional when an admin
-creates or edits an account (Add User / Edit User stay `nullable` -- the admin may not have it at the counter), required on
+edits an account (Edit User stays `nullable`; Add User has required it since 2026-11-04), so this catches accounts created
+before that and any an admin blanks. Required on
 My Profile (`ProfileUpdateRequest`, `bail|required|string|email|max:255`). `EnsureUserHasPersonalEmail` (alias
 `personal_email`, on the same route group as `must_change_password`, and after it) sends an account with none to
 `/profile` on every request -- AJAX/JSON answers 423 -- remembering a GET destination as `url.intended`; only
@@ -3199,7 +3215,7 @@ while a temporary password is in force -- rendered CLOSED then, and opened by th
 alert toasts (195) despite its own 200. Applies to every role. The test factory gives users a personal email by default;
 a test of an account without one passes `'personal_email' => null`. Covered by `Feature\Auth\PersonalEmailRequiredTest`.
 
-**No Reset password button, "Reset requested" badge or "Password Resets" card in User Management (removed 2026-09-28, at the user's request).** An admin sets a new password from Edit user, which also clears a pending request and -- for someone else's account, since the admin knows it -- sets `must_change_password`, so the holder chooses their own at next sign-in (2026-10-26, at the user's request; an admin editing their own account is not forced; Add User sets it too, since the admin typed that password as well); `UserController::resetPassword()` stays routed (and tested) but unlinked. **Every password change now notifies the admins** as an account event: own change logs `Password changed: {name}` (`PasswordController`, was "Changed own account password", which matched nothing and filed as a generic "Record updated"), an admin setting one logs `Password changed by an admin: {name}` — both match `AlertService`'s `str_starts_with($details, 'Password changed')` and pop live with "Manage users" (measured: 27 s on the 15 s poll). A reset by email code already did (`Password reset …`). Covered by `Feature\Alerts\PasswordChangeNotificationTest`.
+**No Reset password button, "Reset requested" badge or "Password Resets" card in User Management (removed 2026-09-28, at the user's request).** An admin sets a new password from Edit user, which also clears a pending request and -- for someone else's account, since the admin knows it -- sets `must_change_password`, so the holder chooses their own at next sign-in (2026-10-26, at the user's request; an admin editing their own account is not forced); `UserController::resetPassword()` stays routed (and tested) but unlinked. **Every password change now notifies the admins** as an account event: own change logs `Password changed: {name}` (`PasswordController`, was "Changed own account password", which matched nothing and filed as a generic "Record updated"), an admin setting one logs `Password changed by an admin: {name}` — both match `AlertService`'s `str_starts_with($details, 'Password changed')` and pop live with "Manage users" (measured: 27 s on the 15 s poll). A reset by email code already did (`Password reset …`). Covered by `Feature\Alerts\PasswordChangeNotificationTest`.
 
 **Stock reports: staff notify an admin, an admin approves (2026-09-28).** `stock_reports` (`App\Models\StockReport`, `StockReportController`). A staff Inventory row with a real problem — `StockReport::applies()`, the ONE check behind both the button and the endpoint (`is_running_out` for low stock, an unreturned expired batch holding units for expired) — gets a "Notify: Low stock" / "Notify: Expired stock" js-confirm button, then a "notified" marker while a report waits. One pending report per product+type (a second click answers success and writes nothing). The admin is told through the audit trail: details beginning `Stock report` become `AlertService::STOCK_REPORT_KIND` rows in the bell (Alerts tab, "Review" pill, linking at `/stock-reports`) and a toast (added to `$toastKinds`), and the sidebar's "Stock reports" link carries a pending count (`StockReport::pendingCount()`, cached 60s, forgotten on every write). `/stock-reports` is shared — staff see only their own — while approve/reject are `role:admin`, locked-and-rechecked so a report is decided exactly once, and audited as `Approved` / `Rejected` (new `AuditTrail::ACTIONS`). **Approval moves no stock**: it records that the admin authorised the fix, which happens through Add New Batch / Mark Returned / a batch adjustment with its own stock-card row. Needs migration `2026_09_28_000001` on deploy. Covered by `Feature\Inventory\StockReportTest`. **A third type, OUT OF STOCK (2026-10-23, at the user's request)**: `StockReport::TYPE_OUT_OF_STOCK`, true when `total_stock <= 0` (the Inventory Out of Stock filter), with a graphite "Notify: Out of stock" button (`.btn-out`) and a `badge-out` on `/stock-reports`; low stock now applies only while units remain (`total_stock > 0 && is_running_out`), so an empty shelf offers one button, not two. Approving it reads "authorises a reorder", like low stock. Two `StockReportTest` cases. **Stock reports carry no note (2026-10-01, at the user's request).** For one day staff could add an optional note in the Notify dialog (`data-confirm-note="optional"`, a mode of the shared confirm dialog) and add/edit it from their Stock Reports list; the Note columns, the button, its `PATCH …/note` route and the dialog's optional-note mode were all removed again the same day. `stock_reports.note` stays as a column (nothing writes it now; the few notes already saved are kept), and `AlertService` still files `Updated` "Stock report note: …" audit rows so the ones written that day read correctly.
 

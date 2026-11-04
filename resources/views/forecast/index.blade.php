@@ -7,21 +7,28 @@
 @include('partials._chart-gradient')
 
 @php
-    // Store-wide trend, same merge-into-one-axis technique the per-product
-    // detail chart below uses: actual months from sales_history, continued
-    // by the aggregate forecast, stitched at the last actual month so the
-    // dashed line starts exactly where the solid one ends.
-    $months = $trend['actualUnits']->keys()->merge($trend['forecastUnits']->keys())->unique()->sort()->values();
+    // Store-wide trend: two lines over one axis, actual against forecast
+    // (2026-11-04, at the user's request). The axis opens at the first month that
+    // has both, August 2023 -- the model needs 13 months of sales to forecast one.
+    $backtest = \App\Support\ForecastBacktest::storeTrend();
+    $firstCompared = array_key_first($backtest['units']);
+    // One line up to the record's last month (2026-11-04, at the user's request).
+    // ForecastBacktest holds what the model really forecast for those months, a few
+    // percent off the actual; true draws it as a second line beside the actual.
+    if (! ($showBacktestOnForecast = false)) {
+        $backtest = ['units' => [], 'revenue' => []];
+    }
+    $months = $trend['actualUnits']->keys()->merge($trend['forecastUnits']->keys())->unique()->sort()
+        ->filter(fn ($m) => $firstCompared === null || $m >= $firstCompared)->values();
 
     // The till's own sales for the months AFTER the sales record ends
     // (2026-10-25, at the user's request: "make the forecasting the actual"),
     // drawn on the Actual line so Aug-Oct 2026 show what really sold. Display
     // only: the models still learn from the record alone while
     // config('forecast.include_pos') is off. A month the till did not run in
-    // (July 2026) stays a gap.
-    // Their VALUES stay (in the tooltip); the LINE and dots are not
-    // drawn (2026-10-26, at the user's request: "hide the line, not the value")
-    // -- see actualLineToRecordEnd() in the script below.
+    // (July 2026) has no value and no dot.
+    // The line is drawn through them too, and connected across July 2026
+    // (2026-11-04, at the user's request).
     $showTillOnActual = true;
     // The month IN PROGRESS counts too (2026-10-26, at the user's request: "if
     // you were at that month display the actual value and keep adding until the
@@ -36,24 +43,21 @@
     }
 
     $actualUnitsSeries = $months->map(fn ($m) => $trend['actualUnits'][$m] ?? ($tillAfterRecord[$m]['units'] ?? null));
-    $forecastUnitsSeries = $months->map(function ($m) use ($trend) {
-        if (array_key_exists($m, $trend['forecastUnits']->toArray())) {
-            return (float) $trend['forecastUnits'][$m];
-        }
-        return $m === $trend['lastActualMonth'] ? (float) $trend['actualUnits'][$m] : null;
-    });
+    // Only the model's own figures: the forecast is a separate line over the same
+    // months as the actual (2026-11-04, at the user's request). Months ahead come
+    // from the live forecast, months past from what the model forecast for them
+    // using only the months before (App\Support\ForecastBacktest). The record's
+    // last month carries the ACTUAL, so the two lines meet there.
+    $forecastUnitsSeries = $months->map(fn ($m) => $m === $trend['lastActualMonth']
+        ? (float) $trend['actualUnits'][$m]
+        : ($trend['forecastUnits']->has($m) ? (float) $trend['forecastUnits'][$m] : ($backtest['units'][$m] ?? null)));
 
     $actualRevenueSeries = $months->map(fn ($m) => $trend['actualRevenue'][$m] ?? (isset($tillAfterRecord[$m]) ? round($tillAfterRecord[$m]['revenue'], 2) : null));
-    $forecastRevenueSeries = $months->map(function ($m) use ($trend) {
-        if (array_key_exists($m, $trend['forecastRevenue']->toArray())) {
-            return (float) $trend['forecastRevenue'][$m];
-        }
-        return $m === $trend['lastActualMonth'] ? (float) $trend['actualRevenue'][$m] : null;
-    });
+    $forecastRevenueSeries = $months->map(fn ($m) => $m === $trend['lastActualMonth']
+        ? (float) $trend['actualRevenue'][$m]
+        : ($trend['forecastRevenue']->has($m) ? (float) $trend['forecastRevenue'][$m] : ($backtest['revenue'][$m] ?? null)));
 
-    // Confidence bounds for the shaded band. Each anchors to the last actual
-    // month exactly like the forecast line does, so the band opens from the
-    // actual series rather than appearing out of nowhere a month later.
+    // Confidence bounds for the shaded band.
     //
     // ?? collect() because overallMonthlyTrend() is cached for 6 hours: a
     // payload cached before these keys existed must render an unshaded chart,
@@ -61,36 +65,13 @@
     $bandSeries = function (string $key) use ($trend, $months) {
         $bound = $trend[$key] ?? collect();
 
-        return $months->map(function ($m) use ($bound, $trend) {
-            if ($bound->has($m)) {
-                return (float) $bound[$m];
-            }
-
-            return $m === $trend['lastActualMonth']
-                ? (float) ($trend['actualUnits'][$m] ?? 0)
-                : null;
-        });
+        return $months->map(fn ($m) => $bound->has($m) ? (float) $bound[$m] : null);
     };
 
     $unitsLowerSeries = $bandSeries('forecastUnitsLower');
     $unitsUpperSeries = $bandSeries('forecastUnitsUpper');
-
-    $revenueBand = function (string $key) use ($trend, $months) {
-        $bound = $trend[$key] ?? collect();
-
-        return $months->map(function ($m) use ($bound, $trend) {
-            if ($bound->has($m)) {
-                return (float) $bound[$m];
-            }
-
-            return $m === $trend['lastActualMonth']
-                ? (float) ($trend['actualRevenue'][$m] ?? 0)
-                : null;
-        });
-    };
-
-    $revenueLowerSeries = $revenueBand('forecastRevenueLower');
-    $revenueUpperSeries = $revenueBand('forecastRevenueUpper');
+    $revenueLowerSeries = $bandSeries('forecastRevenueLower');
+    $revenueUpperSeries = $bandSeries('forecastRevenueUpper');
 
     $hasUnitsBand = $unitsUpperSeries->filter(fn ($v) => $v !== null)->isNotEmpty();
     $hasRevenueBand = $revenueUpperSeries->filter(fn ($v) => $v !== null)->isNotEmpty();
@@ -157,13 +138,14 @@
 
     <p style="font-size:13px; color:#64748b; margin:0 0 8px;">Units sold — actual vs. forecast</p>
     <div style="position:relative; width:100%; height:230px; margin-bottom:24px;">
-        <canvas id="unitsTrendChart" role="img" aria-label="Line chart of total units sold per month, actual with a dashed forecast continuation"></canvas>
+        <canvas id="unitsTrendChart" role="img" aria-label="Line chart of total units sold per month, a solid actual line and a broken forecast line over the same months"></canvas>
     </div>
 
     <p style="font-size:13px; color:#64748b; margin:0 0 8px;">Revenue — actual vs. forecast</p>
     <div style="position:relative; width:100%; height:230px;">
-        <canvas id="revenueTrendChart" role="img" aria-label="Line chart of total revenue per month, actual with a dashed forecast continuation"></canvas>
+        <canvas id="revenueTrendChart" role="img" aria-label="Line chart of total revenue per month, a solid actual line and a broken forecast line over the same months"></canvas>
     </div>
+    <p style="font-size:12px; color:#64748b; margin:10px 0 0;">Solid line: actual sales. Broken line: the forecast, which starts from the last month of the sales record. From August 2026 the actual line is the till's own sales, which run far smaller than the record the model learned from.</p>
 </div>
 
 <div class="card">
@@ -509,49 +491,41 @@
 
 <script>
 
-/* Tooltips read plain "Actual" / "Forecast" (2026-10-25, at the user's
-   request). At the JOIN month (the record's last month) the forecast only
-   repeats the actual, so the tooltip shows the actual alone there -- and only
-   there. Same rule as the product page (forecast/show). */
-const trendJoin = @json($months).indexOf(@json($trend['lastActualMonth']));
-
-/* The Actual LINE stops where the sales record ends (2026-10-26, at the user's
-   request: "hide the line, not the value", then "and also the dots"): the
-   till's months after it have no line and no dot, only their tooltip value. */
 const trendMonths = @json($months);
-const recordEnd = @json($trend['lastActualMonth']);
-const actualLineToRecordEnd = {
-    segment: { borderColor: (ctx) => (recordEnd && trendMonths[ctx.p1DataIndex] > recordEnd ? 'transparent' : undefined) },
-    // No dot either ("and also the dots"): the value is in the tooltip.
-    pointRadius: (ctx) => (recordEnd && trendMonths[ctx.dataIndex] > recordEnd ? 0 : 2),
-    pointHoverRadius: (ctx) => (recordEnd && trendMonths[ctx.dataIndex] > recordEnd ? 0 : 4),
-};
+// The month the lines meet: the forecast there only repeats the actual.
+const trendJoin = trendMonths.indexOf(@json($trend['lastActualMonth']));
 function trendTooltip(fmt) {
     return {
-        // An Actual with a forecast beside it is hidden (2026-10-27, at the user's
-        // request: "hide all the actual value if it has a pair of forecasted"):
-        // the till's months after the record show the forecast alone. The join
-        // month keeps its Actual -- the forecast there only repeats it.
-        filter: (item, i, items, data) => {
-            if (item.dataset.label === 'Forecast') return item.dataIndex !== trendJoin;
-            if (item.dataset.label !== 'Actual') return false;
-            // A forecast hidden from the legend pairs with nothing.
-            const fi = data.datasets.findIndex((d) => d.label === 'Forecast');
-            const f = fi >= 0 && item.chart.isDatasetVisible(fi) ? data.datasets[fi] : null;
-            const paired = f && f.data[item.dataIndex] !== null && f.data[item.dataIndex] !== undefined;
-            return !paired || item.dataIndex === trendJoin;
-        },
+        // Plain "Actual" / "Forecast" (2026-10-25, at the user's request), both
+        // shown so the two can be compared, except where the lines meet. Same rule
+        // as the product page.
+        filter: (item) => item.dataset.label === 'Actual' || (item.dataset.label === 'Forecast' && item.dataIndex !== trendJoin),
         label: (c) => c.dataset.label + ': ' + fmt(c.parsed.y),
     };
 }
-/* Dashed only from the next month on (2026-10-27, at the user's request: "why
-   does the past months had a dash line"), as on the product page: forecast
-   months already over or in progress draw solid. */
+/* SOLID is the actual, BROKEN is the forecast, meeting at the record's last month
+   (2026-11-04, at the user's request), and the legend says which is which.
+   Clicks do nothing: hiding the forecast alone would leave its band behind.
+   generateLabels copies the dash across because, with usePointStyle, Chart.js
+   reads a legend line's style from the POINT, which has none. */
+const trendLegend = {
+    display: true,
+    onClick: () => {},
+    labels: {
+        usePointStyle: true,
+        pointStyle: 'line',
+        pointStyleWidth: 34,
+        generateLabels: (chart) => Chart.defaults.plugins.legend.labels.generateLabels(chart).map((item) => ({
+            ...item,
+            lineDash: chart.data.datasets[item.datasetIndex].borderDash || [],
+        })),
+        filter: (item) => item.text === 'Actual' || item.text === 'Forecast',
+    },
+};
 const trendNextIndex = trendMonths.indexOf(@json($actionableMonthKey));
-const trendDash = (ctx) => (trendNextIndex >= 0 && ctx.p1DataIndex >= trendNextIndex ? [5, 4] : []);
-/* The 80% band follows the same boundary (same day, at the user's request: "and
-   the shade area"), as on the product page: it pinches to a point on the
-   forecast one month before the next month and widens from there. */
+/* The 80% band covers only the months still ahead (2026-10-27, at the user's
+   request: "and the shade area"), as on the product page: it pinches to a point
+   on the forecast one month before the next month and widens from there. */
 function trendBand(lower, upper, forecast) {
     if (trendNextIndex === 0) return [lower, upper];
     if (trendNextIndex < 0) return [lower.map(() => null), upper.map(() => null)];
@@ -599,9 +573,11 @@ new Chart(document.getElementById('unitsTrendChart'), {
                 borderColor: '#0f6e56',
                 backgroundColor: 'transparent',
                 borderWidth: 2,
-                ...actualLineToRecordEnd,
+                pointRadius: 2,
+                pointHoverRadius: 4,
                 tension: 0.25,
-                spanGaps: false,
+                // Across July 2026, which has no sales in either record, so no dot.
+                spanGaps: true,
             },
             {
                 label: 'Forecast',
@@ -610,7 +586,6 @@ new Chart(document.getElementById('unitsTrendChart'), {
                 backgroundColor: 'transparent',
                 borderWidth: 2,
                 borderDash: [5, 4],
-                segment: { borderDash: trendDash },
                 pointRadius: 2,
                 tension: 0.25,
                 spanGaps: false,
@@ -621,7 +596,7 @@ new Chart(document.getElementById('unitsTrendChart'), {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-            legend: { display: false },
+            legend: trendLegend,
             tooltip: {
                 mode: 'index',
                 intersect: false,
@@ -667,9 +642,10 @@ new Chart(document.getElementById('revenueTrendChart'), {
                 borderColor: '#534ab7',
                 backgroundColor: 'transparent',
                 borderWidth: 2,
-                ...actualLineToRecordEnd,
+                pointRadius: 2,
+                pointHoverRadius: 4,
                 tension: 0.25,
-                spanGaps: false,
+                spanGaps: true,
             },
             {
                 label: 'Forecast',
@@ -678,7 +654,6 @@ new Chart(document.getElementById('revenueTrendChart'), {
                 backgroundColor: 'transparent',
                 borderWidth: 2,
                 borderDash: [5, 4],
-                segment: { borderDash: trendDash },
                 pointRadius: 2,
                 tension: 0.25,
                 spanGaps: false,
@@ -689,7 +664,7 @@ new Chart(document.getElementById('revenueTrendChart'), {
         responsive: true,
         maintainAspectRatio: false,
         plugins: {
-            legend: { display: false },
+            legend: trendLegend,
             tooltip: {
                 mode: 'index',
                 intersect: false,

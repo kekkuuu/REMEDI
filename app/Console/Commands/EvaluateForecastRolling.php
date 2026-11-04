@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Support\ForecastBacktest;
 use App\Support\ForecastSplit;
 use Illuminate\Console\Command;
 use Symfony\Component\Process\Process;
@@ -17,9 +18,10 @@ class EvaluateForecastRolling extends Command
      * compared with what actually sold. resources/python/evaluate_rolling.py
      * does the work with generate_forecasts.py's own loader and model.
      *
-     * An evaluation only -- it writes resources/data/forecast_rolling.json
-     * (shown on the Forecasting page; commit it to publish a run) and changes
-     * nothing in the database. ~100k model fits: run it with --workers=0 on a
+     * An evaluation only -- it writes resources/data/forecast_rolling.json and
+     * resources/data/forecast_backtest.json (the forecast charts' past months,
+     * ForecastBacktest; commit both to publish a run) and changes nothing in
+     * the database. ~100k model fits: run it with --workers=0 on a
      * machine with the RAM for it, never on the Railway container.
      */
     protected $signature = 'forecast:evaluate-rolling
@@ -34,6 +36,7 @@ class EvaluateForecastRolling extends Command
             $this->option('python'), resource_path('python/evaluate_rolling.py'),
             '--env-path', base_path('.env'),
             '--output', ForecastSplit::rollingPath(),
+            '--chart', ForecastBacktest::path(),
             '--workers', (string) (int) $this->option('workers'),
             ...(config('forecast.include_pos') ? ['--include-pos'] : []),
         ];
