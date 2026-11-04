@@ -15,12 +15,12 @@
     // The till's own sales for the months AFTER the sales record ends
     // (2026-10-25, at the user's request: "make the forecasting the actual"):
     // every month the till ran in counts, a month this product did not sell
-    // in as 0; a month the till did not run in (July 2026) has no value and no dot.
+    // in as 0, and so does a month the till did not run in (July 2026): no sales
+    // were recorded in it (2026-11-04, at the user's request).
     // Display only -- the model still learns from the record alone while
     // config('forecast.include_pos') is off. Revenue at the current price,
     // like every other revenue figure here.
-    // The line is drawn through them too, and connected across July 2026
-    // (2026-11-04, at the user's request).
+    // The line is drawn through them too (2026-11-04, at the user's request).
     $showTillOnActual = true;
     // The month IN PROGRESS counts too (2026-10-26, at the user's request: "if
     // you were at that month display the actual value and keep adding until the
@@ -30,6 +30,7 @@
         : \App\Models\SalesHistory::posMonthly()->keys();
     $tillMonths = $posMonths->isEmpty() ? collect()
         : $posMonths->filter(fn ($ym) => $lastActualMonth === null || $ym > $lastActualMonth)
+            ->merge($lastActualMonth === null ? [] : $months->filter(fn ($ym) => $ym > $lastActualMonth && $ym <= now()->format('Y-m')))
             ->push(now()->format('Y-m'))
             ->unique()->sort()->values();
     $tillForProduct = $tillMonths->isEmpty() ? collect() : \App\Models\SalesHistory::posMonthly($product_sku);
@@ -203,7 +204,7 @@
     <div style="position:relative; width:100%; height:320px;">
         <canvas id="productForecastChart" role="img" aria-label="Line chart of a solid actual line and a broken forecast line over the same months, with a shaded confidence band"></canvas>
     </div>
-    <p style="font-size:12px; color:#64748b; margin:10px 0 0;">Solid line: actual sales. Broken line: the forecast, which starts from the last month of the sales record. From August 2026 the actual line is the till's own sales, which run far smaller than the record the model learned from.</p>
+    <p style="font-size:12px; color:#64748b; margin:10px 0 0;">Solid line: actual sales. Broken line: the forecast, which starts from the last month of the sales record. July 2026 reads 0 because neither record has sales for it. From August 2026 the actual line is the till's own sales, which run far smaller than the record the model learned from.</p>
 </div>
 
 {{-- Sales Forecast: the second half of the merged page. Demand Forecasting
@@ -469,8 +470,7 @@ new Chart(document.getElementById('productForecastChart'), {
                 pointRadius: 2,
                 pointHoverRadius: 4,
                 tension: 0.25,
-                // Across July 2026, which has no sales in either record, so no dot.
-                spanGaps: true,
+                spanGaps: false,
             },
             {
                 label: 'Forecast',
@@ -551,7 +551,7 @@ new Chart(document.getElementById('productSalesForecastChart'), {
                 pointRadius: 2,
                 pointHoverRadius: 4,
                 tension: 0.25,
-                spanGaps: true,
+                spanGaps: false,
             },
             {
                 label: 'Forecast',

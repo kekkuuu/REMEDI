@@ -26,9 +26,9 @@
     // drawn on the Actual line so Aug-Oct 2026 show what really sold. Display
     // only: the models still learn from the record alone while
     // config('forecast.include_pos') is off. A month the till did not run in
-    // (July 2026) has no value and no dot.
-    // The line is drawn through them too, and connected across July 2026
-    // (2026-11-04, at the user's request).
+    // (July 2026) reads 0: no sales were recorded in it (2026-11-04, at the user's
+    // request), as on the dashboard's Monthly Sales chart.
+    // The line is drawn through them too (2026-11-04, at the user's request).
     $showTillOnActual = true;
     // The month IN PROGRESS counts too (2026-10-26, at the user's request: "if
     // you were at that month display the actual value and keep adding until the
@@ -38,8 +38,12 @@
     $tillAfterRecord = (! $showTillOnActual || config('forecast.include_pos')) ? collect()
         : \App\Models\SalesHistory::posMonthly()
             ->filter(fn ($v, $ym) => $ym > $trend['lastActualMonth']);
-    if ($tillAfterRecord->isNotEmpty() && ! $tillAfterRecord->has(now()->format('Y-m'))) {
-        $tillAfterRecord[now()->format('Y-m')] = ['units' => 0, 'revenue' => 0.0];
+    if ($tillAfterRecord->isNotEmpty()) {
+        foreach ($months as $m) {
+            if ($m > $trend['lastActualMonth'] && $m <= now()->format('Y-m') && ! $tillAfterRecord->has($m)) {
+                $tillAfterRecord[$m] = ['units' => 0, 'revenue' => 0.0];
+            }
+        }
     }
 
     $actualUnitsSeries = $months->map(fn ($m) => $trend['actualUnits'][$m] ?? ($tillAfterRecord[$m]['units'] ?? null));
@@ -145,7 +149,7 @@
     <div style="position:relative; width:100%; height:230px;">
         <canvas id="revenueTrendChart" role="img" aria-label="Line chart of total revenue per month, a solid actual line and a broken forecast line over the same months"></canvas>
     </div>
-    <p style="font-size:12px; color:#64748b; margin:10px 0 0;">Solid line: actual sales. Broken line: the forecast, which starts from the last month of the sales record. From August 2026 the actual line is the till's own sales, which run far smaller than the record the model learned from.</p>
+    <p style="font-size:12px; color:#64748b; margin:10px 0 0;">Solid line: actual sales. Broken line: the forecast, which starts from the last month of the sales record. July 2026 reads 0 because neither record has sales for it. From August 2026 the actual line is the till's own sales, which run far smaller than the record the model learned from.</p>
 </div>
 
 <div class="card">
@@ -576,8 +580,7 @@ new Chart(document.getElementById('unitsTrendChart'), {
                 pointRadius: 2,
                 pointHoverRadius: 4,
                 tension: 0.25,
-                // Across July 2026, which has no sales in either record, so no dot.
-                spanGaps: true,
+                spanGaps: false,
             },
             {
                 label: 'Forecast',
@@ -645,7 +648,7 @@ new Chart(document.getElementById('revenueTrendChart'), {
                 pointRadius: 2,
                 pointHoverRadius: 4,
                 tension: 0.25,
-                spanGaps: true,
+                spanGaps: false,
             },
             {
                 label: 'Forecast',

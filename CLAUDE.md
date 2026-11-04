@@ -2300,8 +2300,8 @@ to one SKU so no `STRAIGHT_JOIN` is needed the way the store-wide aggregate does
 **One line up to June 2026, two after it, on all four charts (2026-11-04, worked out with the user over several rounds): each
 chart keeps its original colour, width, dots and curve, Actual solid, Forecast broken, meeting at the record's last month.**
 The forecast series carry the ACTUAL at that month and the tooltip shows the Actual alone there. After it, the Actual line runs
-through the till's months to the current one (`$showTillOnActual`), connected across July 2026 (`spanGaps`), which has no sales
-in either record and so no dot; it falls sharply because the till is far smaller than the record, and the caption says so. The
+through the till's months to the current one (`$showTillOnActual`). July 2026 reads 0, because neither record has sales for it
+(at the user's request; the dashboard's Monthly Sales chart does the same), and the caption says why. The line falls sharply because the till is far smaller than the record, and the caption says so. The
 tooltip gives both figures, with no difference line (removed at the user's request). Store-wide charts open at August 2023.
 
 **The user asked for actual and forecast to be "equal" from 2023 to June 2026. That is done by drawing ONE line there, never by
