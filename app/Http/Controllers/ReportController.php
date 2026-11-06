@@ -661,7 +661,9 @@ class ReportController extends Controller
             // before it (2026-10-26): days before the till existed are not quiet
             // days at the till, and all-time divided ~880 sales over the 4+ years
             // of the imported record (0.6 a day) instead of the till's ~70 days.
-            $tillStart = ($first = Sale::min('created_at')) ? Carbon::parse($first)->toDateString() : null;
+            // Non-voided, like every figure ATC is divided from (2026-11-06): a voided
+            // first sale would otherwise start the count on a day nothing was sold.
+            $tillStart = ($first = Sale::where('payment_voided', false)->min('created_at')) ? Carbon::parse($first)->toDateString() : null;
             // Only when the till started INSIDE the range; a range wholly before
             // it keeps its own days (and reads 0).
             $atcStart = $tillStart && $tillStart > $start && $tillStart <= $end ? $tillStart : $start;
