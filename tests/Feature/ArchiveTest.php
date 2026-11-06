@@ -303,6 +303,28 @@ class ArchiveTest extends TestCase
         $this->actingAs($admin)->get('/users?archived=1')->assertOk()->assertSee('gone.cashier@remedi.com');
     }
 
+    public function test_the_archived_product_list_has_a_back_button_on_the_left(): void
+    {
+        $back = '<a href="'.route('products.index').'" class="btn-back"';
+
+        $this->actingAs($this->admin())->get('/products?archived=1')->assertOk()
+            ->assertSee($back, false)
+            ->assertDontSee('Active products');
+
+        $this->actingAs($this->admin())->get('/products')->assertOk()->assertDontSee($back, false);
+    }
+
+    public function test_the_archived_user_list_has_a_back_button_beside_the_title(): void
+    {
+        $back = '<a href="'.route('users.index').'" class="btn-back">';
+
+        $this->actingAs($this->admin())->get('/users?archived=1')->assertOk()
+            ->assertSee($back, false)
+            ->assertDontSee('Active users');
+
+        $this->actingAs($this->admin())->get('/users')->assertOk()->assertDontSee($back, false);
+    }
+
     // ── The buttons themselves ───────────────────────────────────────────
 
     public function test_no_delete_button_is_left_on_the_four_lists(): void

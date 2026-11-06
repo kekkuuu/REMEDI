@@ -238,6 +238,11 @@
 </style>
 
 <div class="page-head">
+    {{-- On the Archived list the way back sits beside the title, like every
+         other page's Back button (2026-11-06, at the user's request). --}}
+    @if($archived)
+        <a href="{{ route('users.index') }}" class="btn-back"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back</a>
+    @endif
     <div class="page-head-text">
         <h3><i class="ti ti-users" style="font-size:18px;vertical-align:-2px;margin-right:7px;"></i>User Management</h3>
         <p>Manage system users and their access.</p>
@@ -283,18 +288,14 @@
 
         <span class="spacer"></span>
 
-        @if($archived)
-            <a href="{{ route('users.index') }}" class="btn btn-secondary btn-lg">
-                <i class="ti ti-arrow-back-up" aria-hidden="true"></i> Active users
-            </a>
-        @else
+        @unless($archived)
             <a href="{{ route('users.index', ['archived' => 1]) }}" class="btn btn-secondary btn-lg">
                 <i class="ti ti-archive" aria-hidden="true"></i> Archived{{ $archivedCount ? ' ('.$archivedCount.')' : '' }}
             </a>
             <a href="{{ route('register') }}" class="btn btn-primary btn-lg">
                 <i class="ti ti-user-plus" aria-hidden="true"></i> Add User
             </a>
-        @endif
+        @endunless
     </div>
 
     @if($archived)

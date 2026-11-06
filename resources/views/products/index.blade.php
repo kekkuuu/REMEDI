@@ -26,6 +26,12 @@
 </style>
 
 <div style="display:flex; justify-content:space-between; margin-bottom:16px; flex-wrap:wrap; gap:8px;">
+    {{-- On the Archived list the way back is on the LEFT, like every other
+         page's Back button (2026-11-06, at the user's request; it was an
+         "Active products" button on the right). --}}
+    @if($archived)
+        <a href="{{ route('products.index') }}" class="btn-back" style="align-self:center;"><i class="ti ti-arrow-left" aria-hidden="true"></i> Back</a>
+    @endif
     <form id="search-form" method="GET" style="display:flex; gap:8px; flex:1 1 520px; min-width:0;">
         <input
             type="text"
@@ -52,12 +58,8 @@
              submission (the text input — a <select> does not), so Enter
              submits natively even with no submit button present. --}}
     </form>
+    @unless($archived)
     <div>
-        @if($archived)
-            <a href="{{ route('products.index') }}" class="btn btn-secondary btn-lg">
-                <i class="ti ti-arrow-back-up" aria-hidden="true"></i> Active products
-            </a>
-        @else
             <a href="{{ route('products.index', ['archived' => 1]) }}" class="btn btn-secondary btn-lg">
                 <i class="ti ti-archive" aria-hidden="true"></i> Archived{{ $archivedCount ? ' ('.$archivedCount.')' : '' }}
             </a>
@@ -67,8 +69,8 @@
             <a href="{{ route('products.create') }}" class="btn btn-primary btn-lg">
                 <i class="ti ti-plus" aria-hidden="true"></i> Add Product
             </a>
-        @endif
     </div>
+    @endunless
 </div>
 
 @if($archived)
