@@ -47,7 +47,7 @@ class AuditTrailFilterTest extends TestCase
             'password' => 'password',
             'password_confirmation' => 'password',
             'role' => 'staff',
-            'phone' => '+63 912 345 6789',
+            'phone' => '09123456789',
         ]);
 
         $this->assertDatabaseHas('audit_trails', ['action' => 'Created']);
@@ -65,7 +65,7 @@ class AuditTrailFilterTest extends TestCase
             'name' => 'New Name',
             'email' => $user->email,
             'role' => 'staff',
-            'phone' => '+63 912 345 6789',
+            'phone' => '09123456789',
         ]);
 
         $this->assertTrue(
@@ -126,7 +126,7 @@ class AuditTrailFilterTest extends TestCase
             'password' => 'password',
             'password_confirmation' => 'password',
             'role' => 'staff',
-            'phone' => '+63 912 345 6789',
+            'phone' => '09123456789',
         ]);
 
         $this->actingAs($admin)
@@ -146,7 +146,7 @@ class AuditTrailFilterTest extends TestCase
             'password' => 'password',
             'password_confirmation' => 'password',
             'role' => 'staff',
-            'phone' => '+63 912 345 6789',
+            'phone' => '09123456789',
         ]);
 
         // A link from before the list was fixed must not answer "nothing
@@ -181,7 +181,7 @@ class AuditTrailFilterTest extends TestCase
             'password' => 'password',
             'password_confirmation' => 'password',
             'role' => 'staff',
-            'phone' => '+63 912 345 6789',
+            'phone' => '09123456789',
         ]);
 
         AuditTrail::log('Login', 'Someone logged in');
@@ -215,12 +215,12 @@ class AuditTrailFilterTest extends TestCase
 
         AuditTrail::create([
             'user_id' => $admin->id, 'username' => $admin->name, 'role' => 'admin',
-            'phone' => '+63 912 345 6789',
+            'phone' => '09123456789',
             'action' => 'Updated', 'details' => 'The admin did this',
         ]);
         AuditTrail::create([
             'user_id' => $other->id, 'username' => $other->name, 'role' => 'staff',
-            'phone' => '+63 912 345 6789',
+            'phone' => '09123456789',
             'action' => 'Updated', 'details' => 'Someone else did this',
         ]);
 
@@ -264,7 +264,7 @@ class AuditTrailFilterTest extends TestCase
         // activity yet." with no link at all to assert against.
         AuditTrail::create([
             'user_id' => $admin->id, 'username' => $admin->name, 'role' => 'admin',
-            'phone' => '+63 912 345 6789',
+            'phone' => '09123456789',
             'action' => 'Login', 'details' => 'Signed in',
         ]);
 

@@ -25,9 +25,6 @@ class PhilippinePhoneTest extends TestCase
             'dashes' => ['0917-123-4567'],
             'spaces' => ['0917 123 4567'],
             'brackets' => ['(0917) 123 4567'],
-            'plus 63' => ['+639171234567'],
-            'plus 63 with spaces' => ['+63 917 123 4567'],
-            '63 no plus' => ['639171234567'],
             'no prefix' => ['9171234567'],
         ];
     }
@@ -43,6 +40,9 @@ class PhilippinePhoneTest extends TestCase
             'not a mobile prefix' => ['08171234567'],
             'another country' => ['+14155552671'],
             'plus with a leading zero' => ['+09171234567'],
+            'plus 63, over 11 digits' => ['+639171234567'],
+            'plus 63 with spaces' => ['+63 917 123 4567'],
+            '63 without the plus, 12 digits' => ['639171234567'],
             'only punctuation' => ['---'],
             'a line break after it' => ["09171234567\nx"],
         ];
@@ -83,9 +83,9 @@ class PhilippinePhoneTest extends TestCase
 
     public function test_add_user_keeps_a_good_number_as_typed(): void
     {
-        $this->addUser('+63 917 123 4567')->assertSessionHasNoErrors();
+        $this->addUser('0917 123 4567')->assertSessionHasNoErrors();
 
-        $this->assertSame('+63 917 123 4567', User::where('email', 'jane@remedi.com')->value('phone'));
+        $this->assertSame('0917 123 4567', User::where('email', 'jane@remedi.com')->value('phone'));
     }
 
     public function test_edit_user_refuses_a_bad_number_and_may_still_leave_it_blank(): void
@@ -125,6 +125,7 @@ class PhilippinePhoneTest extends TestCase
     public function test_the_forms_ask_for_a_phone_keypad(): void
     {
         $this->actingAs(User::factory()->admin()->create())->get('/register')
-            ->assertSee('type="tel"', false);
+            ->assertSee('type="tel"', false)
+            ->assertSee('maxlength="11"', false);
     }
 }

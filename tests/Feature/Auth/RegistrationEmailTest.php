@@ -31,7 +31,7 @@ class RegistrationEmailTest extends TestCase
             'name' => 'Jane Cruz',
             'email' => 'jane@remedi.com',
             'role' => 'staff',
-            'phone' => '+63 912 345 6789',
+            'phone' => '09123456789',
             'personal_email' => 'jane@gmail.com',
             'password' => 'password123',
             'password_confirmation' => 'password123',

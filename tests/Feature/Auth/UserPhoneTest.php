@@ -27,12 +27,12 @@ class UserPhoneTest extends TestCase
             'name' => 'New Hire',
             'email' => 'newhire@remedi.com',
             'role' => 'staff',
-            'phone' => '+63 912 345 6789',
+            'phone' => '09123456789',
             'password' => 'password123',
             'password_confirmation' => 'password123',
         ])->assertSessionHasNoErrors();
 
-        $this->assertSame('+63 912 345 6789', User::where('email', 'newhire@remedi.com')->value('phone'));
+        $this->assertSame('09123456789', User::where('email', 'newhire@remedi.com')->value('phone'));
     }
 
     /**
@@ -67,7 +67,7 @@ class UserPhoneTest extends TestCase
             'name' => 'With Personal',
             'email' => 'personal@remedi.com',
             'role' => 'staff',
-            'phone' => '+63 912 345 6789',
+            'phone' => '09123456789',
             'personal_email' => 'someone@gmail.com',
             'password' => 'password123',
             'password_confirmation' => 'password123',
@@ -86,9 +86,9 @@ class UserPhoneTest extends TestCase
             'name' => $staff->name,
             'email' => $staff->email,
             'role' => 'staff',
-            'phone' => '+63 917 000 1111',
+            'phone' => '09170001111',
         ])->assertSessionHasNoErrors();
 
-        $this->assertSame('+63 917 000 1111', $staff->fresh()->phone);
+        $this->assertSame('09170001111', $staff->fresh()->phone);
     }
 }

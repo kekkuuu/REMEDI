@@ -159,7 +159,8 @@
             <div class="field">
                 <label for="phone">Phone Number</label>
                 <input type="tel" id="phone" name="phone" value="{{ old('phone') }}"
-                       placeholder="0917 123 4567" required>
+                       placeholder="09171234567" required maxlength="11" inputmode="numeric" pattern="0?9[0-9]{9}"
+                       title="{{ \App\Rules\PhilippineMobile::MESSAGE }}">
                 @error('phone')<p class="err">{{ $message }}</p>@enderror
             </div>
         </div>
