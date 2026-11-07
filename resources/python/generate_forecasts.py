@@ -1238,7 +1238,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", choices=["csv", "database", "mysql"], required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--horizon", type=int, default=6)
+    parser.add_argument("--horizon", type=int, default=12)
     parser.add_argument(
         "--metrics",
         default=None,
