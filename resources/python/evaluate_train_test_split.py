@@ -26,8 +26,8 @@ This is an EVALUATION, not a second model: it writes a CSV and prints a
 summary, and touches nothing in the database. The forecasts the app shows are
 still trained on ALL the months (holding data back from the real forecast
 would only make it worse), and the accuracy on the Forecasting page still
-comes from generate_forecasts.backtest_product()'s 3-month holdout, which
-matches the 6-month horizon the app actually forecasts.
+comes from generate_forecasts.backtest_product()'s 3-month holdout, not from
+the horizon the app forecasts (12 months since 2026-11-07).
 """
 
 import os

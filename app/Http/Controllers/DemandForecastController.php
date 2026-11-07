@@ -18,7 +18,7 @@ class DemandForecastController extends Controller
 
     /**
      * GET /forecasts
-     * Every product with its next-month and 6-month-total forecast.
+     * Every product with its next-month and horizon-total forecast.
      * Powers the "Quantity Forecasting" table in the Analytics Dashboard.
      * Supports ?search= (matches product name or SKU) and ?category=
      * (category id).
