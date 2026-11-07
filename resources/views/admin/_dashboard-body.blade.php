@@ -776,14 +776,27 @@
     {{-- Year filter is applied client-side: every month is already in the
          page, so narrowing the view costs no query and no reload. --}}
     @php
+        // Years with at least one real sale. Read first: Seasonal Trends below
+        // draws only these.
+        $salesYears = collect($monthlySales)
+            ->pluck('ym')
+            ->map(fn ($ym) => substr($ym, 0, 4))
+            ->unique()
+            ->sortDesc()
+            ->values();
+
         // Seasonal Trends: one series per year, Jan..Dec, newest first. Built
         // from $monthlySalesSeries, the same continuous months as the chart
         // beside it (2026-11-07, at the user's request): a month with no sales
         // between the first and the current one reads 0, as July 2026 does there,
         // rather than the line jumping over it. Months still to come stay null, so
         // the current year's line stops at this month instead of diving to zero.
+        // Only years with a sale get a line: in January, before the year's first
+        // sale, the series' lone ₱0 month would otherwise draw a one-dot "2027"
+        // line and push the oldest of the three years off the card.
         $seasonalByYear = collect($monthlySalesSeries ?? $monthlySales)
             ->groupBy(fn ($row) => substr($row['ym'], 0, 4))
+            ->only($salesYears->all())
             ->map(function ($rows, $year) {
                 $months = array_fill(1, 12, null);
 
@@ -795,13 +808,6 @@
             })
             ->sortKeysDesc()
             ->take(3)          // three years is what stays readable on one card
-            ->values();
-
-        $salesYears = collect($monthlySales)
-            ->pluck('ym')
-            ->map(fn ($ym) => substr($ym, 0, 4))
-            ->unique()
-            ->sortDesc()
             ->values();
     @endphp
     <div class="dash-charts">
