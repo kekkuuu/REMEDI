@@ -10,6 +10,7 @@ use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\EnsureUserSetsNewPassword;
 use App\Http\Middleware\PreventRequestsDuringMaintenance;
 use App\Http\Middleware\RedirectIfAuthenticated;
+use App\Http\Middleware\SecurityHeaders;
 use App\Http\Middleware\ServerTiming;
 use App\Http\Middleware\TrimStrings;
 use App\Http\Middleware\TrustProxies;
@@ -44,6 +45,8 @@ class Kernel extends HttpKernel
         // First, so its timing covers everything below it, the session's
         // read and write included.
         ServerTiming::class,
+        // Anti-framing and no type sniffing on every response, error pages included.
+        SecurityHeaders::class,
         // \App\Http\Middleware\TrustHosts::class,
         TrustProxies::class,
         HandleCors::class,
