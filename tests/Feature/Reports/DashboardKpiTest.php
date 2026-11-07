@@ -122,5 +122,12 @@ class DashboardKpiTest extends TestCase
             ['ym' => '2025-12', 'label' => 'Dec 2025', 'total' => 1.0],
         ]), 'ym'));
         $this->assertCount(1, DashboardController::continuousMonths([['ym' => '2026-03', 'label' => 'Mar 2026', 'total' => 1.0]]));
+
+        // Through the current month, at ₱0 while it has no sale yet; a month already
+        // covered by the data is not cut short.
+        $through = DashboardController::continuousMonths([['ym' => '2026-10', 'label' => 'Oct 2026', 'total' => 2.1]], '2026-11');
+        $this->assertSame(['2026-10', '2026-11'], array_column($through, 'ym'));
+        $this->assertSame(['ym' => '2026-11', 'label' => 'Nov 2026', 'total' => 0.0], $through[1]);
+        $this->assertSame(['2026-10'], array_column(DashboardController::continuousMonths([['ym' => '2026-10', 'label' => 'Oct 2026', 'total' => 2.1]], '2026-09'), 'ym'));
     }
 }

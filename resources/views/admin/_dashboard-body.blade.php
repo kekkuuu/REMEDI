@@ -777,11 +777,12 @@
          page, so narrowing the view costs no query and no reload. --}}
     @php
         // Seasonal Trends: one series per year, Jan..Dec, newest first. Built
-        // from $monthlySales (already loaded for the chart beside it), so this
-        // costs nothing extra. Months a year has no data for stay null, which
-        // spanGaps renders as a line that simply stops rather than diving to
-        // zero -- the current year is only part-finished.
-        $seasonalByYear = collect($monthlySales)
+        // from $monthlySalesSeries, the same continuous months as the chart
+        // beside it (2026-11-07, at the user's request): a month with no sales
+        // between the first and the current one reads 0, as July 2026 does there,
+        // rather than the line jumping over it. Months still to come stay null, so
+        // the current year's line stops at this month instead of diving to zero.
+        $seasonalByYear = collect($monthlySalesSeries ?? $monthlySales)
             ->groupBy(fn ($row) => substr($row['ym'], 0, 4))
             ->map(function ($rows, $year) {
                 $months = array_fill(1, 12, null);

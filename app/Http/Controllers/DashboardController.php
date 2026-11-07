@@ -9,6 +9,7 @@ use App\Models\Sale;
 use App\Models\SalesHistory;
 use App\Models\User;
 use App\Services\AlertService;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +28,7 @@ class DashboardController extends Controller
      * @param  iterable<array{ym: string, label: string, total: float}>  $rows
      * @return list<array{ym: string, label: string, total: float}>
      */
-    public static function continuousMonths(iterable $rows): array
+    public static function continuousMonths(iterable $rows, ?string $throughYm = null): array
     {
         $byMonth = [];
         foreach ($rows as $row) {
@@ -39,8 +40,10 @@ class DashboardController extends Controller
         ksort($byMonth);
 
         $out = [];
-        $month = \Carbon\Carbon::createFromFormat('Y-m-d', array_key_first($byMonth).'-01')->startOfMonth();
-        $last = array_key_last($byMonth);
+        $month = Carbon::createFromFormat('Y-m-d', array_key_first($byMonth).'-01')->startOfMonth();
+        // Through the current month too (2026-11-07): a month with no sale yet
+        // reads ₱0 rather than the chart simply ending at the last month that had one.
+        $last = max(array_key_last($byMonth), $throughYm ?? '');
         while (($ym = $month->format('Y-m')) <= $last) {
             $out[] = $byMonth[$ym] ?? ['ym' => $ym, 'label' => $month->format('M Y'), 'total' => 0.0];
             $month->addMonthNoOverflow();
@@ -351,7 +354,7 @@ class DashboardController extends Controller
         // missing and the bars read Jun, Aug as if consecutive. A month with no
         // recorded sales is a ₱0 bar. Seasonal Trends keeps reading
         // $monthlySales: it leaves no-data months blank on purpose.
-        $data['monthlySalesSeries'] = self::continuousMonths($data['monthlySales']);
+        $data['monthlySalesSeries'] = self::continuousMonths($data['monthlySales'], today()->format('Y-m'));
 
         if ($user && $user->isAdmin()) { // Added a quick null-check for safety
             // Extra admin-only stats (not used by the shared dashboard

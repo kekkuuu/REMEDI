@@ -484,8 +484,8 @@ detail pages. Three were wrong, all fixed:
   banner); each card's links use their side.
 - **The dashboard's Monthly Sales bar chart skipped months with no sales** -- July 2026 (after the imported record ends
   in June, before the till starts in August) was missing, so the bars read Jun, Aug. `DashboardController::
-  continuousMonths()` fills every month between the first and last at ₱0 into `$monthlySalesSeries` for that chart;
-  Seasonal Trends keeps `$monthlySales`, where no-data months stay blank on purpose.
+  continuousMonths()` fills every month between the first and last at ₱0 into `$monthlySalesSeries` for that chart, and since 2026-11-07 runs through the CURRENT month (₱0 until its first sale; it ended at October on Nov 7);
+  Seasonal Trends reads the same `$monthlySalesSeries` since 2026-11-07 (at the user's request: July 2026 reads 0 there too); only months still to come stay blank.
 Covered by `Feature\Inventory\ReturnCountsAgreeTest` and a `DashboardKpiTest` case.
 - **The dashboards' "Inventory Overview" ring counted only products holding stock** while captioned "Total products"
   and linking each row to that category's full Inventory list: 2,530 against a catalogue of 2,637 (Medicine 1,343 on
